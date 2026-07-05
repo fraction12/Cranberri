@@ -36,9 +36,9 @@ export function ChatWindow({ id }: { id: string }) {
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text) return
+    if (!text || !threadId) return
     setInput('')
-    await sendMessage(text)
+    await sendMessage(threadId, text)
   }
 
   const isRunning = thread?.isRunning ?? false
@@ -51,7 +51,7 @@ export function ChatWindow({ id }: { id: string }) {
         </span>
         {isRunning && (
           <button
-            onClick={() => abort()}
+            onClick={() => threadId && abort(threadId)}
             className="text-xs px-2 py-1 rounded bg-app-danger text-white flex items-center gap-1"
           >
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -88,13 +88,13 @@ export function ChatWindow({ id }: { id: string }) {
             <div className="text-app-text-muted mb-2">{approval.description}</div>
             <div className="flex gap-2">
               <button
-                onClick={() => sendMessage('yes')}
+                onClick={() => threadId && sendMessage(threadId, 'yes')}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-app-accent text-app-bg text-xs"
               >
                 <Check className="w-3 h-3" /> Approve
               </button>
               <button
-                onClick={() => sendMessage('no')}
+                onClick={() => threadId && sendMessage(threadId, 'no')}
                 className="flex items-center gap-1 px-2 py-1 rounded bg-app-surface-2 text-app-text text-xs"
               >
                 <X className="w-3 h-3" /> Deny

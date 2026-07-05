@@ -8,9 +8,9 @@ interface CodexApi {
   activeThread: CodexThread | null
   getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
-  sendMessage: (content: string) => Promise<void>
-  approve: (approvalId: string) => Promise<void>
-  abort: () => Promise<void>
+  sendMessage: (threadId: string, content: string) => Promise<void>
+  approve: (threadId: string, approvalId: string) => Promise<void>
+  abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
   getThreadForWindow: (windowId: string) => string | undefined
 }
@@ -57,13 +57,27 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           case 'thread_name_updated':
             thread.title = e.title
             break
-          case 'text': {
-            const last = thread.messages.at(-1)
-            if (last && last.role === 'assistant') {
-              last.content += e.text
+          case 'agent_message_delta': {
+            const existing = thread.messages.find((message) => message.id === e.itemId)
+            if (existing) {
+              existing.content += e.delta
             } else {
               thread.messages = [...thread.messages, {
-                id: crypto.randomUUID(),
+                id: e.itemId,
+                role: 'assistant',
+                content: e.delta,
+                timestamp: Date.now(),
+              }]
+            }
+            break
+          }
+          case 'agent_message_completed': {
+            const existing = thread.messages.find((message) => message.id === e.itemId)
+            if (existing) {
+              existing.content = e.text
+            } else if (e.text) {
+              thread.messages = [...thread.messages, {
+                id: e.itemId,
                 role: 'assistant',
                 content: e.text,
                 timestamp: Date.now(),
@@ -134,11 +148,11 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     return thread
   }, [activeRepo])
 
-  const sendMessage = useCallback(async (content: string): Promise<void> => {
-    if (!activeRepo || !activeThread) throw new Error('No active repo or thread')
+  const sendMessage = useCallback(async (threadId: string, content: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
 
     setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === activeThread.id)
+      const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
       next[idx] = {
@@ -154,13 +168,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       return next
     })
 
-    await window.cranberri.codex.sendMessage(activeRepo.path, activeThread.id, content)
-  }, [activeRepo, activeThread])
+    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content)
+  }, [activeRepo])
 
-  const approve = useCallback(async (approvalId: string): Promise<void> => {
-    if (!activeRepo || !activeThread) throw new Error('No active repo or thread')
+  const approve = useCallback(async (threadId: string, approvalId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
     setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === activeThread.id)
+      const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
       next[idx] = {
@@ -170,20 +184,20 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       }
       return next
     })
-    await window.cranberri.codex.approve(activeRepo.path, activeThread.id, approvalId)
-  }, [activeRepo, activeThread])
+    await window.cranberri.codex.approve(activeRepo.path, threadId, approvalId)
+  }, [activeRepo])
 
-  const abort = useCallback(async (): Promise<void> => {
-    if (!activeRepo || !activeThread) throw new Error('No active repo or thread')
-    await window.cranberri.codex.interrupt(activeRepo.path, activeThread.id)
+  const abort = useCallback(async (threadId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.interrupt(activeRepo.path, threadId)
     setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === activeThread.id)
+      const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
       next[idx] = { ...next[idx], isRunning: false }
       return next
     })
-  }, [activeRepo, activeThread])
+  }, [activeRepo])
 
   const switchThread = useCallback((threadId: string) => {
     setActiveThreadId(threadId)

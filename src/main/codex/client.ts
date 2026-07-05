@@ -161,8 +161,9 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/started': {
-        const itemType = (params as { item?: { type?: string } }).item?.type ?? 'unknown'
-        this.emit('event', { type: 'item_started', threadId, itemType } as CodexEvent)
+        const item = (params as { item?: { id?: string; type?: string } }).item
+        const itemType = item?.type ?? 'unknown'
+        this.emit('event', { type: 'item_started', threadId, itemId: item?.id, itemType } as CodexEvent)
         break
       }
       case 'warning': {
@@ -171,8 +172,9 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/agentMessage/delta': {
-        const text = (params as { delta?: string }).delta ?? ''
-        if (text) this.emit('event', { type: 'text', threadId, text } as CodexEvent)
+        const itemId = (params as { itemId?: string }).itemId
+        const delta = (params as { delta?: string }).delta ?? ''
+        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta } as CodexEvent)
         break
       }
       case 'item/reasoning/textDelta': {
@@ -180,19 +182,21 @@ export class CodexClient extends EventEmitter {
       }
       case 'item/commandExecution/outputDelta': {
         const text = (params as { output?: string }).output ?? ''
-        if (text) this.emit('event', { type: 'text', threadId, text: `[command output] ${text}` } as CodexEvent)
+        if (text) this.emit('event', { type: 'log', level: 'command-output', text } as CodexEvent)
+        break
+      }
+      case 'item/completed': {
+        const item = (params as { item?: { id?: string; type?: string; text?: string } }).item
+        if (item?.type === 'agentMessage' && item.id) {
+          this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '' } as CodexEvent)
+        }
         break
       }
       case 'serverRequest/resolved':
         this.emit('event', { type: 'run_end', threadId } as CodexEvent)
         break
       default:
-        if (method.includes('/delta') || method.includes('outputDelta')) {
-          const text = (params as { delta?: string; output?: string }).delta
-            ?? (params as { output?: string }).output
-            ?? ''
-          if (text) this.emit('event', { type: 'text', threadId, text: `[${method}] ${text}` } as CodexEvent)
-        }
+        break
     }
   }
 
