@@ -27,3 +27,14 @@ body {
   color: var(--app-text);
   -webkit-font-smoothing: antialiased;
 }
+
+.header-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.header-drag button,
+.header-drag input {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

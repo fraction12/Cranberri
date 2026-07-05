@@ -26,7 +26,7 @@ export function ChatColumn({ title }: { title: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full min-w-[320px] bg-app-surface rounded border border-app-border">
+    <div className="flex flex-col h-full w-full min-w-[320px] bg-app-surface rounded border border-app-border">
       <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
         <span className="text-sm font-medium text-app-text">{title}</span>
         {isRunning && (

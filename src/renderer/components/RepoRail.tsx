@@ -5,37 +5,40 @@ export function RepoRail() {
   const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
 
   return (
-    <div className="w-16 flex flex-col items-center border-r border-app-border bg-app-surface py-2">
-      <button
-        onClick={addRepo}
-        className="p-2 rounded hover:bg-app-surface-2 mb-3"
-        title="Add repo"
-      >
-        <Plus className="w-5 h-5" />
-      </button>
+    <div className="w-64 flex flex-col border-r border-app-border bg-app-surface py-2 px-3">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-semibold uppercase text-app-text-muted tracking-wider">Repos</span>
+        <button
+          onClick={addRepo}
+          className="p-1.5 rounded hover:bg-app-surface-2"
+          title="Add repo"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
 
-      <div className="flex flex-col gap-2 w-full px-2">
+      <div className="flex flex-col gap-1">
         {repos.map((repo) => (
-          <button
+          <div
             key={repo.id}
             onClick={() => setActiveRepo(repo.id)}
-            className={`group relative flex flex-col items-center gap-1 p-2 rounded ${
+            className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer ${
               activeRepoId === repo.id ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/50'
             }`}
             title={repo.path}
           >
-            <FolderGit2 className="w-5 h-5" />
-            <span className="text-[10px] max-w-full truncate leading-tight">{repo.name}</span>
-            <span
+            <FolderGit2 className="w-4 h-4 shrink-0 text-app-text-muted" />
+            <span className="text-sm truncate flex-1">{repo.name}</span>
+            <button
               onClick={(e) => {
                 e.stopPropagation()
                 removeRepo(repo.id)
               }}
-              className="absolute -top-1 -right-1 hidden group-hover:flex p-0.5 rounded bg-app-danger text-white"
+              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-app-danger hover:text-white transition-opacity"
             >
               <X className="w-3 h-3" />
-            </span>
-          </button>
+            </button>
+          </div>
         ))}
       </div>
     </div>
