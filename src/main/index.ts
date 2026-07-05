@@ -2,6 +2,13 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
+import { initCodexIpc } from './codex/ipc'
+
+let mainWindow: BrowserWindow | null = null
+
+function getMainWindow(): BrowserWindow | null {
+  return mainWindow
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -17,16 +24,23 @@ function createWindow(): void {
     },
   })
 
+  mainWindow = win
+
   if (!app.isPackaged) {
     win.loadURL('http://localhost:5173')
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  win.on('closed', () => {
+    mainWindow = null
+  })
 }
 
 app.whenReady().then(() => {
   initRepoIpc()
   initGitIpc()
+  initCodexIpc(getMainWindow)
   createWindow()
 
   app.on('activate', () => {
