@@ -1,5 +1,11 @@
-import type { DiffResult, GitFileStatus } from '@/shared/git'
+import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
 import type { CodexEvent } from '@/shared/codex'
+
+declare module '@xterm/xterm/css/xterm.css'
+declare module '*.css' {
+  const content: string
+  export default content
+}
 
 export {}
 
@@ -16,7 +22,7 @@ declare global {
       }
       git: {
         status: (repoPath: string) => Promise<GitFileStatus[]>
-        files: (repoPath: string) => Promise<import('@/shared/git').FileTreeNode[]>
+        files: (repoPath: string) => Promise<FileTreeNode[]>
         diff: (repoPath: string) => Promise<DiffResult>
         diffFile: (repoPath: string, filePath: string) => Promise<DiffResult>
       }
@@ -28,6 +34,14 @@ declare global {
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
+      }
+      terminal: {
+        create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number }>
+        write: (id: string, data: string) => Promise<void>
+        resize: (id: string, cols: number, rows: number) => Promise<void>
+        kill: (id: string) => Promise<void>
+        onData: (cb: (payload: { id: string; data: string }) => void) => () => void
+        onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => () => void
       }
     }
   }

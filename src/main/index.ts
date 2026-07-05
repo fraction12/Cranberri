@@ -3,10 +3,11 @@ import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initCodexIpc } from './codex/ipc'
+import { initTerminalIpc, killAllTerminals } from './terminal'
 
 let mainWindow: BrowserWindow | null = null
 
-function getMainWindow(): BrowserWindow | null {
+export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
@@ -42,6 +43,7 @@ app.whenReady().then(() => {
   initRepoIpc()
   initGitIpc()
   initCodexIpc(getMainWindow)
+  initTerminalIpc()
   createWindow()
 
   app.on('activate', () => {
@@ -50,6 +52,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  killAllTerminals()
   if (process.platform !== 'darwin') app.quit()
 })
 

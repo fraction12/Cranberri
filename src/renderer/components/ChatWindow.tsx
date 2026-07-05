@@ -2,33 +2,43 @@ import { useState } from 'react'
 import { Send, Loader2 } from 'lucide-react'
 import { useCodex } from '../state/codex'
 
-export function ChatColumn({ title }: { title: string }) {
+export function ChatWindow({ id }: { id: string }) {
   const {
-    activeThread,
     createThread,
     sendMessage,
-    approve,
     interrupt,
   } = useCodex()
 
   const [input, setInput] = useState('')
-  const isRunning = activeThread?.isRunning ?? false
+  const [messages, setMessages] = useState<Array<{ role: string; content: string; id: string }>>([])
+  const [isRunning, setIsRunning] = useState(false)
+  const [threadId, setThreadId] = useState<string | null>(null)
 
   const handleSend = async () => {
     if (!input.trim()) return
-    if (!activeThread) {
-      await createThread(input)
-      setInput('')
-      return
-    }
-    await sendMessage(input)
+    const text = input.trim()
     setInput('')
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'user', content: text }])
+    setIsRunning(true)
+
+    try {
+      let currentThreadId = threadId
+      if (!currentThreadId) {
+        const thread = await createThread(text)
+        currentThreadId = thread.id
+        setThreadId(thread.id)
+      } else {
+        await sendMessage(text)
+      }
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   return (
-    <div className="flex flex-col h-full w-full min-w-[320px] bg-app-surface rounded border border-app-border">
+    <div className="flex flex-col h-full w-full bg-app-surface rounded border border-app-border">
       <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
-        <span className="text-sm font-medium text-app-text">{title}</span>
+        <span className="text-sm font-medium text-app-text">Chat {id.slice(-4)}</span>
         {isRunning && (
           <button
             onClick={() => interrupt()}
@@ -40,12 +50,10 @@ export function ChatColumn({ title }: { title: string }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {!activeThread && (
-          <div className="text-sm text-app-text-muted">
-            Start by sending a message.
-          </div>
+        {messages.length === 0 && (
+          <div className="text-sm text-app-text-muted">Start by sending a message.</div>
         )}
-        {activeThread?.messages.map((msg) => (
+        {messages.map((msg) => (
           <div
             key={msg.id}
             className={`text-sm p-2 rounded ${
@@ -56,17 +64,6 @@ export function ChatColumn({ title }: { title: string }) {
           >
             <div className="text-[10px] uppercase text-app-text-muted mb-1">{msg.role}</div>
             <div className="whitespace-pre-wrap">{msg.content}</div>
-          </div>
-        ))}
-        {activeThread?.pendingApprovals.map((approval) => (
-          <div key={approval.id} className="border border-app-border rounded p-2 text-sm">
-            <div className="text-app-text mb-1">{approval.description}</div>
-            <button
-              onClick={() => approve(approval.id)}
-              className="px-3 py-1 rounded bg-app-accent text-app-bg text-sm font-medium"
-            >
-              Approve
-            </button>
           </div>
         ))}
       </div>

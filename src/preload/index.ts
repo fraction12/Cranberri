@@ -28,6 +28,22 @@ const api = {
       return () => ipcRenderer.off('codex:event', handler)
     },
   },
+  terminal: {
+    create: (id: string, cwd: string, cols?: number, rows?: number) => ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
+    write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
+    resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+    kill: (id: string) => ipcRenderer.invoke('terminal:kill', id),
+    onData: (cb: (payload: { id: string; data: string }) => void) => {
+      const handler = (_: unknown, payload: { id: string; data: string }) => cb(payload)
+      ipcRenderer.on('terminal:data', handler)
+      return () => ipcRenderer.off('terminal:data', handler)
+    },
+    onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => {
+      const handler = (_: unknown, payload: { id: string; exitCode: number; signal?: number }) => cb(payload)
+      ipcRenderer.on('terminal:exit', handler)
+      return () => ipcRenderer.off('terminal:exit', handler)
+    },
+  },
 }
 
 export type CranberriAPI = typeof api
