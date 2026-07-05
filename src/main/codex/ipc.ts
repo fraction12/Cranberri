@@ -62,7 +62,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
     const session = getOrCreateSession(cwd)
-    await session.client.interrupt(threadId)
+    await session.client.abort(threadId)
     return { ok: true }
   })
 

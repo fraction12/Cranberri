@@ -6,11 +6,12 @@ interface CodexApi {
   threads: CodexThread[]
   activeThreadId: string | null
   activeThread: CodexThread | null
-  createThread: (initialContent?: string) => Promise<CodexThread>
+  createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
   sendMessage: (content: string) => Promise<void>
   approve: (approvalId: string) => Promise<void>
-  interrupt: () => Promise<void>
+  abort: () => Promise<void>
   switchThread: (threadId: string) => void
+  getThreadForWindow: (windowId: string) => string | undefined
 }
 
 const CodexContext = createContext<CodexApi | null>(null)
@@ -19,10 +20,10 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const { activeRepo } = useRepos()
   const [threads, setThreads] = useState<CodexThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
 
-  // Start codex session when active repo changes
   useEffect(() => {
     if (!activeRepo) return
     let running = true
@@ -34,49 +35,66 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeRepo])
 
-  // Listen for codex events
   useEffect(() => {
     return window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
+      if (e.type === 'log') {
+        console.log(`[codex ${e.level}]`, e.text)
+        return
+      }
+      const threadId = (e as { threadId?: string }).threadId
+      if (!threadId) return
+
       setThreads((prev) => {
-        const idx = prev.findIndex((t) => t.id === e.threadId)
+        const idx = prev.findIndex((t) => t.id === threadId)
         if (idx === -1) return prev
         const next = [...prev]
         const thread = { ...next[idx] }
 
-        if (e.type === 'text') {
-          const last = thread.messages.at(-1)
-          if (last && last.role === 'assistant') {
-            last.content += e.text
-          } else {
-            thread.messages = [...thread.messages, {
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              content: e.text,
-              timestamp: Date.now(),
-            }]
+        switch (e.type) {
+          case 'thread_name_updated':
+            thread.title = e.title
+            break
+          case 'text': {
+            const last = thread.messages.at(-1)
+            if (last && last.role === 'assistant') {
+              last.content += e.text
+            } else {
+              thread.messages = [...thread.messages, {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content: e.text,
+                timestamp: Date.now(),
+              }]
+            }
+            break
           }
-        } else if (e.type === 'tool_call') {
-          thread.messages = [...thread.messages, {
-            id: crypto.randomUUID(),
-            role: 'system',
-            content: `Tool call: ${e.tool.function}`,
-            timestamp: Date.now(),
-          }]
-        } else if (e.type === 'approval_request') {
-          thread.pendingApprovals = [...thread.pendingApprovals, e.approval]
-        } else if (e.type === 'run_start') {
-          thread.isRunning = true
-        } else if (e.type === 'run_end') {
-          thread.isRunning = false
-          if (e.error) {
+          case 'tool_call':
             thread.messages = [...thread.messages, {
               id: crypto.randomUUID(),
               role: 'system',
-              content: `Error: ${e.error}`,
+              content: `Tool call: ${e.tool.function}`,
               timestamp: Date.now(),
             }]
-          }
+            break
+          case 'approval_request':
+            thread.pendingApprovals = [...thread.pendingApprovals, e.approval]
+            break
+          case 'run_start':
+          case 'item_started':
+            thread.isRunning = true
+            break
+          case 'run_end':
+            thread.isRunning = false
+            if (e.error) {
+              thread.messages = [...thread.messages, {
+                id: crypto.randomUUID(),
+                role: 'system',
+                content: `Error: ${e.error}`,
+                timestamp: Date.now(),
+              }]
+            }
+            break
         }
 
         next[idx] = thread
@@ -85,7 +103,9 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const createThread = useCallback(async (initialContent?: string): Promise<CodexThread> => {
+  const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
+
+  const createThread = useCallback(async (windowId: string, initialContent?: string): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
     const { threadId } = await window.cranberri.codex.createThread(activeRepo.path)
     const thread: CodexThread = {
@@ -105,6 +125,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     }
     setThreads((prev) => [...prev, thread])
     setActiveThreadId(threadId)
+    setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
     if (initialContent) {
       await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialContent)
     }
@@ -150,7 +171,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     await window.cranberri.codex.approve(activeRepo.path, activeThread.id, approvalId)
   }, [activeRepo, activeThread])
 
-  const interrupt = useCallback(async (): Promise<void> => {
+  const abort = useCallback(async (): Promise<void> => {
     if (!activeRepo || !activeThread) throw new Error('No active repo or thread')
     await window.cranberri.codex.interrupt(activeRepo.path, activeThread.id)
     setThreads((prev) => {
@@ -168,7 +189,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, createThread, sendMessage, approve, interrupt, switchThread }}
+      value={{ threads, activeThreadId, activeThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow }}
     >
       {children}
     </CodexContext.Provider>

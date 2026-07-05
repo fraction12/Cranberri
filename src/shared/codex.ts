@@ -1,5 +1,7 @@
+export type CodexRole = 'user' | 'assistant' | 'system' | 'tool'
+
 export interface CodexMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: CodexRole
   content: string
   id: string
   timestamp: number
@@ -28,13 +30,11 @@ export interface CodexThread {
 }
 
 export type CodexEvent =
+  | { type: 'thread_name_updated'; threadId: string; title: string }
   | { type: 'text'; threadId: string; text: string }
   | { type: 'tool_call'; threadId: string; tool: ToolCall }
   | { type: 'approval_request'; threadId: string; approval: PendingApproval }
   | { type: 'run_start'; threadId: string }
   | { type: 'run_end'; threadId: string; error?: string }
-
-export interface CodexSessionState {
-  threads: CodexThread[]
-  activeThreadId: string | null
-}
+  | { type: 'item_started'; threadId: string; itemType: string }
+  | { type: 'log'; level: string; text: string }

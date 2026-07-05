@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { ToolCall, CodexEvent, PendingApproval } from '../../shared/codex'
+import type { CodexEvent } from '../../shared/codex'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -22,12 +22,18 @@ interface JsonRpcNotification {
   params?: Record<string, unknown>
 }
 
+interface Thread {
+  id: string
+  name?: string | null
+}
+
 export class CodexClient extends EventEmitter {
   private process: ChildProcess | null = null
   private nextId = 1
   private pending = new Map<number, (res: JsonRpcResponse) => void>()
   private buffer = ''
   private cwd: string
+  private initializing = false
 
   constructor(cwd: string) {
     super()
@@ -36,6 +42,8 @@ export class CodexClient extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.process) return
+    if (this.initializing) return
+    this.initializing = true
 
     this.process = spawn('codex', ['app-server', '--stdio'], {
       cwd: this.cwd,
@@ -46,50 +54,51 @@ export class CodexClient extends EventEmitter {
     this.process.stdout?.on('data', (data: Buffer) => this.onData(data))
     this.process.stderr?.on('data', (data: Buffer) => {
       const text = data.toString('utf8').trim()
-      if (text) this.emit('log', { level: 'stderr', text })
+      if (text) this.emit('event', { type: 'log', level: 'stderr', text } as CodexEvent)
     })
 
     this.process.on('exit', (code) => {
       this.emit('event', { type: 'run_end', threadId: '', error: `Codex app-server exited with code ${code ?? 'unknown'}` } as CodexEvent)
       this.process = null
+      this.initializing = false
     })
 
     await this.call('initialize', { clientInfo: { name: 'cranberri', version: '0.1.0' } })
+    this.initializing = false
   }
 
   stop(): void {
     this.process?.kill('SIGTERM')
     this.process = null
+    this.initializing = false
   }
 
-  async createThread(): Promise<string> {
-    const res = await this.call('tools/call', {
-      name: 'create_thread',
-      arguments: {},
-    })
-    return (res.result as { threadId: string }).threadId
+  async createThread(): Promise<Thread> {
+    const res = await this.call('thread/start', { cwd: this.cwd })
+    const thread = (res.result as { thread: Thread } | undefined)?.thread
+    if (!thread?.id) {
+      throw new Error('thread/start did not return a thread id')
+    }
+    if (thread.name) {
+      this.emit('event', { type: 'thread_name_updated', threadId: thread.id, title: thread.name } as CodexEvent)
+    }
+    return thread
   }
 
   async sendMessage(threadId: string, content: string): Promise<void> {
-    await this.call('tools/call', {
-      name: 'send_message',
-      arguments: { threadId, content },
+    await this.call('turn/start', {
+      threadId,
+      input: [{ type: 'text', text: content }],
     })
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
   }
 
   async approve(approvalId: string, threadId: string): Promise<void> {
-    await this.call('tools/call', {
-      name: 'approve',
-      arguments: { threadId, approvalId },
-    })
+    await this.call('thread/approve', { threadId, approvalId })
   }
 
-  async interrupt(threadId: string): Promise<void> {
-    await this.call('tools/call', {
-      name: 'interrupt',
-      arguments: { threadId },
-    })
+  async abort(threadId: string): Promise<void> {
+    await this.call('thread/abort', { threadId })
   }
 
   private onData(data: Buffer): void {
@@ -102,8 +111,8 @@ export class CodexClient extends EventEmitter {
       try {
         const msg = JSON.parse(trimmed) as JsonRpcResponse | JsonRpcNotification
         this.handleMessage(msg)
-      } catch (err) {
-        this.emit('log', { level: 'parse-error', text: trimmed, error: String(err) })
+      } catch {
+        this.emit('event', { type: 'log', level: 'parse-error', text: trimmed } as CodexEvent)
       }
     }
   }
@@ -118,30 +127,69 @@ export class CodexClient extends EventEmitter {
       return
     }
 
-    if ('method' in msg) {
-      const n = msg as JsonRpcNotification
-      if (n.method === 'notifications/message') {
-        const p = n.params as { threadId: string; role?: string; content?: string } | undefined
-        if (p?.content) {
-          this.emit('event', { type: 'text', threadId: p.threadId, text: p.content } as CodexEvent)
+    if (!('method' in msg)) return
+    const n = msg as JsonRpcNotification
+    const params = n.params ?? {}
+    const threadId = (params.threadId as string | undefined) ?? ''
+    const method = n.method
+
+    switch (method) {
+      case 'thread/name/updated': {
+        const title = (params as { threadName?: string }).threadName ?? (params as { name?: string }).name ?? 'New thread'
+        this.emit('event', { type: 'thread_name_updated', threadId, title } as CodexEvent)
+        break
+      }
+      case 'thread/status/changed': {
+        const status = params.status as { type?: string; activeFlags?: string[] } | undefined
+        const isWaiting = status?.activeFlags?.includes('waitingOnApproval') ?? false
+        if (!isWaiting) break
+        this.emit('event', {
+          type: 'approval_request',
+          threadId,
+          approval: {
+            id: `${threadId}:approval:${Date.now()}`,
+            tool: 'guardian',
+            args: {},
+            description: 'Codex is waiting for approval to continue.',
+          },
+        } as CodexEvent)
+        break
+      }
+      case 'turn/completed': {
+        const error = (params as { turn?: { error?: { message?: string } } }).turn?.error?.message
+        this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
+        break
+      }
+      case 'item/started': {
+        const itemType = (params as { item?: { type?: string } }).item?.type ?? 'unknown'
+        this.emit('event', { type: 'item_started', threadId, itemType } as CodexEvent)
+        break
+      }
+      case 'item/agentMessage/delta': {
+        const text = (params as { delta?: string }).delta ?? ''
+        if (text) this.emit('event', { type: 'text', threadId, text } as CodexEvent)
+        break
+      }
+      case 'item/reasoning/textDelta': {
+        const text = (params as { delta?: string }).delta ?? ''
+        if (text) this.emit('event', { type: 'text', threadId, text: `[reasoning] ${text}` } as CodexEvent)
+        break
+      }
+      case 'item/commandExecution/outputDelta': {
+        const text = (params as { output?: string }).output ?? ''
+        if (text) this.emit('event', { type: 'text', threadId, text: `[command output] ${text}` } as CodexEvent)
+        break
+      }
+      case 'serverRequest/resolved':
+        this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+        break
+      default:
+        if (method.includes('/delta') || method.includes('outputDelta')) {
+          const text = (params as { delta?: string; output?: string }).delta
+            ?? (params as { output?: string }).output
+            ?? ''
+          if (text) this.emit('event', { type: 'text', threadId, text: `[${method}] ${text}` } as CodexEvent)
         }
-      }
-      if (n.method === 'notifications/tool_call') {
-        const p = n.params as { threadId: string; tool_call: ToolCall } | undefined
-        if (p?.tool_call) {
-          this.emit('event', { type: 'tool_call', threadId: p.threadId, tool: p.tool_call } as CodexEvent)
-        }
-      }
-      if (n.method === 'notifications/approval_request') {
-        const p = n.params as { threadId: string; approval: PendingApproval } | undefined
-        if (p?.approval) {
-          this.emit('event', { type: 'approval_request', threadId: p.threadId, approval: p.approval } as CodexEvent)
-        }
-      }
-      if (n.method === 'notifications/run_complete') {
-        const p = n.params as { threadId: string; error?: string } | undefined
-        this.emit('event', { type: 'run_end', threadId: p?.threadId ?? '', error: p?.error } as CodexEvent)
-      }
     }
   }
 
