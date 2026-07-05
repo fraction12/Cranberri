@@ -44,24 +44,28 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('codex:create-thread', async (_, cwd: string) => {
     const session = getOrCreateSession(cwd)
-    const threadId = await session.client.createThread()
-    return { threadId }
+    await session.client.start()
+    const thread = await session.client.createThread()
+    return { threadId: thread.id }
   })
 
   ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string) => {
     const session = getOrCreateSession(cwd)
+    await session.client.start()
     await session.client.sendMessage(threadId, content)
     return { ok: true }
   })
 
   ipcMain.handle('codex:approve', async (_, cwd: string, threadId: string, approvalId: string) => {
     const session = getOrCreateSession(cwd)
+    await session.client.start()
     await session.client.approve(approvalId, threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
     const session = getOrCreateSession(cwd)
+    await session.client.start()
     await session.client.abort(threadId)
     return { ok: true }
   })

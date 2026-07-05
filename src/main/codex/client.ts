@@ -33,7 +33,7 @@ export class CodexClient extends EventEmitter {
   private pending = new Map<number, (res: JsonRpcResponse) => void>()
   private buffer = ''
   private cwd: string
-  private initializing = false
+  private startPromise: Promise<void> | null = null
 
   constructor(cwd: string) {
     super()
@@ -41,10 +41,18 @@ export class CodexClient extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    if (this.process) return
-    if (this.initializing) return
-    this.initializing = true
+    if (this.process && !this.startPromise) return
+    if (this.startPromise) return this.startPromise
 
+    this.startPromise = this.startProcess()
+    try {
+      await this.startPromise
+    } finally {
+      this.startPromise = null
+    }
+  }
+
+  private async startProcess(): Promise<void> {
     this.process = spawn('codex', ['app-server', '--stdio'], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -60,17 +68,16 @@ export class CodexClient extends EventEmitter {
     this.process.on('exit', (code) => {
       this.emit('event', { type: 'run_end', threadId: '', error: `Codex app-server exited with code ${code ?? 'unknown'}` } as CodexEvent)
       this.process = null
-      this.initializing = false
+      this.startPromise = null
     })
 
     await this.call('initialize', { clientInfo: { name: 'cranberri', version: '0.1.0' } })
-    this.initializing = false
   }
 
   stop(): void {
     this.process?.kill('SIGTERM')
     this.process = null
-    this.initializing = false
+    this.startPromise = null
   }
 
   async createThread(): Promise<Thread> {
