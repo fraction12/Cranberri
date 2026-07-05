@@ -15,6 +15,19 @@ export function useGitStatus() {
   })
 }
 
+export function useGitFiles() {
+  const { activeRepo } = useRepos()
+  return useQuery<import('@/shared/git').FileTreeNode[]>({
+    queryKey: ['git-files', activeRepo?.id],
+    queryFn: async () => {
+      if (!activeRepo) return []
+      return window.cranberri.git.files(activeRepo.path)
+    },
+    enabled: !!activeRepo,
+    refetchInterval: 5000,
+  })
+}
+
 export function useGitDiff() {
   const { activeRepo } = useRepos()
   return useQuery<DiffResult>({
@@ -25,5 +38,17 @@ export function useGitDiff() {
     },
     enabled: !!activeRepo,
     refetchInterval: 2000,
+  })
+}
+
+export function useGitDiffForFile(path: string | null) {
+  const { activeRepo } = useRepos()
+  return useQuery<DiffResult>({
+    queryKey: ['git-diff-file', activeRepo?.id, path],
+    queryFn: async () => {
+      if (!activeRepo || !path) return { files: [] }
+      return window.cranberri.git.diffFile(activeRepo.path, path)
+    },
+    enabled: !!activeRepo && !!path,
   })
 }

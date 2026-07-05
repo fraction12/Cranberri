@@ -5,15 +5,17 @@ import { Header } from './components/Header'
 
 export function App() {
   return (
-    <div className="flex flex-col h-screen bg-app-bg text-app-text overflow-hidden">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-app-bg text-app-text">
       <Header />
-      <div className="flex flex-1 min-h-0">
-        <RepoRail />
-        <div className="flex-1 min-w-0 flex">
-          <div className="flex-1 min-w-0 p-2 overflow-x-auto">
+      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
+        <div className="h-full">
+          <RepoRail />
+        </div>
+        <div className="flex-1 min-w-0 flex h-full min-h-0 overflow-hidden">
+          <div className="flex-1 min-w-0 h-full overflow-hidden">
             <ChatColumn title="Chat" />
           </div>
-          <div className="w-80 border-l border-app-border bg-app-surface shrink-0">
+          <div className="w-80 h-full overflow-hidden border-l border-app-border bg-app-surface shrink-0">
             <RightRail />
           </div>
         </div>

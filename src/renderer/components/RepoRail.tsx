@@ -5,8 +5,8 @@ export function RepoRail() {
   const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
 
   return (
-    <div className="w-64 flex flex-col border-r border-app-border bg-app-surface py-2 px-3">
-      <div className="flex items-center justify-between mb-3">
+    <div className="w-64 h-full flex flex-col border-r border-app-border bg-app-surface py-2 px-3 overflow-hidden">
+      <div className="flex items-center justify-between mb-3 shrink-0">
         <span className="text-xs font-semibold uppercase text-app-text-muted tracking-wider">Repos</span>
         <button
           onClick={addRepo}
@@ -17,7 +17,7 @@ export function RepoRail() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 overflow-y-auto">
         {repos.map((repo) => (
           <div
             key={repo.id}

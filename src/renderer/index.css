@@ -38,3 +38,26 @@ body {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+
+/* Minimal premium scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--app-text-muted);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

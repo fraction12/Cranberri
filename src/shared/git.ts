@@ -1,6 +1,12 @@
 export interface GitFileStatus {
   path: string
-  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'staged' | 'tracked'
+}
+
+export interface FileTreeNode {
+  path: string
+  type: 'file' | 'dir'
+  children: FileTreeNode[]
 }
 
 export interface DiffChange {

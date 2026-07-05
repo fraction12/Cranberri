@@ -11,7 +11,9 @@ const api = {
   },
   git: {
     status: (repoPath: string) => ipcRenderer.invoke('git:status', repoPath),
+    files: (repoPath: string) => ipcRenderer.invoke('git:files', repoPath),
     diff: (repoPath: string) => ipcRenderer.invoke('git:diff', repoPath),
+    diffFile: (repoPath: string, filePath: string) => ipcRenderer.invoke('git:diff-file', repoPath, filePath),
   },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),

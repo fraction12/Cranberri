@@ -16,7 +16,9 @@ declare global {
       }
       git: {
         status: (repoPath: string) => Promise<GitFileStatus[]>
+        files: (repoPath: string) => Promise<import('@/shared/git').FileTreeNode[]>
         diff: (repoPath: string) => Promise<DiffResult>
+        diffFile: (repoPath: string, filePath: string) => Promise<DiffResult>
       }
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>
