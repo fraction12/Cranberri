@@ -8,12 +8,12 @@ export function ChatWindow({ id }: { id: string }) {
     createThread,
     sendMessage,
     abort,
+    getThread,
     getThreadForWindow,
-    activeThread,
   } = useCodex()
   const { renameWindow } = useWorkspace()
   const threadId = getThreadForWindow(id)
-  const thread = threadId && activeThread?.id === threadId ? activeThread : undefined
+  const thread = threadId ? getThread(threadId) : undefined
 
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)

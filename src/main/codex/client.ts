@@ -148,18 +148,11 @@ export class CodexClient extends EventEmitter {
       }
       case 'thread/status/changed': {
         const status = params.status as { type?: string; activeFlags?: string[] } | undefined
-        const isWaiting = status?.activeFlags?.includes('waitingOnApproval') ?? false
-        if (!isWaiting) break
-        this.emit('event', {
-          type: 'approval_request',
-          threadId,
-          approval: {
-            id: `${threadId}:approval:${Date.now()}`,
-            tool: 'guardian',
-            args: {},
-            description: 'Codex is waiting for approval to continue.',
-          },
-        } as CodexEvent)
+        if (status?.type === 'active') {
+          this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+        } else if (status?.type === 'idle') {
+          this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+        }
         break
       }
       case 'turn/completed': {
@@ -172,14 +165,17 @@ export class CodexClient extends EventEmitter {
         this.emit('event', { type: 'item_started', threadId, itemType } as CodexEvent)
         break
       }
+      case 'warning': {
+        const text = (params as { message?: string }).message ?? ''
+        if (text) this.emit('event', { type: 'log', level: 'warning', text } as CodexEvent)
+        break
+      }
       case 'item/agentMessage/delta': {
         const text = (params as { delta?: string }).delta ?? ''
         if (text) this.emit('event', { type: 'text', threadId, text } as CodexEvent)
         break
       }
       case 'item/reasoning/textDelta': {
-        const text = (params as { delta?: string }).delta ?? ''
-        if (text) this.emit('event', { type: 'text', threadId, text: `[reasoning] ${text}` } as CodexEvent)
         break
       }
       case 'item/commandExecution/outputDelta': {

@@ -6,6 +6,7 @@ interface CodexApi {
   threads: CodexThread[]
   activeThreadId: string | null
   activeThread: CodexThread | null
+  getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
   sendMessage: (content: string) => Promise<void>
   approve: (approvalId: string) => Promise<void>
@@ -23,6 +24,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
+  const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
 
   useEffect(() => {
     if (!activeRepo) return
@@ -189,7 +191,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow }}
+      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow }}
     >
       {children}
     </CodexContext.Provider>
