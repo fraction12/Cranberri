@@ -9,6 +9,10 @@ const api = {
     setActive: (id: string) => ipcRenderer.invoke('repos:set-active', id),
     pickDirectory: () => ipcRenderer.invoke('repos:pick-directory'),
   },
+  git: {
+    status: (repoPath: string) => ipcRenderer.invoke('git:status', repoPath),
+    diff: (repoPath: string) => ipcRenderer.invoke('git:diff', repoPath),
+  },
 }
 
 export type CranberriAPI = typeof api

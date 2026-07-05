@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
+import { initGitIpc } from './git'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -25,6 +26,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   initRepoIpc()
+  initGitIpc()
   createWindow()
 
   app.on('activate', () => {
