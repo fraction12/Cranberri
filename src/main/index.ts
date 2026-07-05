@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
+import { initRepoIpc } from './repos'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -9,7 +10,7 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -23,6 +24,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  initRepoIpc()
   createWindow()
 
   app.on('activate', () => {
