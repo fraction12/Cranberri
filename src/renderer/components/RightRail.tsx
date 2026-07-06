@@ -82,6 +82,9 @@ export function RightRail() {
     try {
       const result = await window.cranberri.git.commit(activeRepo.path, commitTitle, commitSummary)
       setCommitState({ status: 'success', message: `Committed ${result.hash.slice(0, 7)} · ${result.title}` })
+      window.setTimeout(() => {
+        setCommitState((state) => state.status === 'success' ? { status: 'idle', message: null } : state)
+      }, 5000)
       setCommitDialogOpen(false)
       setCommitTitle('')
       setCommitSummary('')
@@ -165,7 +168,7 @@ export function RightRail() {
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void handleCommit()
             }}
-            className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-accent"
+            className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted"
             placeholder="fix(git): commit from changes panel"
           />
         </label>
@@ -174,7 +177,7 @@ export function RightRail() {
           <textarea
             value={commitSummary}
             onChange={(event) => setCommitSummary(event.target.value)}
-            className="mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-accent"
+            className="mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted"
             placeholder="Optional body explaining what changed."
           />
         </label>
@@ -187,7 +190,7 @@ export function RightRail() {
             type="button"
             onClick={() => void handleCommit()}
             disabled={!commitTitle.trim() || commitState.status === 'committing'}
-            className="rounded-lg bg-app-accent px-3 py-1.5 text-xs font-medium text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
           >
             {commitState.status === 'committing' ? 'Committing…' : 'Commit'}
           </button>
@@ -216,7 +219,7 @@ export function RightRail() {
                     type="button"
                     onClick={openCommitDialog}
                     disabled={!activeRepo || !status?.length || commitState.status === 'committing'}
-                    className="text-[10px] px-2 py-1 rounded bg-app-accent/15 text-app-accent hover:bg-app-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="text-[10px] px-2 py-1 rounded bg-app-surface-2 text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
                     title="Write a commit message and commit these changes"
                   >
                     {commitState.status === 'committing' ? 'Committing…' : 'Commit'}
@@ -232,7 +235,7 @@ export function RightRail() {
               </div>
             </div>
             {commitState.message && filesMode === 'changes' && (
-              <div className={`border-b border-app-border px-3 py-1.5 text-[11px] ${commitState.status === 'error' ? 'text-app-danger' : commitState.status === 'success' ? 'text-app-accent' : 'text-app-text-muted'}`}>
+              <div className={`border-b border-app-border px-3 py-1.5 text-[11px] ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
                 {commitState.message}
               </div>
             )}
