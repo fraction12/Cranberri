@@ -37,3 +37,15 @@ export interface DiffFile {
 export interface DiffResult {
   files: DiffFile[]
 }
+
+export interface GitHubRepoSummary {
+  remoteUrl: string | null
+  webUrl: string | null
+  owner: string | null
+  repo: string | null
+  branch: string | null
+  tracking: string | null
+  ahead: number
+  behind: number
+  isGitHub: boolean
+}

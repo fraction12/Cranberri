@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
+import type { GitHubRepoSummary } from '@/shared/git'
 
 const fileStatusSchema = z.object({
   path: z.string(),
@@ -40,6 +41,14 @@ const diffSchema = z.object({
     })),
   })),
 })
+
+function githubWebUrl(remoteUrl: string | undefined): Pick<GitHubRepoSummary, 'webUrl' | 'owner' | 'repo' | 'isGitHub'> {
+  if (!remoteUrl) return { webUrl: null, owner: null, repo: null, isGitHub: false }
+  const match = remoteUrl.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/)
+  if (!match) return { webUrl: null, owner: null, repo: null, isGitHub: false }
+  const [, owner, repo] = match
+  return { webUrl: `https://github.com/${owner}/${repo}`, owner, repo, isGitHub: true }
+}
 
 export type Diff = z.infer<typeof diffSchema>
 export type DiffResult = Diff
@@ -130,6 +139,28 @@ export function initGitIpc(): void {
       return fs.promises.readFile(path.join(repoPath, filePath), 'utf8').catch(() => '')
     }
     return git.show(['HEAD:' + filePath]).catch(() => '')
+  })
+
+  ipcMain.handle('git:github-summary', async (_, repoPath: string): Promise<GitHubRepoSummary> => {
+    const git = simpleGit(repoPath)
+    const [remotes, status] = await Promise.all([
+      git.getRemotes(true),
+      git.status(),
+    ])
+    const origin = remotes.find((remote) => remote.name === 'origin') ?? remotes[0]
+    const remoteUrl = origin?.refs?.push || origin?.refs?.fetch || null
+    const parsed = githubWebUrl(remoteUrl ?? undefined)
+    return {
+      remoteUrl,
+      webUrl: parsed.webUrl,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      branch: status.current || null,
+      tracking: status.tracking || null,
+      ahead: status.ahead,
+      behind: status.behind,
+      isGitHub: parsed.isGitHub,
+    }
   })
 }
 

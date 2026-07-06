@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
@@ -71,3 +71,4 @@ app.on('before-quit', () => {
 })
 
 ipcMain.handle('app:get-version', () => app.getVersion())
+ipcMain.handle('app:open-external', async (_, url: string) => shell.openExternal(url))

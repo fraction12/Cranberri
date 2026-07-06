@@ -1,4 +1,4 @@
-import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
+import type { DiffResult, GitFileStatus, FileTreeNode, GitHubRepoSummary } from '@/shared/git'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
 import type { CranberriHealthReport } from '@/shared/health'
@@ -16,6 +16,7 @@ declare global {
   interface Window {
     cranberri: {
       getVersion: () => Promise<string>
+      openExternal: (url: string) => Promise<void>
       health: {
         read: () => Promise<CranberriHealthReport>
         doctor: () => Promise<CranberriHealthReport>
@@ -37,6 +38,7 @@ declare global {
         diff: (repoPath: string) => Promise<DiffResult>
         diffFile: (repoPath: string, filePath: string) => Promise<DiffResult>
         rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
+        githubSummary: (repoPath: string) => Promise<GitHubRepoSummary>
       }
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>

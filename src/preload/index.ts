@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
+  openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
   health: {
     read: () => ipcRenderer.invoke('health:read'),
     doctor: () => ipcRenderer.invoke('health:doctor'),
@@ -23,6 +24,7 @@ const api = {
     diff: (repoPath: string) => ipcRenderer.invoke('git:diff', repoPath),
     diffFile: (repoPath: string, filePath: string) => ipcRenderer.invoke('git:diff-file', repoPath, filePath),
     rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:raw-content', repoPath, filePath, ref),
+    githubSummary: (repoPath: string) => ipcRenderer.invoke('git:github-summary', repoPath),
   },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
