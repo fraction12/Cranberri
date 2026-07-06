@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useState } from 'react'
 import { Archive, ChevronRight, FolderGit2, Gauge, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useRepos } from '../state/repos'
 import { useCodex } from '../state/codex'
@@ -22,23 +21,9 @@ function sessionTitle(session: CodexSessionSummary): string {
 }
 
 const CLOSE_RAIL_MENUS_EVENT = 'cranberri:close-rail-menus'
-const USAGE_POPOVER_WIDTH = 280
-const VIEWPORT_PADDING = 8
 
 function closeRailMenus() {
   window.dispatchEvent(new CustomEvent(CLOSE_RAIL_MENUS_EVENT))
-}
-
-function getUsagePopoverPosition(button: HTMLButtonElement | null) {
-  const rect = button?.getBoundingClientRect()
-  if (!rect) return null
-  return {
-    top: Math.max(VIEWPORT_PADDING, rect.top - VIEWPORT_PADDING),
-    left: Math.min(
-      Math.max(VIEWPORT_PADDING, rect.left),
-      window.innerWidth - USAGE_POPOVER_WIDTH - VIEWPORT_PADDING,
-    ),
-  }
 }
 
 function openSession(session: CodexSessionSummary, archived = false) {
@@ -280,59 +265,21 @@ function RepoSessions({ repoPath }: { repoPath: string }) {
 
 function LeftRailFooter() {
   const [usageOpen, setUsageOpen] = useState(false)
-  const [usagePosition, setUsagePosition] = useState<{ top: number; left: number } | null>(null)
-  const usageButtonRef = useRef<HTMLButtonElement>(null)
-
-  useLayoutEffect(() => {
-    if (!usageOpen) return
-    setUsagePosition(getUsagePopoverPosition(usageButtonRef.current))
-  }, [usageOpen])
-
-  useEffect(() => {
-    if (!usageOpen) return undefined
-
-    const close = (event: PointerEvent) => {
-      const path = event.composedPath()
-      if (path.some((node) => node instanceof HTMLElement && node.dataset.usagePopover === 'true')) return
-      setUsageOpen(false)
-    }
-    const reposition = () => setUsagePosition(getUsagePopoverPosition(usageButtonRef.current))
-
-    document.addEventListener('pointerdown', close)
-    window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
-    }
-  }, [usageOpen])
-
-  const usagePopover = usageOpen && usagePosition ? createPortal(
-    <div
-      data-usage-popover="true"
-      className="fixed z-[1400] w-[280px] -translate-y-full rounded-xl border border-app-border bg-app-surface shadow-2xl shadow-black/50"
-      style={{ top: usagePosition.top, left: usagePosition.left }}
-    >
-      <UsageMeter />
-    </div>,
-    document.body,
-  ) : null
 
   return (
-    <div className="mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-1 pt-2">
-      <button
-        ref={usageButtonRef}
-        type="button"
-        data-usage-popover="true"
-        onClick={() => setUsageOpen((open) => !open)}
-        className={`rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${usageOpen ? 'bg-app-surface-2 text-app-text' : ''}`}
-        title="Usage remaining"
-      >
-        <Gauge className="h-4 w-4" />
-      </button>
-      {usagePopover}
-    </div>
+    <>
+      {usageOpen && <UsageMeter className="border-t border-app-border" />}
+      <div className="mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-1 pt-2">
+        <button
+          type="button"
+          onClick={() => setUsageOpen((open) => !open)}
+          className={`rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${usageOpen ? 'bg-app-surface-2 text-app-text' : ''}`}
+          title="Usage remaining"
+        >
+          <Gauge className="h-4 w-4" />
+        </button>
+      </div>
+    </>
   )
 }
 
