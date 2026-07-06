@@ -3,6 +3,7 @@ import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initCodexIpc } from './codex/ipc'
+import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 
 let mainWindow: BrowserWindow | null = null
@@ -42,6 +43,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   initRepoIpc()
   initGitIpc()
+  initSettingsIpc()
   initCodexIpc(getMainWindow)
   initTerminalIpc()
   createWindow()

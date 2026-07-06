@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import type { CodexEvent, CodexThread } from '@/shared/codex'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+import type { CodexEvent, CodexThread, CodexTurnSettings } from '@/shared/codex'
 import { useRepos } from './repos'
 
 interface CodexApi {
@@ -8,7 +8,7 @@ interface CodexApi {
   activeThread: CodexThread | null
   getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
-  sendMessage: (threadId: string, content: string) => Promise<void>
+  sendMessage: (threadId: string, content: string, settings?: CodexTurnSettings) => Promise<void>
   approve: (threadId: string, approvalId: string) => Promise<void>
   abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
@@ -22,6 +22,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const [threads, setThreads] = useState<CodexThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
+  const streamTimersRef = useRef<Record<string, number>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
@@ -36,6 +37,51 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       running = false
     }
   }, [activeRepo])
+
+  const streamMessageText = useCallback((threadId: string, itemId: string, text: string, role: 'assistant' | 'reasoning') => {
+    if (streamTimersRef.current[itemId]) {
+      window.clearInterval(streamTimersRef.current[itemId])
+      delete streamTimersRef.current[itemId]
+    }
+
+    setThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === threadId)
+      if (idx === -1) return prev
+      const next = [...prev]
+      const thread = { ...next[idx] }
+      const existing = thread.messages.find((message) => message.id === itemId)
+      if (existing) {
+        thread.messages = thread.messages.map((message) => message.id === itemId ? { ...message, role, content: '' } : message)
+      } else {
+        thread.messages = [...thread.messages, { id: itemId, role, content: '', timestamp: Date.now() }]
+      }
+      next[idx] = thread
+      return next
+    })
+
+    let cursor = 0
+    const step = () => {
+      cursor = Math.min(text.length, cursor + Math.max(2, Math.ceil(text.length / 80)))
+      const nextContent = text.slice(0, cursor)
+      setThreads((prev) => {
+        const idx = prev.findIndex((t) => t.id === threadId)
+        if (idx === -1) return prev
+        const next = [...prev]
+        next[idx] = {
+          ...next[idx],
+          messages: next[idx].messages.map((message) => message.id === itemId ? { ...message, content: nextContent } : message),
+        }
+        return next
+      })
+      if (cursor >= text.length) {
+        window.clearInterval(streamTimersRef.current[itemId])
+        delete streamTimersRef.current[itemId]
+      }
+    }
+
+    step()
+    streamTimersRef.current[itemId] = window.setInterval(step, 18)
+  }, [])
 
   useEffect(() => {
     return window.cranberri.codex.onEvent((event) => {
@@ -57,51 +103,37 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           case 'thread_name_updated':
             thread.title = e.title
             break
-          case 'agent_message_delta': {
-            const existing = thread.messages.find((message) => message.id === e.itemId)
-            if (existing) {
-              existing.content += e.delta
-            } else {
-              thread.messages = [...thread.messages, {
-                id: e.itemId,
-                role: 'assistant',
-                content: e.delta,
-                timestamp: Date.now(),
-              }]
+          case 'agent_message_delta':
+            thread.currentActivity = 'Writing'
+            break
+          case 'agent_message_completed':
+            if (e.text) {
+              thread.currentActivity = 'Writing'
+              const role = e.phase === 'final_answer' ? 'assistant' : 'reasoning'
+              queueMicrotask(() => streamMessageText(threadId, e.itemId, e.text, role))
             }
             break
-          }
-          case 'agent_message_completed': {
-            const existing = thread.messages.find((message) => message.id === e.itemId)
-            if (existing) {
-              existing.content = e.text
-            } else if (e.text) {
-              thread.messages = [...thread.messages, {
-                id: e.itemId,
-                role: 'assistant',
-                content: e.text,
-                timestamp: Date.now(),
-              }]
-            }
-            break
-          }
           case 'tool_call':
-            thread.messages = [...thread.messages, {
-              id: crypto.randomUUID(),
-              role: 'system',
-              content: `Tool call: ${e.tool.function}`,
-              timestamp: Date.now(),
-            }]
+            thread.currentActivity = `Calling ${e.tool.function}`
             break
           case 'approval_request':
+            thread.currentActivity = 'Waiting for approval'
             thread.pendingApprovals = [...thread.pendingApprovals, e.approval]
             break
           case 'run_start':
+            thread.isRunning = true
+            thread.runStartedAt = Date.now()
+            thread.lastRunDurationMs = undefined
+            thread.currentActivity = 'Working'
+            break
           case 'item_started':
             thread.isRunning = true
+            thread.currentActivity = e.itemType === 'reasoning' ? 'Thinking' : e.itemType === 'function_call' ? 'Calling tool' : 'Working'
             break
-          case 'run_end':
+          case 'run_end': {
             thread.isRunning = false
+            thread.currentActivity = undefined
+            thread.lastRunDurationMs = thread.lastRunDurationMs ?? (thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined)
             if (e.error) {
               thread.messages = [...thread.messages, {
                 id: crypto.randomUUID(),
@@ -111,13 +143,26 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
               }]
             }
             break
+          }
+          case 'context_usage':
+            thread.contextUsage = { usedTokens: e.usedTokens, contextWindow: e.contextWindow }
+            break
+          case 'final_answer': {
+            const existing = [...thread.messages]
+              .reverse()
+              .find((message) => message.role !== 'user' && (message.content === e.text || e.text.startsWith(message.content) || message.content.startsWith(e.text)))
+            const itemId = existing?.id ?? crypto.randomUUID()
+            thread.lastRunDurationMs = thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined
+            queueMicrotask(() => streamMessageText(threadId, itemId, e.text, 'assistant'))
+            break
+          }
         }
 
         next[idx] = thread
         return next
       })
     })
-  }, [])
+  }, [streamMessageText])
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 
@@ -138,6 +183,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         : [],
       pendingApprovals: [],
       isRunning: !!initialContent,
+      currentActivity: initialContent ? 'Working' : undefined,
+      runStartedAt: initialContent ? Date.now() : undefined,
     }
     setThreads((prev) => [...prev, thread])
     setActiveThreadId(threadId)
@@ -148,7 +195,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     return thread
   }, [activeRepo])
 
-  const sendMessage = useCallback(async (threadId: string, content: string): Promise<void> => {
+  const sendMessage = useCallback(async (threadId: string, content: string, settings?: CodexTurnSettings): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
 
     setThreads((prev) => {
@@ -164,11 +211,14 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now(),
         }],
         isRunning: true,
+        currentActivity: 'Working',
+        runStartedAt: Date.now(),
+        lastRunDurationMs: undefined,
       }
       return next
     })
 
-    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content)
+    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content, settings)
   }, [activeRepo])
 
   const approve = useCallback(async (threadId: string, approvalId: string): Promise<void> => {
@@ -181,6 +231,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         ...next[idx],
         pendingApprovals: next[idx].pendingApprovals.filter((a) => a.id !== approvalId),
         isRunning: true,
+        currentActivity: 'Working',
+        runStartedAt: next[idx].runStartedAt ?? Date.now(),
       }
       return next
     })
@@ -194,7 +246,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
-      next[idx] = { ...next[idx], isRunning: false }
+      next[idx] = { ...next[idx], isRunning: false, currentActivity: undefined }
       return next
     })
   }, [activeRepo])
