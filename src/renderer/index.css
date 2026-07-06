@@ -28,6 +28,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+body.rail-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.rail-resizing * {
+  cursor: col-resize !important;
+}
+
 .header-drag {
   -webkit-app-region: drag;
   app-region: drag;

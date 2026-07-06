@@ -286,7 +286,7 @@ export function RepoRail() {
   }
 
   return (
-    <div className="w-64 h-full flex flex-col border-r border-app-border bg-app-surface py-2 px-3 overflow-hidden">
+    <div className="h-full w-full flex flex-col border-r border-app-border bg-app-surface py-2 px-3 overflow-hidden">
       <div className="flex items-center justify-between mb-3 shrink-0">
         <span className="text-xs font-semibold uppercase text-app-text-muted tracking-wider">Repos</span>
         <button
