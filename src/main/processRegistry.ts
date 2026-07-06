@@ -150,7 +150,7 @@ export async function listProcessesForRepo(repoPath: string): Promise<AgentProce
     writeRegistry({ processes: reconciled.slice(0, 500) })
   }
   return reconciled
-    .filter((processInfo) => processInfo.repoPath === normalized && processInfo.kind !== 'terminal')
+    .filter((processInfo) => processInfo.repoPath === normalized && (processInfo.kind !== 'terminal' || processInfo.status === 'running'))
     .sort((a, b) => {
       if (a.status === 'running' && b.status !== 'running') return -1
       if (a.status !== 'running' && b.status === 'running') return 1
