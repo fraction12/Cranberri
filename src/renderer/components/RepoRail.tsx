@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
 import { useRepos } from '../state/repos'
 import { useCodex } from '../state/codex'
+import { useAppState } from '../state/appState'
 import { UsageMeter } from './UsageMeter'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
@@ -27,9 +28,9 @@ function closeRailMenus() {
   window.dispatchEvent(new CustomEvent(CLOSE_RAIL_MENUS_EVENT))
 }
 
-function openSession(session: CodexSessionSummary, archived = false) {
+function openSession(session: CodexSessionSummary, repoPath: string, archived = false) {
   closeRailMenus()
-  window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', { detail: { session, archived } }))
+  window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', { detail: { session, repoPath, archived } }))
 }
 
 function SessionRow({
@@ -40,10 +41,12 @@ function SessionRow({
   onDelete,
   onRename,
   active,
+  repoPath,
 }: {
   session: CodexSessionSummary
   archived?: boolean
   active?: boolean
+  repoPath: string
   onArchive: (session: CodexSessionSummary) => void
   onUnarchive: (session: CodexSessionSummary) => void
   onDelete: (session: CodexSessionSummary) => void
@@ -68,7 +71,7 @@ function SessionRow({
     <>
       <button
         type="button"
-        onClick={() => openSession(session, archived)}
+        onClick={() => openSession(session, repoPath, archived)}
         onContextMenu={(event) => {
           event.preventDefault()
           closeRailMenus()
@@ -203,7 +206,7 @@ function RepoSessions({ repoPath }: { repoPath: string }) {
       <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
         {recent.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
         {recent.map((session) => (
-          <SessionRow key={session.id} session={session} active={openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
+          <SessionRow key={session.id} session={session} repoPath={repoPath} active={openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
         ))}
         {archived.length > 0 && (
           <>
@@ -215,7 +218,7 @@ function RepoSessions({ repoPath }: { repoPath: string }) {
               {showArchived ? 'Hide' : 'Show'} archived ({archived.length})
             </button>
             {showArchived && archived.map((session) => (
-              <SessionRow key={session.id} session={session} archived active={openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
+              <SessionRow key={session.id} session={session} repoPath={repoPath} archived active={openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
             ))}
           </>
         )}
@@ -392,7 +395,8 @@ function LeftRailFooter() {
 
 export function RepoRail() {
   const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
-  const [expandedRepoIds, setExpandedRepoIds] = useState<Record<string, boolean>>({})
+  const { state: appState, updateAppState } = useAppState()
+  const expandedRepoIds = appState.expandedRepoIds
   const [repoMenu, setRepoMenu] = useState<{ repoId: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -409,7 +413,10 @@ export function RepoRail() {
   }, [repoMenu])
 
   const toggleRepoSessions = (repoId: string) => {
-    setExpandedRepoIds((prev) => ({ ...prev, [repoId]: !prev[repoId] }))
+    updateAppState((current) => ({
+      ...current,
+      expandedRepoIds: { ...current.expandedRepoIds, [repoId]: !current.expandedRepoIds[repoId] },
+    }))
   }
 
   return (

@@ -6,6 +6,10 @@ const api = {
     read: () => ipcRenderer.invoke('health:read'),
     doctor: () => ipcRenderer.invoke('health:doctor'),
   },
+  appState: {
+    read: () => ipcRenderer.invoke('app-state:read'),
+    write: (state: import('@/shared/appState').CranberriAppState) => ipcRenderer.invoke('app-state:write', state),
+  },
   repos: {
     list: () => ipcRenderer.invoke('repos:list'),
     add: (path: string) => ipcRenderer.invoke('repos:add', path),
@@ -48,6 +52,7 @@ const api = {
   },
   terminal: {
     create: (id: string, cwd: string, cols?: number, rows?: number) => ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
+    snapshot: (id: string) => ipcRenderer.invoke('terminal:snapshot', id),
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.invoke('terminal:kill', id),

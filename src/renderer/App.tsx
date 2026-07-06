@@ -4,6 +4,7 @@ import { Workspace } from './components/Workspace'
 import { RightRail } from './components/RightRail'
 import { Header } from './components/Header'
 import { SettingsDialog } from './components/SettingsDialog'
+import { AppStateProvider } from './state/appState'
 
 const LEFT_RAIL_MIN_WIDTH = 256
 const RIGHT_RAIL_MIN_WIDTH = 320
@@ -107,6 +108,7 @@ export function App() {
   }
 
   return (
+    <AppStateProvider>
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-app-bg text-app-text">
       <Header onOpenSettings={() => setSettingsOpen(true)} />
       <div ref={layoutRef} className="flex flex-1 min-h-0 w-full overflow-hidden">
@@ -144,5 +146,6 @@ export function App() {
       </div>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
+    </AppStateProvider>
   )
 }

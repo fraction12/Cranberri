@@ -2,11 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { useRepos } from '../state/repos'
 
-export function TerminalWindow({ id }: { id: string }) {
-  const { activeRepo } = useRepos()
-  const activeRepoPath = activeRepo?.path
+export function TerminalWindow({ id, repoPath }: { id: string; repoPath: string | null }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -18,7 +15,7 @@ export function TerminalWindow({ id }: { id: string }) {
   const termId = `terminal-${id}`
 
   useEffect(() => {
-    if (!activeRepoPath || !containerRef.current || termRef.current) return
+    if (!repoPath || !containerRef.current || termRef.current) return
 
     const container = containerRef.current
     const t = new XTerm({
@@ -94,7 +91,8 @@ export function TerminalWindow({ id }: { id: string }) {
       fitAndResize()
       const cols = t.cols > 0 ? t.cols : 100
       const rows = t.rows > 0 ? t.rows : 30
-      window.cranberri.terminal.create(termId, activeRepoPath, cols, rows).then(() => {
+      window.cranberri.terminal.create(termId, repoPath, cols, rows).then((result) => {
+        if (result.buffer && termRef.current) termRef.current.write(result.buffer)
         setReady(true)
         // Fit again after shell startup; cheap safety net.
         requestAnimationFrame(fitAndResize)
@@ -126,16 +124,16 @@ export function TerminalWindow({ id }: { id: string }) {
       fitRef.current = null
       setReady(false)
     }
-  }, [activeRepoPath, id, termId])
+  }, [id, repoPath, termId])
 
-  if (!activeRepoPath) {
+  if (!repoPath) {
     return <div className="flex items-center justify-center h-full text-sm text-app-text-muted">Select a repo to use the terminal.</div>
   }
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border bg-app-surface-2 shrink-0 text-xs text-app-text-muted">
-        <span className="truncate">{activeRepoPath}</span>
+        <span className="truncate">{repoPath}</span>
         {ready && <span className="text-app-accent">●</span>}
       </div>
       <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-[#0f0f11]">

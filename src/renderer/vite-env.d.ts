@@ -2,6 +2,7 @@ import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
 import type { CranberriHealthReport } from '@/shared/health'
+import type { CranberriAppState } from '@/shared/appState'
 
 declare module '@xterm/xterm/css/xterm.css'
 declare module '*.css' {
@@ -18,6 +19,10 @@ declare global {
       health: {
         read: () => Promise<CranberriHealthReport>
         doctor: () => Promise<CranberriHealthReport>
+      }
+      appState: {
+        read: () => Promise<CranberriAppState>
+        write: (state: CranberriAppState) => Promise<CranberriAppState>
       }
       repos: {
         list: () => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
@@ -56,7 +61,8 @@ declare global {
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {
-        create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number }>
+        create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number; buffer?: string }>
+        snapshot: (id: string) => Promise<{ buffer: string }>
         write: (id: string, data: string) => Promise<void>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         kill: (id: string) => Promise<void>

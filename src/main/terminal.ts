@@ -58,14 +58,20 @@ function startSession(cwd: string, cols = 100, rows = 30): TerminalSession {
   }
 }
 
-const sessions = new Map<string, { session: TerminalSession; processRecordId: string; disposables: Array<() => void> }>()
+const MAX_BUFFER_LENGTH = 200_000
+const sessions = new Map<string, { session: TerminalSession; processRecordId: string; disposables: Array<() => void>; buffer: string }>()
+
+function appendBuffer(current: string, chunk: string): string {
+  const next = current + chunk
+  return next.length > MAX_BUFFER_LENGTH ? next.slice(next.length - MAX_BUFFER_LENGTH) : next
+}
 
 export function initTerminalIpc(): void {
   ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => {
     const existing = sessions.get(id)
     if (existing) {
       if (cols && rows) existing.session.resize(cols, rows)
-      return { pid: existing.session.pid }
+      return { pid: existing.session.pid, buffer: existing.buffer }
     }
 
     const session = startSession(cwd, cols, rows)
@@ -84,6 +90,8 @@ export function initTerminalIpc(): void {
     const disposables: Array<() => void> = []
 
     const dataHandler = session.onData((data: string) => {
+      const current = sessions.get(id)
+      if (current) current.buffer = appendBuffer(current.buffer, data)
       getMainWindow()?.webContents.send('terminal:data', { id, data })
     })
     disposables.push(() => dataHandler.dispose())
@@ -95,8 +103,13 @@ export function initTerminalIpc(): void {
     })
     disposables.push(() => exitHandler.dispose())
 
-    sessions.set(id, { session, processRecordId: processRecord.id, disposables })
-    return { pid: session.pid }
+    sessions.set(id, { session, processRecordId: processRecord.id, disposables, buffer: '' })
+    return { pid: session.pid, buffer: '' }
+  })
+
+  ipcMain.handle('terminal:snapshot', async (_, id: string) => {
+    const existing = sessions.get(id)
+    return { buffer: existing?.buffer ?? '' }
   })
 
   ipcMain.handle('terminal:write', async (_, id: string, data: string) => {
