@@ -197,6 +197,7 @@ export function RightRail() {
           </div>
         )}
       </div>
+      <div className="flex h-10 shrink-0 items-center border-t border-app-border px-3 text-[11px] text-app-text-muted" />
     </div>
   )
 }

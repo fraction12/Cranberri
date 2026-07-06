@@ -44,7 +44,7 @@ function RateLimitRow({ window }: { window?: CodexRateLimitWindow }) {
   )
 }
 
-export function UsageMeter() {
+export function UsageMeter({ className = '' }: { className?: string }) {
   const [data, setData] = useState<CodexRateLimitsReadResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -96,7 +96,7 @@ export function UsageMeter() {
   }
 
   return (
-    <div className="shrink-0 border-t border-app-border p-3">
+    <div className={`shrink-0 p-3 ${className}`}>
       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-app-text">
         <Gauge className="h-3.5 w-3.5 text-app-text-muted" />
         <span>Usage remaining</span>
