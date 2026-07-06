@@ -1,5 +1,6 @@
 import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
 import type { CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
+import type { AgentProcessInfo } from '@/shared/processes'
 
 declare module '@xterm/xterm/css/xterm.css'
 declare module '*.css' {
@@ -54,6 +55,9 @@ declare global {
         kill: (id: string) => Promise<void>
         onData: (cb: (payload: { id: string; data: string }) => void) => () => void
         onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => () => void
+      }
+      processes: {
+        list: (repoPath: string) => Promise<{ processes: AgentProcessInfo[] }>
       }
       settings: {
         get: () => Promise<{ settings: import('@/shared/settings').AppSettings }>

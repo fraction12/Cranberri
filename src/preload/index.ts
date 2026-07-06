@@ -56,6 +56,9 @@ const api = {
       return () => ipcRenderer.off('terminal:exit', handler)
     },
   },
+  processes: {
+    list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (settings: import('@/shared/settings').AppSettings) => ipcRenderer.invoke('settings:set', settings),

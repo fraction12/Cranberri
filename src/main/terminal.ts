@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { ipcMain } from 'electron'
 import * as pty from 'node-pty'
 import { getMainWindow } from './index'
+import type { AgentProcessInfo } from '@/shared/processes'
 
 export interface TerminalSession {
   readonly pid: number
@@ -57,7 +58,7 @@ function startSession(cwd: string, cols = 100, rows = 30): TerminalSession {
   }
 }
 
-const sessions = new Map<string, { session: TerminalSession; disposables: Array<() => void> }>()
+const sessions = new Map<string, { session: TerminalSession; cwd: string; disposables: Array<() => void> }>()
 
 export function initTerminalIpc(): void {
   ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => {
@@ -81,7 +82,7 @@ export function initTerminalIpc(): void {
     })
     disposables.push(() => exitHandler.dispose())
 
-    sessions.set(id, { session, disposables })
+    sessions.set(id, { session, cwd: resolveCwd(cwd), disposables })
     return { pid: session.pid }
   })
 
@@ -100,6 +101,16 @@ export function initTerminalIpc(): void {
     existing.session.kill()
     sessions.delete(id)
   })
+}
+
+export function listTerminalProcesses(): AgentProcessInfo[] {
+  return [...sessions.values()].map(({ session, cwd }) => ({
+    pid: session.pid,
+    ppid: process.pid,
+    command: 'Cranberri terminal',
+    cwd,
+    kind: 'terminal',
+  }))
 }
 
 export function killAllTerminals(): void {

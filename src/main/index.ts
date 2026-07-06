@@ -5,6 +5,7 @@ import { initGitIpc } from './git'
 import { initCodexIpc, stopCodexClient } from './codex/ipc'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
+import { initProcessesIpc } from './processes'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -47,6 +48,7 @@ app.whenReady().then(() => {
   initSettingsIpc()
   initCodexIpc(getMainWindow)
   initTerminalIpc()
+  initProcessesIpc()
   createWindow()
 
   app.on('activate', () => {

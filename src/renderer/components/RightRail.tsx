@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu } from 'lucide-react'
+import { Activity, Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
+import { useRepos } from '../state/repos'
 import type { GitFileStatus, FileTreeNode } from '@/shared/git'
+import type { AgentProcessInfo } from '@/shared/processes'
 
 function statusColor(status: GitFileStatus['status']) {
   switch (status) {
@@ -44,7 +46,7 @@ function getDiffMenuPosition(button: HTMLButtonElement | null) {
 export function RightRail() {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
   const [activeTab, setActiveTab] = useState<'files' | 'diff'>('files')
-  const [bottomPanel, setBottomPanel] = useState<'issue' | null>(null)
+  const [bottomPanel, setBottomPanel] = useState<'issue' | 'processes' | null>(null)
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
   const [diffMenuOpen, setDiffMenuOpen] = useState(false)
@@ -53,6 +55,7 @@ export function RightRail() {
 
   const { data: status, isLoading: statusLoading } = useGitStatus()
   const { data: allFiles, isLoading: filesLoading } = useGitFiles()
+  const { activeRepo } = useRepos()
   const [activeDiffFile, setActiveDiffFile] = useState<GitFileStatus | null>(null)
   const { isLoading: diffLoading } = useGitRawContent(activeDiffFile?.path ?? null, 'WORKING')
 
@@ -196,13 +199,17 @@ export function RightRail() {
         <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
           <div className="flex h-8 shrink-0 items-center border-b border-app-border bg-app-surface-2 px-3">
             <div className="flex items-center gap-2 text-xs font-medium text-app-text">
-              <Ticket className="h-3.5 w-3.5 text-app-text-muted" />
-              <span>Issue</span>
+              {bottomPanel === 'issue' ? <Ticket className="h-3.5 w-3.5 text-app-text-muted" /> : <Activity className="h-3.5 w-3.5 text-app-text-muted" />}
+              <span>{bottomPanel === 'issue' ? 'Issue' : 'Processes'}</span>
             </div>
           </div>
-          <div className="p-3 text-sm text-app-text-muted">
-            No Linear issue linked.
-          </div>
+          {bottomPanel === 'issue' ? (
+            <div className="p-3 text-sm text-app-text-muted">
+              No Linear issue linked.
+            </div>
+          ) : (
+            <ProcessesPanel repoPath={activeRepo?.path ?? null} />
+          )}
         </div>
       )}
       <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border px-3 text-[11px] text-app-text-muted">
@@ -214,6 +221,78 @@ export function RightRail() {
         >
           <Ticket className="h-4 w-4" />
         </button>
+        <button
+          type="button"
+          onClick={() => setBottomPanel((panel) => panel === 'processes' ? null : 'processes')}
+          className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${bottomPanel === 'processes' ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'}`}
+          title="Repo processes"
+        >
+          <Activity className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ProcessesPanel({ repoPath }: { repoPath: string | null }) {
+  const [processes, setProcesses] = useState<AgentProcessInfo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!repoPath) {
+      setProcesses([])
+      return
+    }
+
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const result = await window.cranberri.processes.list(repoPath)
+        if (!cancelled) setProcesses(result.processes)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load processes')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
+    const interval = window.setInterval(() => {
+      load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
+    }, 3000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [repoPath])
+
+  if (!repoPath) {
+    return <div className="p-3 text-sm text-app-text-muted">Select a repo to inspect running processes.</div>
+  }
+
+  if (error) {
+    return <div className="p-3 text-sm text-app-danger">{error}</div>
+  }
+
+  return (
+    <div className="h-[calc(100%-2rem)] overflow-y-auto p-2">
+      {loading && processes.length === 0 && <div className="p-2 text-xs text-app-text-muted">Scanning repo processes…</div>}
+      {!loading && processes.length === 0 && <div className="p-2 text-xs text-app-text-muted">No running processes found for this repo.</div>}
+      <div className="space-y-1">
+        {processes.map((processInfo) => (
+          <div key={processInfo.pid} className="rounded-lg bg-app-surface/70 p-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">{processInfo.kind}</span>
+              <span className="text-[10px] text-app-text-muted">pid {processInfo.pid}</span>
+            </div>
+            <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>{processInfo.command}</div>
+            {processInfo.cwd && <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>{processInfo.cwd}</div>}
+          </div>
+        ))}
       </div>
     </div>
   )
