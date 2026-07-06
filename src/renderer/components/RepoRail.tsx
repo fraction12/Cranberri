@@ -343,7 +343,6 @@ export function RepoRail() {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
-                  setActiveRepo(repo.id)
                   toggleRepoSessions(repo.id)
                 }}
                 className="ml-auto p-1 rounded text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
