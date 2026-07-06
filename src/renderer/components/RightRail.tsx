@@ -43,7 +43,8 @@ function getDiffMenuPosition(button: HTMLButtonElement | null) {
 
 export function RightRail() {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
-  const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'issue'>('files')
+  const [activeTab, setActiveTab] = useState<'files' | 'diff'>('files')
+  const [bottomPanel, setBottomPanel] = useState<'issue' | null>(null)
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
   const [diffMenuOpen, setDiffMenuOpen] = useState(false)
@@ -116,10 +117,9 @@ export function RightRail() {
       <div className="flex h-9 border-b border-app-border shrink-0">
         <TabButton active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={<FileText className="w-4 h-4" />} label="Files" />
         <TabButton active={activeTab === 'diff'} onClick={() => setActiveTab('diff')} icon={<FileDiff className="w-4 h-4" />} label="Diff" />
-        <TabButton active={activeTab === 'issue'} onClick={() => setActiveTab('issue')} icon={<Ticket className="w-4 h-4" />} label="Issue" />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+      <div className={`${bottomPanel ? 'basis-1/2' : 'flex-1'} min-h-0 overflow-hidden relative`}>
         {activeTab === 'files' && (
           <div className="absolute inset-0 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 border-b border-app-border shrink-0">
@@ -191,13 +191,37 @@ export function RightRail() {
           </div>
         )}
 
-        {activeTab === 'issue' && (
-          <div className="absolute inset-0 p-3 text-sm text-app-text-muted overflow-y-auto">
+      </div>
+      {bottomPanel && (
+        <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
+          <div className="flex h-8 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-2 px-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-app-text">
+              <Ticket className="h-3.5 w-3.5 text-app-text-muted" />
+              <span>Issue</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBottomPanel(null)}
+              className="rounded px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-app-surface hover:text-app-text"
+            >
+              Close
+            </button>
+          </div>
+          <div className="p-3 text-sm text-app-text-muted">
             No Linear issue linked.
           </div>
-        )}
+        </div>
+      )}
+      <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border px-3 text-[11px] text-app-text-muted">
+        <button
+          type="button"
+          onClick={() => setBottomPanel((panel) => panel === 'issue' ? null : 'issue')}
+          className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${bottomPanel === 'issue' ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'}`}
+          title="Issue"
+        >
+          <Ticket className="h-4 w-4" />
+        </button>
       </div>
-      <div className="flex h-10 shrink-0 items-center border-t border-app-border px-3 text-[11px] text-app-text-muted" />
     </div>
   )
 }
