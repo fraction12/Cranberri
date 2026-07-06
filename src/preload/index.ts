@@ -31,6 +31,7 @@ const api = {
     archiveThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:archive', cwd, threadId),
     unarchiveThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:unarchive', cwd, threadId),
     deleteThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:delete', cwd, threadId),
+    renameThread: (cwd: string, threadId: string, name: string) => ipcRenderer.invoke('codex:threads:rename', cwd, threadId, name),
     onEvent: (cb: (event: unknown) => void) => {
       const handler = (_: unknown, event: unknown) => cb(event)
       ipcRenderer.on('codex:event', handler)

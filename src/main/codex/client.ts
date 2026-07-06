@@ -211,6 +211,10 @@ export class CodexClient extends EventEmitter {
     await this.call('thread/delete', { threadId })
   }
 
+  async setThreadName(threadId: string, name: string): Promise<void> {
+    await this.call('thread/name/set', { threadId, name })
+  }
+
   async approve(approvalId: string, threadId: string): Promise<void> {
     await this.call('thread/approve', { threadId, approvalId })
   }

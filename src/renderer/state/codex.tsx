@@ -17,6 +17,7 @@ interface CodexApi {
   archiveSession: (threadId: string) => Promise<void>
   unarchiveSession: (threadId: string) => Promise<void>
   deleteSession: (threadId: string) => Promise<void>
+  renameSession: (threadId: string, name: string) => Promise<void>
 }
 
 const CodexContext = createContext<CodexApi | null>(null)
@@ -355,9 +356,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
 
+  const renameSession = useCallback(async (threadId: string, name: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.renameThread(activeRepo.path, threadId, name)
+    setThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, title: name } : thread))
+  }, [activeRepo])
+
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, openSession, archiveSession, unarchiveSession, deleteSession }}
+      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
     >
       {children}
     </CodexContext.Provider>

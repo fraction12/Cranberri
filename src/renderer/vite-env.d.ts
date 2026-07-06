@@ -42,6 +42,7 @@ declare global {
         archiveThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         unarchiveThread: (cwd: string, threadId: string) => Promise<{ thread: CodexSessionThread }>
         deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
+        renameThread: (cwd: string, threadId: string, name: string) => Promise<{ ok: boolean }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {

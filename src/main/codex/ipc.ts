@@ -204,6 +204,13 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { ok: true }
   })
 
+  ipcMain.handle('codex:threads:rename', async (_, cwd: string, threadId: string, name: string) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    await session.client.setThreadName(threadId, name)
+    return { ok: true }
+  })
+
   ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => {
     const session = getOrCreateSession(cwd)
     await session.client.start()

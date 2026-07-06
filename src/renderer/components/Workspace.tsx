@@ -6,7 +6,7 @@ import { TerminalWindow } from './TerminalWindow'
 import { Plus, MessageSquare, Terminal, X } from 'lucide-react'
 
 export function Workspace() {
-  const { windows, activeWindowId, openChat, openTerminal, closeWindow, setActiveWindow, renameWindow } = useWorkspace()
+  const { windows, activeWindowId, openChat, openTerminal, closeWindow, setActiveWindow } = useWorkspace()
   const { openSession } = useCodex()
 
   useEffect(() => {
@@ -14,12 +14,14 @@ export function Workspace() {
       const session = (event as CustomEvent).detail?.session
       const archived = Boolean((event as CustomEvent).detail?.archived)
       if (!session) return
-      const windowId = openChat()
-      openSession(windowId, session, archived).then((thread) => renameWindow(windowId, thread.title)).catch((error) => console.error('Failed to open Codex session:', error))
+      const windowId = `session-${session.id}`
+      openSession(windowId, session, archived)
+        .then((thread) => openChat(windowId, thread.title))
+        .catch((error) => console.error('Failed to open Codex session:', error))
     }
     window.addEventListener('cranberri:open-codex-session', onOpenSession)
     return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
-  }, [openChat, openSession, renameWindow])
+  }, [openChat, openSession])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
@@ -51,7 +53,7 @@ export function Workspace() {
         <div className="flex-1" />
         <button
           type="button"
-          onClick={openChat}
+          onClick={() => openChat()}
           className="flex items-center gap-1 px-2 py-1 rounded text-xs text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
         >
           <Plus className="w-3.5 h-3.5" />
