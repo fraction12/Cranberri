@@ -123,7 +123,6 @@ export function TerminalWindow({ id }: { id: string }) {
       t.dispose()
       termRef.current = null
       fitRef.current = null
-      window.cranberri.terminal.kill(termId)
       setReady(false)
     }
   }, [activeRepo, id, termId])

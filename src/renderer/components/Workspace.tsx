@@ -43,6 +43,9 @@ export function Workspace() {
               onClick={(e) => {
                 e.stopPropagation()
                 closeThreadWindow(win.id)
+                if (win.type === 'terminal') {
+                  window.cranberri.terminal.kill(`terminal-${win.id}`)
+                }
                 closeWindow(win.id)
               }}
               className="ml-1 p-0.5 rounded hover:bg-app-border"

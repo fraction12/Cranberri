@@ -64,9 +64,8 @@ export function initTerminalIpc(): void {
   ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => {
     const existing = sessions.get(id)
     if (existing) {
-      existing.disposables.forEach((d) => d())
-      existing.session.kill()
-      updateProcess(existing.processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
+      if (cols && rows) existing.session.resize(cols, rows)
+      return { pid: existing.session.pid }
     }
 
     const session = startSession(cwd, cols, rows)
