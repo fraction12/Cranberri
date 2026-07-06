@@ -6,6 +6,7 @@ import path from 'node:path'
 import { CodexClient } from './client'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
+import { logTelemetry } from '../telemetry'
 
 interface PluginManifest {
   name?: string
@@ -282,6 +283,7 @@ export async function getCodexClient(): Promise<CodexClient> {
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   const broadcast = (event: CodexEvent) => {
+    void logTelemetry('main', 'codex:event', event).catch(() => undefined)
     const win = mainWindowGetter()
     if (win && !win.isDestroyed()) {
       win.webContents.send('codex:event', event)
@@ -386,6 +388,13 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const c = await getCodexClient()
     c.setCwd(cwd)
     await c.sendMessage(threadId, content, settings)
+    return { ok: true }
+  })
+
+  ipcMain.handle('codex:compact-thread', async (_, cwd: string, threadId: string) => {
+    const c = await getCodexClient()
+    c.setCwd(cwd)
+    await c.compactThread(threadId)
     return { ok: true }
   })
 

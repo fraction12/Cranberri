@@ -48,6 +48,7 @@ declare global {
         start: (cwd: string) => Promise<{ started: boolean }>
         createThread: (cwd: string) => Promise<{ threadId: string }>
         sendMessage: (cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => Promise<{ ok: boolean }>
+        compactThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         approve: (cwd: string, threadId: string, approvalId: string) => Promise<{ ok: boolean }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
@@ -83,6 +84,12 @@ declare global {
       settings: {
         get: () => Promise<{ settings: import('@/shared/settings').AppSettings }>
         set: (settings: import('@/shared/settings').AppSettings) => Promise<{ settings: import('@/shared/settings').AppSettings }>
+      }
+      telemetry: {
+        log: (source: string, type: string, payload?: unknown) => Promise<{ ok: boolean }>
+        read: (limit?: number) => Promise<{ path: string; lines: string[] }>
+        clear: () => Promise<{ ok: boolean; path: string }>
+        path: () => Promise<{ path: string }>
       }
     }
   }

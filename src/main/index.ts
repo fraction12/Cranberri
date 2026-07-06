@@ -9,6 +9,7 @@ import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
 import { initHealthIpc } from './health'
 import { initAppStateIpc } from './appState'
+import { initTelemetryIpc } from './telemetry'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -55,6 +56,7 @@ app.whenReady().then(() => {
   initProcessesIpc()
   initHealthIpc()
   initAppStateIpc()
+  initTelemetryIpc()
   createWindow()
 
   app.on('activate', () => {

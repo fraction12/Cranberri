@@ -659,6 +659,7 @@ export function ChatWindow({ id }: { id: string }) {
   const {
     createThread,
     sendMessage,
+    compactThread,
     getThread,
     getThreadForWindow,
   } = useCodex()
@@ -756,7 +757,11 @@ export function ChatWindow({ id }: { id: string }) {
     setAttachments([])
 
     try {
-      await sendMessage(threadId, buildMessage(text), turnSettings)
+      if (text === '/compact') {
+        await compactThread(threadId)
+      } else {
+        await sendMessage(threadId, buildMessage(text), turnSettings)
+      }
     } finally {
       requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
     }
@@ -772,6 +777,30 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const isRunning = thread?.isRunning ?? false
+  const telemetryKey = thread
+    ? `${thread.id}:${thread.isRunning}:${thread.currentActivity ?? ''}:${thread.messages.length}:${thread.messages.at(-1)?.id ?? ''}:${thread.messages.at(-1)?.role ?? ''}:${thread.messages.at(-1)?.content.length ?? 0}`
+    : 'no-thread'
+
+  useEffect(() => {
+    if (!thread) return
+    window.cranberri.telemetry.log('renderer', 'chat-window:snapshot', {
+      windowId: id,
+      threadId: thread.id,
+      isRunning: thread.isRunning,
+      currentActivity: thread.currentActivity,
+      runStartedAt: thread.runStartedAt,
+      lastRunDurationMs: thread.lastRunDurationMs,
+      messageCount: thread.messages.length,
+      messages: thread.messages.slice(-12).map((message) => ({
+        id: message.id,
+        role: message.role,
+        length: message.content.length,
+        preview: message.content.slice(0, 80),
+        pending: message.pending,
+      })),
+    }).catch((err) => console.warn('Failed to write chat telemetry:', err))
+  }, [id, thread, telemetryKey])
+
   const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }
 
@@ -824,6 +853,22 @@ export function ChatWindow({ id }: { id: string }) {
     let reasoningBuffer: CodexMessage[] = []
     let renderedReasoningGroup = false
 
+    const renderWorkingGroup = (key = 'working') => {
+      renderedReasoningGroup = true
+      nodes.push(
+        <ReasoningGroup
+          key={key}
+          messages={[]}
+          expanded={commentaryExpanded}
+          onToggle={() => setCommentaryExpanded((value) => !value)}
+          isRunning={isRunning}
+          activity={thread?.currentActivity}
+          durationMs={thread?.lastRunDurationMs}
+          runStartedAt={thread?.runStartedAt}
+        />,
+      )
+    }
+
     const flushReasoning = () => {
       if (reasoningBuffer.length === 0) return
       renderedReasoningGroup = true
@@ -843,12 +888,23 @@ export function ChatWindow({ id }: { id: string }) {
       )
     }
 
-    thread?.messages.forEach((message) => {
+    const messages = thread?.messages ?? []
+    const lastUserIndex = isRunning ? messages.map((message) => message.role).lastIndexOf('user') : -1
+    const hasRunningReasoning = lastUserIndex !== -1 && messages
+      .slice(lastUserIndex + 1)
+      .some((message) => message.role === 'reasoning' || message.role === 'system')
+
+    messages.forEach((message, index) => {
       if (message.role === 'reasoning' || message.role === 'system') {
         reasoningBuffer.push(message)
         return
       }
       flushReasoning()
+      if (index === lastUserIndex && !renderedReasoningGroup && !hasRunningReasoning) {
+        nodes.push(<TranscriptMessage key={message.id} msg={message} />)
+        renderWorkingGroup(`working-after-${message.id}`)
+        return
+      }
       if (message.role === 'compact') {
         const isPending = message.pending ?? false
         const [muted, bright] = isPending
@@ -880,18 +936,7 @@ export function ChatWindow({ id }: { id: string }) {
     flushReasoning()
 
     if (isRunning && !renderedReasoningGroup) {
-      nodes.push(
-        <ReasoningGroup
-          key="working"
-          messages={[]}
-          expanded={commentaryExpanded}
-          onToggle={() => setCommentaryExpanded((value) => !value)}
-          isRunning={isRunning}
-          activity={thread?.currentActivity}
-          durationMs={thread?.lastRunDurationMs}
-          runStartedAt={thread?.runStartedAt}
-        />,
-      )
+      renderWorkingGroup()
     }
 
     return nodes

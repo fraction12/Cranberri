@@ -10,6 +10,7 @@ interface CodexApi {
   getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
   sendMessage: (threadId: string, content: string, settings?: CodexTurnSettings) => Promise<void>
+  compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string) => Promise<void>
   abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
@@ -46,6 +47,15 @@ function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
       } else if (item.type === 'reasoning') {
         const content = [...(item.summary ?? []), ...(Array.isArray(item.content) ? item.content as unknown as string[] : [])].filter(Boolean).join('\n')
         if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'reasoning', content, timestamp })
+      } else if (item.type === 'contextCompaction' || item.type === 'compaction') {
+        const completed = Boolean(turn.completedAt) || turn.status === 'completed'
+        messages.push({
+          id: item.id ?? crypto.randomUUID(),
+          role: 'compact',
+          content: completed ? 'Context compacted' : 'Compacting context',
+          timestamp: ((completed ? turn.completedAt : turn.startedAt) ?? thread.updatedAt ?? Date.now() / 1000) * 1000,
+          pending: !completed,
+        })
       }
     }
   }
@@ -64,6 +74,31 @@ function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread
     lastRunDurationMs: lastTurn?.durationMs ?? undefined,
     contextUsage: undefined,
   }
+}
+
+function summarizeThread(thread: CodexThread): Record<string, unknown> {
+  return {
+    id: thread.id,
+    title: thread.title,
+    isRunning: thread.isRunning,
+    currentActivity: thread.currentActivity,
+    runStartedAt: thread.runStartedAt,
+    lastRunDurationMs: thread.lastRunDurationMs,
+    messageCount: thread.messages.length,
+    messages: thread.messages.slice(-12).map((message) => ({
+      id: message.id,
+      role: message.role,
+      length: message.content.length,
+      preview: message.content.slice(0, 80),
+      pending: message.pending,
+    })),
+  }
+}
+
+function logRendererTelemetry(type: string, payload: unknown): void {
+  window.cranberri.telemetry.log('renderer', type, payload).catch((err) => {
+    console.warn('Failed to write telemetry:', err)
+  })
 }
 
 export function CodexProvider({ children }: { children: React.ReactNode }) {
@@ -94,6 +129,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       delete streamTimersRef.current[itemId]
     }
 
+    let cursor = 0
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
@@ -101,7 +137,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const thread = { ...next[idx] }
       const existing = thread.messages.find((message) => message.id === itemId)
       if (existing) {
-        thread.messages = thread.messages.map((message) => message.id === itemId ? { ...message, role, content: '' } : message)
+        cursor = text.startsWith(existing.content) ? existing.content.length : 0
+        thread.messages = thread.messages.map((message) => message.id === itemId ? { ...message, role, content: text.slice(0, cursor) } : message)
       } else {
         thread.messages = [...thread.messages, { id: itemId, role, content: '', timestamp: Date.now() }]
       }
@@ -109,7 +146,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       return next
     })
 
-    let cursor = 0
     const step = () => {
       cursor = Math.min(text.length, cursor + Math.max(2, Math.ceil(text.length / 80)))
       const nextContent = text.slice(0, cursor)
@@ -130,18 +166,23 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     }
 
     step()
-    streamTimersRef.current[itemId] = window.setInterval(step, 18)
+    streamTimersRef.current[itemId] = window.setInterval(step, 32)
   }, [])
 
   useEffect(() => {
     return window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
+      logRendererTelemetry('codex:event:received', e)
       if (e.type === 'log') {
         console.log(`[codex ${e.level}]`, e.text)
         return
       }
       const threadId = (e as { threadId?: string }).threadId
       if (!threadId) return
+
+      if (e.type === 'agent_message_delta') {
+        return
+      }
 
       setThreads((prev) => {
         const idx = prev.findIndex((t) => t.id === threadId)
@@ -152,9 +193,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         switch (e.type) {
           case 'thread_name_updated':
             thread.title = e.title
-            break
-          case 'agent_message_delta':
-            thread.currentActivity = 'Writing'
             break
           case 'agent_message_completed':
             if (e.text) {
@@ -195,6 +233,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             break
           }
           case 'context_compaction': {
+            thread.currentActivity = e.state === 'started' ? 'Compacting context' : thread.currentActivity
             const existingIdx = thread.messages.findIndex((m) => m.role === 'compact' && m.pending)
             if (e.state === 'started') {
               if (existingIdx === -1) {
@@ -207,11 +246,23 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
                 }]
               }
             } else {
-              thread.messages = thread.messages.map((m) =>
-                m.role === 'compact' && m.pending
-                  ? { ...m, content: e.state === 'completed' ? 'Context compacted' : `Compaction failed: ${e.message ?? e.state}`, pending: false }
-                  : m
-              )
+              const content = e.state === 'completed' ? 'Context compacted' : `Compaction failed: ${e.message ?? e.state}`
+              const hasCompletedCompaction = thread.messages.some((m) => m.role === 'compact' && !m.pending && m.content === content)
+              if (existingIdx === -1 && !hasCompletedCompaction) {
+                thread.messages = [...thread.messages, {
+                  id: crypto.randomUUID(),
+                  role: 'compact',
+                  content,
+                  timestamp: Date.now(),
+                  pending: false,
+                }]
+              } else {
+                thread.messages = thread.messages.map((m) =>
+                  m.role === 'compact' && m.pending
+                    ? { ...m, content, pending: false }
+                    : m
+                )
+              }
             }
             break
           }
@@ -230,10 +281,16 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         }
 
         next[idx] = thread
+        logRendererTelemetry('thread:after-event', {
+          eventType: e.type,
+          thread: summarizeThread(thread),
+          openThreadIds: Object.values(windowToThread),
+          activeThreadId,
+        })
         return next
       })
     })
-  }, [streamMessageText])
+  }, [streamMessageText, windowToThread, activeThreadId])
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 
@@ -304,6 +361,11 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
     if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
     await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content, settings)
+  }, [activeRepo])
+
+  const compactThread = useCallback(async (threadId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.compactThread(activeRepo.path, threadId)
   }, [activeRepo])
 
   const approve = useCallback(async (threadId: string, approvalId: string): Promise<void> => {
@@ -381,7 +443,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, openThreadIds, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, closeThreadWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
+      value={{ threads, activeThreadId, activeThread, openThreadIds, getThread, createThread, sendMessage, compactThread, approve, abort, switchThread, getThreadForWindow, closeThreadWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
     >
       {children}
     </CodexContext.Provider>

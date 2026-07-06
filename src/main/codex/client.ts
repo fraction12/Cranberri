@@ -162,6 +162,10 @@ export class CodexClient extends EventEmitter {
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
   }
 
+  async compactThread(threadId: string): Promise<void> {
+    await this.call('thread/compact/start', { threadId })
+  }
+
   async runOneShot(cwd: string, content: string, settings?: CodexTurnSettings, timeoutMs = 120_000): Promise<string> {
     const thread = await this.createThread(cwd)
     return new Promise((resolve, reject) => {
@@ -355,7 +359,16 @@ export class CodexClient extends EventEmitter {
         const info = (params as { info?: { last_token_usage?: { total_tokens?: number }; model_context_window?: number } }).info
         const usedTokens = info?.last_token_usage?.total_tokens
         const contextWindow = info?.model_context_window
-        if (usedTokens && contextWindow) {
+        if (usedTokens !== undefined && contextWindow) {
+          this.emit('event', { type: 'context_usage', threadId, usedTokens, contextWindow } as CodexEvent)
+        }
+        break
+      }
+      case 'thread/tokenUsage/updated': {
+        const tokenUsage = (params as { tokenUsage?: { last?: { totalTokens?: number }; modelContextWindow?: number } }).tokenUsage
+        const usedTokens = tokenUsage?.last?.totalTokens
+        const contextWindow = tokenUsage?.modelContextWindow
+        if (usedTokens !== undefined && contextWindow) {
           this.emit('event', { type: 'context_usage', threadId, usedTokens, contextWindow } as CodexEvent)
         }
         break
@@ -364,6 +377,14 @@ export class CodexClient extends EventEmitter {
         const item = (params as { item?: { id?: string; type?: string } }).item
         const itemType = item?.type ?? 'unknown'
         this.emit('event', { type: 'item_started', threadId, itemId: item?.id, itemType } as CodexEvent)
+        if (itemType === 'contextCompaction') {
+          this.emit('event', { type: 'context_compaction', threadId, state: 'started' } as CodexEvent)
+        }
+        break
+      }
+      case 'context_compacted':
+      case 'thread/compacted': {
+        this.emit('event', { type: 'context_compaction', threadId, state: 'completed' } as CodexEvent)
         break
       }
       case 'warning': {
@@ -403,6 +424,9 @@ export class CodexClient extends EventEmitter {
       }
       case 'item/completed': {
         const item = (params as { item?: { id?: string; type?: string; text?: string; phase?: string } }).item
+        if (item?.type === 'contextCompaction') {
+          this.emit('event', { type: 'context_compaction', threadId, state: 'completed' } as CodexEvent)
+        }
         if (item?.type === 'agentMessage' && item.id) {
           this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '', phase: item.phase } as CodexEvent)
         }

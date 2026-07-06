@@ -34,6 +34,7 @@ const api = {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
     createThread: (cwd: string) => ipcRenderer.invoke('codex:create-thread', cwd),
     sendMessage: (cwd: string, threadId: string, content: string, settings?: unknown) => ipcRenderer.invoke('codex:send-message', cwd, threadId, content, settings),
+    compactThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:compact-thread', cwd, threadId),
     approve: (cwd: string, threadId: string, approvalId: string) => ipcRenderer.invoke('codex:approve', cwd, threadId, approvalId),
     interrupt: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:interrupt', cwd, threadId),
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
@@ -81,6 +82,12 @@ const api = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (settings: import('@/shared/settings').AppSettings) => ipcRenderer.invoke('settings:set', settings),
+  },
+  telemetry: {
+    log: (source: string, type: string, payload?: unknown) => ipcRenderer.invoke('telemetry:log', source, type, payload),
+    read: (limit?: number) => ipcRenderer.invoke('telemetry:read', limit),
+    clear: () => ipcRenderer.invoke('telemetry:clear'),
+    path: () => ipcRenderer.invoke('telemetry:path'),
   },
 }
 
