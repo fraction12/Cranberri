@@ -144,10 +144,27 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             }
             break
           }
-          case 'context_compaction':
-            thread.isCompacting = e.state === 'started'
-            if (e.state !== 'started') thread.lastCompactionResult = e.state
+          case 'context_compaction': {
+            const existingIdx = thread.messages.findIndex((m) => m.role === 'compact' && m.pending)
+            if (e.state === 'started') {
+              if (existingIdx === -1) {
+                thread.messages = [...thread.messages, {
+                  id: crypto.randomUUID(),
+                  role: 'compact',
+                  content: 'Compacting context',
+                  timestamp: Date.now(),
+                  pending: true,
+                }]
+              }
+            } else {
+              thread.messages = thread.messages.map((m) =>
+                m.role === 'compact' && m.pending
+                  ? { ...m, content: e.state === 'completed' ? 'Context compacted' : `Compaction failed: ${e.message ?? e.state}`, pending: false }
+                  : m
+              )
+            }
             break
+          }
           case 'context_usage':
             thread.contextUsage = { usedTokens: e.usedTokens, contextWindow: e.contextWindow }
             break

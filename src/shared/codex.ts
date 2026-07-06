@@ -1,4 +1,4 @@
-export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning'
+export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning' | 'compact'
 
 export type CodexSpeed = 'standard' | 'fast'
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -62,6 +62,7 @@ export interface CodexMessage {
   content: string
   id: string
   timestamp: number
+  pending?: boolean
 }
 
 export interface ToolCall {
@@ -84,8 +85,6 @@ export interface CodexThread {
   messages: CodexMessage[]
   pendingApprovals: PendingApproval[]
   isRunning: boolean
-  isCompacting?: boolean
-  lastCompactionResult?: 'completed' | 'failed'
   currentActivity?: string
   runStartedAt?: number
   lastRunDurationMs?: number
