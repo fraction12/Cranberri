@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import { ipcMain } from 'electron'
 import * as pty from 'node-pty'
 import { getMainWindow } from './index'
-import type { AgentProcessInfo } from '@/shared/processes'
+import { registerProcess, updateProcess } from './processRegistry'
 
 export interface TerminalSession {
   readonly pid: number
@@ -58,7 +58,7 @@ function startSession(cwd: string, cols = 100, rows = 30): TerminalSession {
   }
 }
 
-const sessions = new Map<string, { session: TerminalSession; cwd: string; disposables: Array<() => void> }>()
+const sessions = new Map<string, { session: TerminalSession; processRecordId: string; disposables: Array<() => void> }>()
 
 export function initTerminalIpc(): void {
   ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => {
@@ -66,9 +66,20 @@ export function initTerminalIpc(): void {
     if (existing) {
       existing.disposables.forEach((d) => d())
       existing.session.kill()
+      updateProcess(existing.processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
     }
 
     const session = startSession(cwd, cols, rows)
+    const resolvedCwd = resolveCwd(cwd)
+    const processRecord = registerProcess({
+      pid: session.pid,
+      ppid: process.pid,
+      command: 'Cranberri terminal',
+      cwd: resolvedCwd,
+      repoPath: resolvedCwd,
+      kind: 'terminal',
+      source: 'terminal',
+    })
     const disposables: Array<() => void> = []
 
     const dataHandler = session.onData((data: string) => {
@@ -78,11 +89,12 @@ export function initTerminalIpc(): void {
 
     const exitHandler = session.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
       getMainWindow()?.webContents.send('terminal:exit', { id, exitCode, signal })
+      updateProcess(processRecord.id, { status: exitCode === 0 ? 'exited' : 'failed', endedAt: Date.now(), exitCode, signal })
       sessions.delete(id)
     })
     disposables.push(() => exitHandler.dispose())
 
-    sessions.set(id, { session, cwd: resolveCwd(cwd), disposables })
+    sessions.set(id, { session, processRecordId: processRecord.id, disposables })
     return { pid: session.pid }
   })
 
@@ -99,24 +111,16 @@ export function initTerminalIpc(): void {
     if (!existing) return
     existing.disposables.forEach((d) => d())
     existing.session.kill()
+    updateProcess(existing.processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
     sessions.delete(id)
   })
 }
 
-export function listTerminalProcesses(): AgentProcessInfo[] {
-  return [...sessions.values()].map(({ session, cwd }) => ({
-    pid: session.pid,
-    ppid: process.pid,
-    command: 'Cranberri terminal',
-    cwd,
-    kind: 'terminal',
-  }))
-}
-
 export function killAllTerminals(): void {
-  for (const { session, disposables } of sessions.values()) {
+  for (const { session, processRecordId, disposables } of sessions.values()) {
     disposables.forEach((d) => d())
     session.kill()
+    updateProcess(processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
   }
   sessions.clear()
 }
