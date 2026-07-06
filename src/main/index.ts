@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
+import { initGitHubIpc } from './github'
 import { initCodexIpc, stopCodexClient } from './codex/ipc'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
@@ -47,6 +48,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   initRepoIpc()
   initGitIpc()
+  initGitHubIpc()
   initSettingsIpc()
   initCodexIpc(getMainWindow)
   initTerminalIpc()

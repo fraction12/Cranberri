@@ -26,6 +26,9 @@ const api = {
     rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:raw-content', repoPath, filePath, ref),
     githubSummary: (repoPath: string) => ipcRenderer.invoke('git:github-summary', repoPath),
   },
+  github: {
+    panelData: (repoPath: string, kind: import('@/shared/git').GitHubPanelKind) => ipcRenderer.invoke('github:panel-data', repoPath, kind),
+  },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
     createThread: (cwd: string) => ipcRenderer.invoke('codex:create-thread', cwd),

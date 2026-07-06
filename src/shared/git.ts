@@ -49,3 +49,23 @@ export interface GitHubRepoSummary {
   behind: number
   isGitHub: boolean
 }
+
+export type GitHubPanelKind = 'repo' | 'pulls' | 'issues' | 'actions' | 'branches' | 'commits' | 'releases'
+
+export interface GitHubPanelItem {
+  id: string
+  title: string
+  subtitle?: string
+  state?: string
+  url?: string
+  author?: string
+  createdAt?: string
+  updatedAt?: string
+  meta?: Record<string, string | number | boolean | null>
+}
+
+export interface GitHubPanelData {
+  kind: GitHubPanelKind
+  items: GitHubPanelItem[]
+  fetchedAt: number
+}
