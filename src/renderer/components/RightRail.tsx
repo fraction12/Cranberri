@@ -328,7 +328,7 @@ function DiffViewer({
   }
 
   return (
-    <div className={`h-full overflow-y-auto text-xs ${wrapContent ? 'overflow-x-hidden' : 'overflow-x-auto'}`}>
+    <div className={`cranberri-diff-viewer h-full overflow-auto text-xs ${wrapContent ? 'wrap-diff-content' : ''}`}>
       <ReactDiffViewer
         oldValue={oldContent ?? ''}
         newValue={newContent ?? ''}
@@ -360,14 +360,7 @@ function DiffViewer({
             borderRadius: 0,
             border: 'none',
             width: '100%',
-            overflowX: wrapContent ? 'hidden' : 'auto',
             tableLayout: 'fixed',
-            pre: {
-              margin: 0,
-              lineHeight: '1.6em',
-              whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
-              width: wrapContent ? 'auto' : 'fit-content',
-            },
           },
           line: {
             minHeight: '20px',
@@ -380,11 +373,7 @@ function DiffViewer({
           },
           content: {
             width: '100%',
-            maxWidth: 0,
             paddingLeft: '12px',
-            whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
-            wordBreak: wrapContent ? 'break-word' : 'normal',
-            overflowWrap: wrapContent ? 'anywhere' : 'normal',
           },
           contentText: {
             whiteSpace: wrapContent ? 'pre-wrap' : 'pre',

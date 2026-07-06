@@ -37,6 +37,34 @@ body.rail-resizing * {
   cursor: col-resize !important;
 }
 
+.cranberri-diff-viewer.wrap-diff-content table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed !important;
+  overflow-x: visible !important;
+}
+
+.cranberri-diff-viewer.wrap-diff-content td:last-child {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+}
+
+.cranberri-diff-viewer.wrap-diff-content pre,
+.cranberri-diff-viewer.wrap-diff-content span,
+.cranberri-diff-viewer.wrap-diff-content ins,
+.cranberri-diff-viewer.wrap-diff-content del {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  line-break: anywhere !important;
+}
+
+.cranberri-diff-viewer.wrap-diff-content pre {
+  width: auto !important;
+  max-width: 100% !important;
+}
+
 .header-drag {
   -webkit-app-region: drag;
   app-region: drag;
