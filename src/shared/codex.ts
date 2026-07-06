@@ -1,5 +1,6 @@
 export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning'
 
+export type CodexSpeed = 'standard' | 'fast'
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
 
@@ -17,6 +18,11 @@ export const CODEX_EFFORTS: Array<{ label: string; value: CodexReasoningEffort }
   { label: 'Extra High', value: 'xhigh' },
 ]
 
+export const CODEX_SPEEDS: Array<{ label: string; value: CodexSpeed; description: string }> = [
+  { label: 'Standard', value: 'standard', description: 'Default speed' },
+  { label: 'Fast', value: 'fast', description: '1.5x speed, increased usage' },
+]
+
 export const CODEX_APPROVAL_MODES: Array<{
   value: CodexApprovalMode
   label: string
@@ -31,6 +37,7 @@ export const CODEX_APPROVAL_MODES: Array<{
 export interface CodexTurnSettings {
   model: string
   effort: CodexReasoningEffort
+  speed?: CodexSpeed
   approvalMode?: CodexApprovalMode
 }
 

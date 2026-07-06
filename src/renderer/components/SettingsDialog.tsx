@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, Command, Keyboard, Monitor, Bot, FileJson } from 'lucide-react'
 import { useSettings } from '../state/settings'
-import { CODEX_MODELS, CODEX_EFFORTS, CODEX_APPROVAL_MODES } from '@/shared/codex'
+import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES } from '@/shared/codex'
 
 interface SettingsDialogProps {
   open: boolean
@@ -67,6 +67,18 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                           className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
                         >
                           {CODEX_EFFORTS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs text-app-text-muted">Default speed</span>
+                        <select
+                          value={settings.codex.defaultSpeed ?? 'standard'}
+                          onChange={(e) => updateSection('codex', { defaultSpeed: e.target.value as typeof settings.codex.defaultSpeed })}
+                          className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
+                        >
+                          {CODEX_SPEEDS.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>

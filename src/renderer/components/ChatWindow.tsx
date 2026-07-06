@@ -15,12 +15,13 @@ import {
   Plus,
   Settings2,
   X,
+  Zap,
 } from 'lucide-react'
 import { useCodex } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import type { CodexApprovalMode, CodexMessage, CodexPluginInfo, CodexTurnSettings } from '@/shared/codex'
-import { CODEX_MODELS, CODEX_EFFORTS, CODEX_APPROVAL_MODES } from '@/shared/codex'
+import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES } from '@/shared/codex'
 
 type PopoverPosition = {
   top: number
@@ -155,6 +156,7 @@ function ModelSelector({
   const closeSubmenuTimerRef = useRef<number | null>(null)
   const selectedModel = CODEX_MODELS.find((option) => option.value === settings.model) ?? CODEX_MODELS[0]
   const selectedEffort = CODEX_EFFORTS.find((option) => option.value === settings.effort) ?? CODEX_EFFORTS[2]
+  const selectedSpeed = CODEX_SPEEDS.find((option) => option.value === settings.speed) ?? CODEX_SPEEDS[0]
 
   const updateMainPosition = () => {
     const rect = buttonRef.current?.getBoundingClientRect()
@@ -174,16 +176,18 @@ function ModelSelector({
       closeSubmenuTimerRef.current = null
     }
 
+    if (!mainPosition) return
     const row = nextSubmenu === 'model' ? modelRowRef.current : speedRowRef.current
     const rect = row?.getBoundingClientRect()
     if (!rect) return
 
     const width = nextSubmenu === 'model' ? MODEL_SUBMENU_WIDTH : SPEED_SUBMENU_WIDTH
-    const rightSideLeft = rect.right + POPOVER_GAP
+    const baseLeft = mainPosition!.left
+    const rightSideLeft = baseLeft + MAIN_POPOVER_WIDTH + POPOVER_GAP
     const left =
       rightSideLeft + width + VIEWPORT_PADDING <= window.innerWidth
         ? rightSideLeft
-        : Math.max(VIEWPORT_PADDING, rect.left - width - POPOVER_GAP)
+        : Math.max(VIEWPORT_PADDING, baseLeft - width - POPOVER_GAP)
     const top = Math.min(
       Math.max(VIEWPORT_PADDING, rect.top),
       window.innerHeight - VIEWPORT_PADDING - 176,
@@ -321,7 +325,27 @@ function ModelSelector({
       ) : (
         <>
           <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Speed</div>
-          <div className="px-1.5 py-1.5 text-[var(--app-text-muted)]">Default</div>
+          {CODEX_SPEEDS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange({ ...settings, speed: option.value })
+                setOpen(false)
+                setSubmenu(null)
+              }}
+              className="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--app-surface-2)]"
+            >
+              <div className="flex flex-col items-start">
+                <span className="flex items-center gap-2">
+                  {option.value === 'fast' && <Zap className="h-3.5 w-3.5" />}
+                  {option.label}
+                </span>
+                <span className="text-xs text-[var(--app-text-muted)]">{option.description}</span>
+              </div>
+              {settings.speed === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
+            </button>
+          ))}
         </>
       )}
     </div>
@@ -340,6 +364,8 @@ function ModelSelector({
       >
         <span>{selectedModel.label.replace('GPT-', '')}</span>
         <span>{selectedEffort.label}</span>
+        <span className="text-[var(--app-text-muted)]">·</span>
+        <span>{selectedSpeed.label}</span>
         <ChevronDown className="h-3 w-3 text-[var(--app-text-muted)]" />
       </button>
 
@@ -579,6 +605,7 @@ export function ChatWindow({ id }: { id: string }) {
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
     model: settings.codex.defaultModel,
     effort: settings.codex.defaultEffort,
+    speed: settings.codex.defaultSpeed ?? 'standard',
     approvalMode: settings.codex.defaultApprovalMode,
   }))
   const [planMode, setPlanMode] = useState(false)

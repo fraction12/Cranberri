@@ -8,12 +8,15 @@ const codexReasoningEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh'])
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
 const themeSchema = z.enum(['dark', 'light'])
 
+const codexSpeedSchema = z.enum(['standard', 'fast'])
+
 const settingsSchema = z.object({
   version: z.number(),
   data: z.object({
     codex: z.object({
       defaultModel: z.string(),
       defaultEffort: codexReasoningEffortSchema,
+      defaultSpeed: codexSpeedSchema.optional(),
       defaultApprovalMode: codexApprovalModeSchema,
       streamTokens: z.boolean(),
     }),
@@ -54,6 +57,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
     codex: {
       defaultModel: typeof codex.defaultModel === 'string' ? codex.defaultModel : DEFAULT_APP_SETTINGS.codex.defaultModel,
       defaultEffort: codexReasoningEffortSchema.safeParse(codex.defaultEffort).success ? (codex.defaultEffort as AppSettings['codex']['defaultEffort']) : DEFAULT_APP_SETTINGS.codex.defaultEffort,
+      defaultSpeed: codexSpeedSchema.safeParse(codex.defaultSpeed).success ? (codex.defaultSpeed as AppSettings['codex']['defaultSpeed']) : DEFAULT_APP_SETTINGS.codex.defaultSpeed,
       defaultApprovalMode: codexApprovalModeSchema.safeParse(codex.defaultApprovalMode).success ? (codex.defaultApprovalMode as AppSettings['codex']['defaultApprovalMode']) : DEFAULT_APP_SETTINGS.codex.defaultApprovalMode,
       streamTokens: typeof codex.streamTokens === 'boolean' ? codex.streamTokens : DEFAULT_APP_SETTINGS.codex.streamTokens,
     },

@@ -1,9 +1,10 @@
-import type { CodexApprovalMode, CodexReasoningEffort } from './codex'
+import type { CodexApprovalMode, CodexReasoningEffort, CodexSpeed } from './codex'
 
 export interface AppSettings {
   codex: {
     defaultModel: string
     defaultEffort: CodexReasoningEffort
+    defaultSpeed?: CodexSpeed
     defaultApprovalMode: CodexApprovalMode
     streamTokens: boolean
   }
