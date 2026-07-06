@@ -30,7 +30,8 @@ function createWindow(): void {
   mainWindow = win
 
   if (!app.isPackaged) {
-    win.loadURL('http://localhost:5173')
+    const devUrl = process.env.ELECTRON_VITE_DEV_SERVER_URL ?? 'http://localhost:5173'
+    win.loadURL(devUrl)
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
