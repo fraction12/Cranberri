@@ -52,7 +52,7 @@ export function Workspace() {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 p-2 relative">
+      <div className="flex-1 min-h-0 relative">
         {windows.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm text-app-text-muted">
             Open a chat or terminal window.
@@ -61,7 +61,7 @@ export function Workspace() {
         {windows.map((win) => (
           <div
             key={win.id}
-            className={`absolute inset-2 ${activeWindowId === win.id ? 'block' : 'hidden'}`}
+            className={`absolute inset-0 ${activeWindowId === win.id ? 'block' : 'hidden'}`}
           >
             {win.type === 'chat' ? <ChatWindow id={win.id} /> : <TerminalWindow id={win.id} />}
           </div>

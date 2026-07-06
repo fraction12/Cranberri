@@ -721,7 +721,7 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded border border-[var(--app-surface)] bg-[var(--app-bg)]">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
       <div className="relative flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto px-6 pb-36 pt-8">
           <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-7">
