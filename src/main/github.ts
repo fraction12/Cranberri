@@ -96,9 +96,9 @@ async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Pro
     pulls: ['pr', 'list', '--state', 'all', '--limit', '20', '--json', 'number,title,state,url,author,createdAt,updatedAt,body'],
     issues: ['issue', 'list', '--state', 'all', '--limit', '20', '--json', 'number,title,state,url,author,createdAt,updatedAt,body,labels'],
     actions: ['run', 'list', '--limit', '20', '--json', 'databaseId,name,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url'],
-    branches: ['api', 'repos/{owner}/{repo}/branches', '--paginate'],
-    commits: ['api', 'repos/{owner}/{repo}/commits', '--paginate', '-f', 'per_page=20'],
-    releases: ['release', 'list', '--limit', '20', '--json', 'name,tagName,isDraft,isPrerelease,createdAt,url'],
+    branches: ['api', 'repos/:owner/:repo/branches', '--paginate'],
+    commits: ['api', 'repos/:owner/:repo/commits?per_page=20', '--paginate'],
+    releases: ['release', 'list', '--limit', '20', '--json', 'name,tagName,isDraft,isPrerelease,createdAt,publishedAt'],
   }
   const output = await execGh(repoPath, commands[kind])
   const raw = kind === 'repo' ? [JSON.parse(output)] : parseJsonList(output)
