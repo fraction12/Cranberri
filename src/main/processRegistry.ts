@@ -99,6 +99,30 @@ export function updateProcess(id: string, patch: Partial<AgentProcessInfo>): voi
   writeRegistry({ processes })
 }
 
+export function terminateProcess(id: string, repoPath: string): AgentProcessInfo {
+  const normalized = normalizeRepoPath(repoPath)
+  const state = readRegistry()
+  const processInfo = state.processes.find((item) => item.id === id && item.repoPath === normalized)
+  if (!processInfo) throw new Error('Process not found')
+  if (!processInfo.pid) throw new Error('Process has no pid')
+  if (processInfo.pid === process.pid) throw new Error('Refusing to terminate Cranberri')
+
+  try {
+    process.kill(processInfo.pid, 'SIGTERM')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err
+  }
+
+  const terminated: AgentProcessInfo = {
+    ...processInfo,
+    status: 'killed',
+    endedAt: Date.now(),
+    signal: 'SIGTERM',
+  }
+  updateProcess(id, terminated)
+  return terminated
+}
+
 async function discoverChildrenForRunningTerminals(processes: AgentProcessInfo[], repoPath: string): Promise<AgentProcessInfo[]> {
   const terminals = processes.filter((processInfo) => processInfo.status === 'running' && processInfo.kind === 'terminal' && processInfo.pid)
   if (!terminals.length) return processes

@@ -58,6 +58,7 @@ const api = {
   },
   processes: {
     list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
+    terminate: (repoPath: string, processId: string) => ipcRenderer.invoke('processes:terminate', repoPath, processId),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

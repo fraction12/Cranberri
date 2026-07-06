@@ -58,6 +58,7 @@ declare global {
       }
       processes: {
         list: (repoPath: string) => Promise<{ processes: AgentProcessInfo[] }>
+        terminate: (repoPath: string, processId: string) => Promise<{ process: AgentProcessInfo }>
       }
       settings: {
         get: () => Promise<{ settings: import('@/shared/settings').AppSettings }>

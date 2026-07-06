@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { Activity, Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu } from 'lucide-react'
+import { Activity, Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu, X } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
 import { useRepos } from '../state/repos'
 import type { GitFileStatus, FileTreeNode } from '@/shared/git'
@@ -238,6 +238,23 @@ function ProcessesPanel({ repoPath }: { repoPath: string | null }) {
   const [processes, setProcesses] = useState<AgentProcessInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [terminatingId, setTerminatingId] = useState<string | null>(null)
+
+  const handleTerminate = async (processInfo: AgentProcessInfo) => {
+    if (!repoPath || terminatingId) return
+    setTerminatingId(processInfo.id)
+    setError(null)
+    setProcesses((items) => items.filter((item) => item.id !== processInfo.id))
+    try {
+      await window.cranberri.processes.terminate(repoPath, processInfo.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to close process')
+      const result = await window.cranberri.processes.list(repoPath)
+      setProcesses(result.processes)
+    } finally {
+      setTerminatingId(null)
+    }
+  }
 
   useEffect(() => {
     if (!repoPath) {
@@ -284,20 +301,34 @@ function ProcessesPanel({ repoPath }: { repoPath: string | null }) {
       {!loading && processes.length === 0 && <div className="p-2 text-xs text-app-text-muted">No running processes found for this repo.</div>}
       <div className="space-y-1">
         {processes.map((processInfo) => (
-          <button
+          <div
             key={processInfo.id}
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('cranberri:open-process-terminal', { detail: { process: processInfo } }))}
-            className="w-full rounded-lg bg-app-surface/70 p-2 text-left text-xs transition hover:bg-app-surface-2 focus:outline-none focus:ring-1 focus:ring-app-accent"
-            title="Open in terminal"
+            className="group flex w-full items-start gap-2 rounded-lg bg-app-surface/70 p-2 text-xs transition hover:bg-app-surface-2"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">{processInfo.kind}</span>
-              <span className="text-[10px] text-app-text-muted">pid {processInfo.pid}</span>
-            </div>
-            <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>{processInfo.command}</div>
-            {processInfo.cwd && <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>{processInfo.cwd}</div>}
-          </button>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('cranberri:open-process-terminal', { detail: { process: processInfo } }))}
+              className="min-w-0 flex-1 text-left focus:outline-none focus:ring-1 focus:ring-app-accent"
+              title="Open in terminal"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">{processInfo.kind}</span>
+                <span className="text-[10px] text-app-text-muted">pid {processInfo.pid}</span>
+              </div>
+              <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>{processInfo.command}</div>
+              {processInfo.cwd && <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>{processInfo.cwd}</div>}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleTerminate(processInfo)}
+              disabled={terminatingId === processInfo.id}
+              className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-danger disabled:cursor-wait disabled:opacity-40 group-hover:opacity-100"
+              title="Close process"
+              aria-label="Close process"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         ))}
       </div>
     </div>
