@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight } from 'lucide-react'
+import { Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
 import type { GitFileStatus, FileTreeNode } from '@/shared/git'
 
@@ -29,6 +29,8 @@ export function RightRail() {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
   const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'issue'>('files')
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
+  const [wrapDiffContent, setWrapDiffContent] = useState(false)
+  const [diffMenuOpen, setDiffMenuOpen] = useState(false)
 
   const { data: status, isLoading: statusLoading } = useGitStatus()
   const { data: allFiles, isLoading: filesLoading } = useGitFiles()
@@ -44,6 +46,7 @@ export function RightRail() {
   const handleBack = () => {
     setSelectedFile(null)
     setActiveDiffFile(null)
+    setDiffMenuOpen(false)
     setActiveTab('files')
   }
 
@@ -98,12 +101,34 @@ export function RightRail() {
                   </button>
                   <span className="text-xs font-medium truncate" title={selectedFile.path}>{selectedFile.path}</span>
                   <DiffStats filePath={selectedFile.path} status={selectedFile.status} />
+                  <div className="relative ml-1">
+                    <button
+                      type="button"
+                      onClick={() => setDiffMenuOpen((open) => !open)}
+                      className={`rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text ${diffMenuOpen ? 'bg-app-surface text-app-text' : ''}`}
+                      title="Diff options"
+                    >
+                      <Menu className="w-4 h-4" />
+                    </button>
+                    {diffMenuOpen && (
+                      <div className="absolute right-0 top-7 z-50 w-44 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-xl">
+                        <button
+                          type="button"
+                          onClick={() => setWrapDiffContent((value) => !value)}
+                          className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2"
+                        >
+                          <span>Wrap diff content</span>
+                          {wrapDiffContent && <Check className="h-3.5 w-3.5 text-app-accent" />}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto p-0">
                   {diffLoading ? (
                     <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
                   ) : (
-                    <DiffViewer filePath={selectedFile.path} status={selectedFile.status} />
+                    <DiffViewer filePath={selectedFile.path} status={selectedFile.status} wrapContent={wrapDiffContent} />
                   )}
                 </div>
               </div>
@@ -283,7 +308,15 @@ function FileTree({
   )
 }
 
-function DiffViewer({ filePath, status }: { filePath: string; status: GitFileStatus['status'] }) {
+function DiffViewer({
+  filePath,
+  status,
+  wrapContent,
+}: {
+  filePath: string
+  status: GitFileStatus['status']
+  wrapContent: boolean
+}) {
   const { data: oldContent, isLoading: oldLoading } = useGitRawContent(
     status === 'added' || status === 'untracked' ? null : filePath,
     'HEAD',
@@ -333,6 +366,12 @@ function DiffViewer({ filePath, status }: { filePath: string; status: GitFileSta
           content: {
             width: '100%',
             paddingLeft: '12px',
+            whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
+            wordBreak: wrapContent ? 'break-word' : 'normal',
+          },
+          contentText: {
+            whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
+            wordBreak: wrapContent ? 'break-word' : 'normal',
           },
           codeFold: {
             backgroundColor: 'var(--app-surface-2)',
