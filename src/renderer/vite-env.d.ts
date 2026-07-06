@@ -1,5 +1,5 @@
 import type { DiffResult, GitCommitResult, GitFileStatus, FileTreeNode, GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
-import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexSkillInfo, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
 import type { CranberriHealthReport } from '@/shared/health'
 import type { CranberriAppState } from '@/shared/appState'
@@ -52,6 +52,7 @@ declare global {
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         plugins: () => Promise<{ plugins: CodexPluginInfo[] }>
+        skills: () => Promise<{ skills: CodexSkillInfo[] }>
         pickFiles: () => Promise<{ paths: string[] }>
         listThreads: (cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
         readThread: (cwd: string, threadId: string, archived?: boolean) => Promise<{ thread: CodexSessionThread }>

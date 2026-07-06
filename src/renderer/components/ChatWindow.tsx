@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowUp,
@@ -12,6 +12,7 @@ import {
   Hand,
   Loader2,
   Mic,
+  Package,
   Plus,
   Settings2,
   X,
@@ -20,7 +21,7 @@ import {
 import { useCodex } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
-import type { CodexApprovalMode, CodexMessage, CodexPluginInfo, CodexTurnSettings } from '@/shared/codex'
+import type { CodexApprovalMode, CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings } from '@/shared/codex'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES } from '@/shared/codex'
 
 type PopoverPosition = {
@@ -33,6 +34,56 @@ const MODEL_SUBMENU_WIDTH = 208
 const SPEED_SUBMENU_WIDTH = 176
 const POPOVER_GAP = 6
 const VIEWPORT_PADDING = 8
+
+function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
+  const beforeCursor = input.slice(0, cursor)
+  const match = beforeCursor.match(/(^|\s)([/$])([^\s]*)$/)
+  if (!match || (match[2] !== '/' && match[2] !== '$')) return null
+  return {
+    char: match[2],
+    start: beforeCursor.length - match[2].length - match[3].length,
+    query: match[3].toLowerCase(),
+  }
+}
+
+const SKILL_INLINE_ICON = '📦'
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function skillToken(skill: CodexSkillInfo, trigger: '/' | '$'): string {
+  const name = skill.name.startsWith('/') ? skill.name.slice(1) : skill.name
+  return `${trigger}${name}`
+}
+
+function inlineSkillText(skill: CodexSkillInfo): string {
+  return `${SKILL_INLINE_ICON} ${skill.displayName}`
+}
+
+function inputHasSkill(input: string, skill: CodexSkillInfo): boolean {
+  return new RegExp(`(^|\\s)${escapeRegExp(inlineSkillText(skill))}(?=\\s|$)`).test(input)
+}
+
+function selectedSkillsFromInput(input: string, skills: CodexSkillInfo[]): CodexSkillInfo[] {
+  return skills.filter((skill) => inputHasSkill(input, skill))
+}
+
+function renderComposerText(input: string, skills: CodexSkillInfo[]): ReactNode[] {
+  const selectedSkills = selectedSkillsFromInput(input, skills)
+  if (selectedSkills.length === 0) return [input]
+
+  const pattern = new RegExp(`(${selectedSkills.map((skill) => escapeRegExp(inlineSkillText(skill))).join('|')})`, 'g')
+  return input.split(pattern).map((part, index) => {
+    const skill = selectedSkills.find((item) => inlineSkillText(item) === part)
+    if (!skill) return <span key={index}>{part}</span>
+    return (
+      <span key={index} className="inline text-[#ff8f8f] underline decoration-[#ff8f8f]/70 underline-offset-2">
+        {inlineSkillText(skill)}
+      </span>
+    )
+  })
+}
 
 function formatCodexText(text: string) {
   const parts = text.split(/(`[^`]+`)/g)
@@ -103,7 +154,7 @@ function ReasoningGroup({
       <button
         type="button"
         onClick={onToggle}
-        className="mb-2 flex items-center gap-2 text-sm hover:text-[var(--app-text)]"
+        className="mb-2 flex items-center gap-2 text-xs hover:text-[var(--app-text)]"
       >
         {isRunning ? (
           <span className="relative flex h-2.5 w-2.5">
@@ -130,7 +181,7 @@ function ReasoningGroup({
 function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
-      <div className="max-w-full text-[15px] leading-7 text-[var(--app-text-muted)]">
+      <div className="max-w-full text-[13px] leading-5 text-[var(--app-text-muted)]">
         <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
       </div>
     )
@@ -139,7 +190,7 @@ function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-4 py-3 text-[15px] leading-6 text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        <div className="max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5 text-[13px] leading-5 text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
           <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
         </div>
       </div>
@@ -147,7 +198,7 @@ function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   }
 
   return (
-    <article className="max-w-full text-[15px] leading-7 text-[var(--app-text)]">
+    <article className="max-w-full text-[13px] leading-5 text-[var(--app-text)]">
       <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
       <MessageActions text={msg.content} />
     </article>
@@ -261,7 +312,7 @@ function ModelSelector({
   const mainPopover = open && mainPosition ? (
     <div
       data-model-selector-popover="true"
-      className="fixed z-[1000] w-52 -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-sm text-[var(--app-text)] shadow-2xl shadow-black/40"
+      className="fixed z-[1000] w-52 -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-xs text-[var(--app-text)] shadow-2xl shadow-black/40"
       style={{ top: mainPosition.top, left: mainPosition.left }}
     >
       <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Reasoning</div>
@@ -313,7 +364,7 @@ function ModelSelector({
         if (closeSubmenuTimerRef.current) window.clearTimeout(closeSubmenuTimerRef.current)
       }}
       onMouseLeave={scheduleCloseSubmenu}
-      className={`fixed z-[1001] rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-sm text-[var(--app-text)] shadow-2xl shadow-black/40 ${
+      className={`fixed z-[1001] rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-xs text-[var(--app-text)] shadow-2xl shadow-black/40 ${
         submenu === 'model' ? 'w-52' : 'w-44'
       }`}
       style={{ top: submenuPosition.top, left: submenuPosition.left }}
@@ -411,7 +462,7 @@ function ContextWindowIndicator({ usedTokens, contextWindow = 258400 }: { usedTo
       >
         {percentUsed > 0 && <div className="h-1.5 w-1.5 rounded-full bg-[var(--app-surface)]" />}
       </div>
-      <div className="pointer-events-none absolute bottom-6 left-1/2 z-[1200] w-[165px] -translate-x-1/2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-center text-sm text-[var(--app-text)] opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-[1200] w-[165px] -translate-x-1/2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-center text-xs text-[var(--app-text)] opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100">
         <div className="mb-1 text-xs text-[var(--app-text-muted)]">Context window:</div>
         <div>{percentUsed}% used ({percentLeft}% left)</div>
         <div>{compactUsed} / {compactTotal} tokens used</div>
@@ -463,7 +514,7 @@ function ApprovalSelector({
       {open && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[1200] -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-sm text-[var(--app-text)] shadow-2xl shadow-black/50"
+          className="fixed z-[1200] -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-xs text-[var(--app-text)] shadow-2xl shadow-black/50"
           style={{ top, left, width }}
         >
           <div className="flex items-center justify-between px-2 pb-2 text-xs text-[var(--app-text-muted)]">
@@ -562,7 +613,7 @@ function AddMenu({
       {open && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[1200] max-h-[320px] -translate-y-full overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-sm text-[var(--app-text)] shadow-2xl shadow-black/50"
+          className="fixed z-[1200] max-h-[320px] -translate-y-full overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-xs text-[var(--app-text)] shadow-2xl shadow-black/50"
           style={{ top, left, width: menuWidth }}
         >
           <div className="px-2 pb-1 text-xs text-[var(--app-text-muted)]">Add</div>
@@ -626,12 +677,20 @@ export function ChatWindow({ id }: { id: string }) {
   const [planMode, setPlanMode] = useState(false)
   const [goalMode, setGoalMode] = useState(false)
   const [attachments, setAttachments] = useState<string[]>([])
+  const [skills, setSkills] = useState<CodexSkillInfo[]>([])
+  const [skillIndex, setSkillIndex] = useState(0)
   const [commentaryExpanded, setCommentaryExpanded] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const composerHadFocusRef = useRef(false)
   const selectionRef = useRef({ start: 0, end: 0 })
+
+  useEffect(() => {
+    window.cranberri.codex.skills()
+      .then((result) => setSkills(result.skills))
+      .catch((err) => console.error('Failed to load Codex skills:', err))
+  }, [])
 
   useEffect(() => {
     if (!threadId) {
@@ -682,6 +741,8 @@ export function ChatWindow({ id }: { id: string }) {
     if (goalMode) parts.push('Create and run this as a Codex goal. Keep working until the goal is complete, and report progress only when you need a decision or finish.')
     if (planMode) parts.push('Plan mode: do not edit files yet. Inspect the repo, produce a concise implementation plan, risks, and verification steps, then wait for approval.')
     if (attachments.length > 0) parts.push(`Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}`)
+    const inlineSkills = selectedSkillsFromInput(text, skills)
+    if (inlineSkills.length > 0) parts.push(`Use these skills:\n${inlineSkills.map((skill) => `- ${skillToken(skill, '/')}`).join('\n')}`)
     parts.push(text)
     return parts.join('\n\n')
   }
@@ -693,6 +754,7 @@ export function ChatWindow({ id }: { id: string }) {
     setInput('')
     selectionRef.current = { start: 0, end: 0 }
     setAttachments([])
+
     try {
       await sendMessage(threadId, buildMessage(text), turnSettings)
     } finally {
@@ -712,6 +774,51 @@ export function ChatWindow({ id }: { id: string }) {
   const isRunning = thread?.isRunning ?? false
   const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }
+
+  const skillTrigger = getSkillTrigger(input, selectionRef.current.start)
+  const compactPercentFull = Math.min(100, Math.round((contextUsage.usedTokens / Math.max(1, contextUsage.contextWindow)) * 100))
+  const compactCommand = skillTrigger?.char === '/' && 'compact'.includes(skillTrigger.query)
+    ? [{ id: 'command:compact', label: 'Compact', description: `Compact this thread's context (${compactPercentFull}% full)` }]
+    : []
+  const matchingSkills = skillTrigger
+    ? skills.filter((skill) => {
+        const haystack = `${skill.name} ${skill.displayName} ${skill.description}`.toLowerCase()
+        return haystack.includes(skillTrigger.query)
+      })
+    : []
+  const showSkills = Boolean(skillTrigger && (compactCommand.length > 0 || matchingSkills.length > 0))
+  const commandMenuCount = compactCommand.length + matchingSkills.length
+
+  const insertCompactCommand = () => {
+    if (!skillTrigger) return
+    const cursor = selectionRef.current.start
+    const token = '/compact'
+    const nextInput = `${input.slice(0, skillTrigger.start)}${token} ${input.slice(cursor)}`
+    const nextCursor = skillTrigger.start + token.length + 1
+    setInput(nextInput)
+    setSkillIndex(0)
+    selectionRef.current = { start: nextCursor, end: nextCursor }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
+    })
+  }
+
+  const insertSkill = (skill: CodexSkillInfo) => {
+    if (!skillTrigger) return
+    const cursor = selectionRef.current.start
+    const token = inlineSkillText(skill)
+    const nextInput = `${input.slice(0, skillTrigger.start)}${token} ${input.slice(cursor)}`
+    const nextCursor = skillTrigger.start + token.length + 1
+    setInput(nextInput)
+    setSkillIndex(0)
+    selectionRef.current = { start: nextCursor, end: nextCursor }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
+    })
+  }
+
   const renderTranscript = () => {
     const nodes: React.ReactNode[] = []
     let reasoningBuffer: CodexMessage[] = []
@@ -750,7 +857,7 @@ export function ChatWindow({ id }: { id: string }) {
             ? ['Context', 'compacted']
             : ['', message.content]
         nodes.push(
-          <div key={message.id} className="flex items-center gap-3 text-sm">
+          <div key={message.id} className="flex items-center gap-3 text-xs">
             <div className="h-px flex-1 bg-[var(--app-border)]" />
             <div className="flex items-center gap-2 text-[var(--app-text-muted)]">
               {isPending && (
@@ -794,18 +901,18 @@ export function ChatWindow({ id }: { id: string }) {
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
       <div className="relative flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto px-6 pb-36 pt-8">
-          <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-7">
+          <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-5">
             {!thread && (
-              <div className="text-sm text-[var(--app-text-muted)]">Starting Codex thread...</div>
+              <div className="text-xs text-[var(--app-text-muted)]">Starting Codex thread...</div>
             )}
             {thread?.messages.length === 0 && (
-              <div className="pt-16 text-center text-sm text-[var(--app-text-muted)]">
+              <div className="pt-16 text-center text-xs text-[var(--app-text-muted)]">
                 Ask Codex to inspect, edit, or explain this repo.
               </div>
             )}
             {renderTranscript()}
             {thread?.pendingApprovals.map((approval) => (
-              <div key={approval.id} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-sm text-[var(--app-text)]">
+              <div key={approval.id} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-xs text-[var(--app-text)]">
                 <div className="mb-1 font-medium">Approval needed: {approval.tool}</div>
                 <div className="mb-3 text-[var(--app-text)]">{approval.description}</div>
                 <div className="flex gap-2">
@@ -840,7 +947,7 @@ export function ChatWindow({ id }: { id: string }) {
               if (nextTarget && composerRef.current?.contains(nextTarget)) return
               composerHadFocusRef.current = false
             }}
-            className="pointer-events-auto mx-auto w-full max-w-[760px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30"
+            className="pointer-events-auto relative mx-auto w-full max-w-[760px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30"
           >
             {attachments.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5 px-1">
@@ -857,7 +964,60 @@ export function ChatWindow({ id }: { id: string }) {
                 ))}
               </div>
             )}
-            <textarea
+            {showSkills && (
+              <div className="absolute inset-x-0 bottom-full mb-4 max-h-[420px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 shadow-2xl shadow-black/40">
+                <div className="mb-4 text-[13px] text-[var(--app-text-muted)]">Skills</div>
+                <div className="max-h-[340px] space-y-1 overflow-y-auto pr-1">
+                  {compactCommand.map((command, index) => (
+                    <button
+                      key={command.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={insertCompactCommand}
+                      className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${index === skillIndex ? 'bg-[var(--app-surface-2)]' : ''}`}
+                    >
+                      <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
+                      <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                        <span className="text-[var(--app-text)]">{command.label}</span>
+                        <span className="ml-3 text-[var(--app-text-muted)]">{command.description}</span>
+                      </span>
+                      <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">Command</span>
+                    </button>
+                  ))}
+                  {matchingSkills.map((skill, index) => (
+                    (() => {
+                      const selected = inputHasSkill(input, skill)
+                      return (
+                        <button
+                          key={skill.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => { if (!selected) insertSkill(skill) }}
+                          disabled={selected}
+                          className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${index + compactCommand.length === skillIndex ? 'bg-[var(--app-surface-2)]' : ''} ${selected ? 'cursor-default opacity-55' : ''}`}
+                        >
+                          <Package className={`h-4 w-4 shrink-0 ${selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)] opacity-80'}`} />
+                          <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                            <span className={selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)]'}>{skillToken(skill, skillTrigger?.char ?? '/')}</span>
+                            {skill.description && <span className="ml-3 text-[var(--app-text-muted)]">{skill.description}</span>}
+                          </span>
+                          {selected ? (
+                            <span className="inline-flex shrink-0 items-center gap-1 text-[13px] text-[#ff8f8f]"><Check className="h-3.5 w-3.5" /> Selected</span>
+                          ) : (
+                            <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">{skill.source === 'plugin' ? (skill.pluginName ?? 'Plugin') : skill.source === 'personal' ? 'Personal' : 'System'}</span>
+                          )}
+                        </button>
+                      )
+                    })()
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="relative min-h-[44px] px-1 text-[13px] leading-5">
+              <div className="pointer-events-none absolute inset-x-1 top-0 whitespace-pre-wrap break-words text-[var(--app-text)]">
+                {input ? renderComposerText(input, skills) : null}
+              </div>
+              <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => {
@@ -868,6 +1028,49 @@ export function ChatWindow({ id }: { id: string }) {
               onKeyUp={rememberSelection}
               onMouseUp={rememberSelection}
               onKeyDown={(e) => {
+                if (e.key === 'Backspace' && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+                  const cursor = e.currentTarget.selectionStart
+                  const beforeCursor = input.slice(0, cursor)
+                  const match = beforeCursor.match(/(^|\s)(\S(?:.*\S)?)\s?$/)
+                  const matchedSkill = match ? skills.find((skill) => match[2] === inlineSkillText(skill) || match[2].endsWith(inlineSkillText(skill))) : undefined
+                  if (match && matchedSkill) {
+                    e.preventDefault()
+                    const end = beforeCursor.endsWith(' ') ? cursor - 1 : cursor
+                    const start = input.slice(0, end).lastIndexOf(inlineSkillText(matchedSkill))
+                    const nextInput = `${input.slice(0, start)}${input.slice(cursor)}`
+                    setInput(nextInput)
+                    selectionRef.current = { start, end: start }
+                    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(start, start))
+                    return
+                  }
+                }
+                if (showSkills && commandMenuCount > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setSkillIndex((index) => (index + 1) % commandMenuCount)
+                    return
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setSkillIndex((index) => (index - 1 + commandMenuCount) % commandMenuCount)
+                    return
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault()
+                    if (skillIndex < compactCommand.length) {
+                      insertCompactCommand()
+                    } else {
+                      insertSkill(matchingSkills[Math.min(skillIndex - compactCommand.length, matchingSkills.length - 1)])
+                    }
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setSkillIndex(0)
+                    selectionRef.current = { start: 0, end: 0 }
+                    return
+                  }
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   handleSend()
@@ -875,8 +1078,10 @@ export function ChatWindow({ id }: { id: string }) {
               }}
               placeholder={isRunning ? 'Keep typing while Codex works...' : goalMode ? 'Describe your goal, define measurable outcomes for best results' : 'Ask for follow-up changes'}
               rows={2}
-              className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]"
+              spellCheck={false}
+              className="relative min-h-[24px] w-full resize-none bg-transparent px-0 text-[13px] leading-5 text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]"
             />
+            </div>
             <div className="flex items-center justify-between pt-2 text-[var(--app-text-muted)]">
               <div className="flex items-center gap-3">
                 <AddMenu

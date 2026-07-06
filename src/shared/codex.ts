@@ -52,6 +52,15 @@ export interface CodexPluginInfo {
   toolCount: number
 }
 
+export interface CodexSkillInfo {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  source: 'personal' | 'system' | 'plugin'
+  pluginName?: string
+}
+
 export interface CodexConnectionStatus {
   installed: boolean
   authenticated: boolean

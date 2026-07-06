@@ -38,6 +38,7 @@ const api = {
     interrupt: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:interrupt', cwd, threadId),
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
     plugins: () => ipcRenderer.invoke('codex:plugins'),
+    skills: () => ipcRenderer.invoke('codex:skills'),
     pickFiles: () => ipcRenderer.invoke('codex:pick-files'),
     listThreads: (cwd: string, options?: unknown) => ipcRenderer.invoke('codex:threads:list', cwd, options),
     readThread: (cwd: string, threadId: string, archived?: boolean) => ipcRenderer.invoke('codex:threads:read', cwd, threadId, archived),

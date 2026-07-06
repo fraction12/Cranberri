@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
-import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexTurnSettings } from '../../shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 
 interface PluginManifest {
@@ -20,6 +20,7 @@ interface PluginManifest {
 }
 
 const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
+const CODEX_SKILLS_DIR = path.join(CODEX_HOME, 'skills')
 
 let client: CodexClient | null = null
 let clientStarting = false
@@ -90,6 +91,15 @@ function titleizePluginName(name: string): string {
     .join(' ')
 }
 
+function titleizeSkillName(name: string): string {
+  if (name.startsWith('/')) return name
+  return name
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath)
@@ -105,6 +115,81 @@ async function readJson<T>(filePath: string): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+function parseSkillMarkdown(content: string, fallbackName: string): { name: string; description: string } {
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)
+  const meta = frontmatter?.[1] ?? ''
+  const name = meta.match(/^name:\s*['"]?(.+?)['"]?\s*$/m)?.[1]?.trim() || fallbackName
+  const description = meta.match(/^description:\s*['"]?(.+?)['"]?\s*$/m)?.[1]?.trim() || ''
+  return { name, description }
+}
+
+async function collectSkillFiles(dir: string, out: string[] = []): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'tests') continue
+      await collectSkillFiles(fullPath, out)
+    } else if (entry.isFile() && entry.name === 'SKILL.md') {
+      out.push(fullPath)
+    }
+  }
+  return out
+}
+
+function enabledPluginRefs(config: string): Array<{ name: string; marketplace: string }> {
+  return [...config.matchAll(/^\[plugins\."([^"@]+)@([^"]+)"\]\n(?:[^[]*?enabled\s*=\s*true)?/gm)]
+    .filter((match) => match[0].includes('enabled = true'))
+    .map((match) => ({ name: match[1], marketplace: match[2] }))
+}
+
+async function skillFromFile(filePath: string, baseDir: string, source: CodexSkillInfo['source'], pluginName?: string): Promise<CodexSkillInfo | null> {
+  const content = await fs.readFile(filePath, 'utf8').catch(() => '')
+  if (!content) return null
+  const skillDir = path.dirname(filePath)
+  const fallbackName = path.basename(skillDir)
+  const { name, description } = parseSkillMarkdown(content, fallbackName)
+  const isSystem = source === 'system' || skillDir.split(path.sep).includes('.system')
+  return {
+    id: `${source}:${path.relative(baseDir, skillDir)}`,
+    name,
+    displayName: titleizeSkillName(name),
+    description,
+    source: isSystem ? 'system' : source,
+    pluginName,
+  }
+}
+
+async function listCodexSkills(): Promise<CodexSkillInfo[]> {
+  const personalFiles = await collectSkillFiles(CODEX_SKILLS_DIR)
+  const personalSkills = await Promise.all(personalFiles.map(async (filePath) => {
+    const skillDir = path.dirname(filePath)
+    const isSystem = skillDir.split(path.sep).includes('.system')
+    return skillFromFile(filePath, CODEX_SKILLS_DIR, isSystem ? 'system' : 'personal')
+  }))
+
+  const configPath = path.join(CODEX_HOME, 'config.toml')
+  const config = await fs.readFile(configPath, 'utf8').catch(() => '')
+  const enabled = enabledPluginRefs(config)
+  const pluginSkillGroups = await Promise.all(enabled.map(async ({ name, marketplace }) => {
+    const found = await findManifest(name, marketplace)
+    if (!found) return []
+    const files = await collectSkillFiles(path.join(found.root, 'skills'))
+    return Promise.all(files.map((filePath) => skillFromFile(filePath, path.join(found.root, 'skills'), 'plugin', titleizePluginName(name))))
+  }))
+
+  const seen = new Set<string>()
+  return [...personalSkills, ...pluginSkillGroups.flat()]
+    .filter((skill): skill is CodexSkillInfo => Boolean(skill))
+    .filter((skill) => {
+      const key = `${skill.source}:${skill.pluginName ?? ''}:${skill.name}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
 async function findManifest(pluginName: string, marketplace: string): Promise<{ manifest: PluginManifest; root: string } | null> {
@@ -147,9 +232,7 @@ async function readToolCounts(): Promise<Map<string, number>> {
 async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
   const configPath = path.join(CODEX_HOME, 'config.toml')
   const config = await fs.readFile(configPath, 'utf8').catch(() => '')
-  const enabled = [...config.matchAll(/^\[plugins\."([^"@]+)@([^"]+)"\]\n(?:[^[]*?enabled\s*=\s*true)?/gm)]
-    .filter((match) => match[0].includes('enabled = true'))
-    .map((match) => ({ name: match[1], marketplace: match[2] }))
+  const enabled = enabledPluginRefs(config)
   const toolCounts = await readToolCounts()
 
   const plugins = await Promise.all(enabled.map(async ({ name, marketplace }): Promise<CodexPluginInfo> => {
@@ -211,6 +294,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   }).catch((err) => console.error('Failed to start persistent Codex client:', err))
 
   ipcMain.handle('codex:plugins', async () => ({ plugins: await listConfiguredPlugins() }))
+  ipcMain.handle('codex:skills', async () => ({ skills: await listCodexSkills() }))
 
   ipcMain.handle('codex:connection:status', async () => {
     return getCodexConnectionStatus()
