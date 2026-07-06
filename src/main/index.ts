@@ -6,6 +6,7 @@ import { initCodexIpc, stopCodexClient } from './codex/ipc'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
+import { initHealthIpc } from './health'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -49,6 +50,7 @@ app.whenReady().then(() => {
   initCodexIpc(getMainWindow)
   initTerminalIpc()
   initProcessesIpc()
+  initHealthIpc()
   createWindow()
 
   app.on('activate', () => {

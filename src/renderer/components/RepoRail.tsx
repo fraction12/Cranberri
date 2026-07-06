@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Archive, ChevronRight, FolderGit2, Gauge, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
 import { useRepos } from '../state/repos'
 import { useCodex } from '../state/codex'
 import { UsageMeter } from './UsageMeter'
 import type { CodexSessionSummary } from '@/shared/codex'
+import type { CranberriHealthReport } from '@/shared/health'
 
 function relativeTime(value: number): string {
   const ms = value > 10_000_000_000 ? value : value * 1000
@@ -263,24 +264,126 @@ function RepoSessions({ repoPath }: { repoPath: string }) {
   )
 }
 
+function healthLevelLabel(report: CranberriHealthReport | null): string {
+  if (!report) return 'Unknown'
+  if (report.level === 'ok') return 'Healthy'
+  if (report.level === 'warning') return 'Needs attention'
+  return 'Broken'
+}
+
+function healthLevelClass(level: CranberriHealthReport['level'] | 'unknown'): string {
+  if (level === 'ok') return 'text-app-accent'
+  if (level === 'warning') return 'text-yellow-400'
+  if (level === 'error') return 'text-app-danger'
+  return 'text-app-text-muted'
+}
+
+function HealthCard() {
+  const [report, setReport] = useState<CranberriHealthReport | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [doctorRunning, setDoctorRunning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setReport(await window.cranberri.health.read())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read Cranberri health')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh().catch((err) => setError(err instanceof Error ? err.message : 'Failed to read Cranberri health'))
+  }, [refresh])
+
+  const runDoctor = async () => {
+    setDoctorRunning(true)
+    setError(null)
+    try {
+      setReport(await window.cranberri.health.doctor())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cranberri doctor failed')
+    } finally {
+      setDoctorRunning(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-xl bg-app-bg p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-app-text">
+        <Activity className={`h-3.5 w-3.5 ${healthLevelClass(report?.level ?? 'unknown')}`} />
+        <span>Cranberri health</span>
+        {(loading || doctorRunning) && <Loader2 className="ml-auto h-3 w-3 animate-spin text-app-text-muted" />}
+      </div>
+      <div className={`text-xs font-medium ${healthLevelClass(report?.level ?? 'unknown')}`}>{healthLevelLabel(report)}</div>
+      {error && <div className="mt-1 text-[11px] text-app-danger">{error}</div>}
+      {report && (
+        <div className="mt-2 space-y-1">
+          {report.checks.map((check) => (
+            <div key={check.id} className="rounded-lg bg-app-surface/60 px-2 py-1.5">
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="truncate text-app-text">{check.label}</span>
+                <span className={`shrink-0 uppercase ${healthLevelClass(check.level)}`}>{check.level}</span>
+              </div>
+              <div className="mt-0.5 truncate text-[10px] text-app-text-muted" title={check.detail}>{check.detail}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading || doctorRunning}
+          className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1.5 text-xs text-app-text hover:bg-app-border disabled:opacity-50"
+        >
+          Refresh
+        </button>
+        <button
+          type="button"
+          onClick={() => void runDoctor()}
+          disabled={loading || doctorRunning}
+          className="flex items-center justify-center gap-1 rounded-lg border border-app-border bg-app-surface-2 px-2 py-1.5 text-xs text-app-text hover:bg-app-border disabled:opacity-50"
+        >
+          <Wrench className="h-3 w-3" />
+          Doctor
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function LeftRailFooter() {
-  const [usageOpen, setUsageOpen] = useState(false)
+  const [openPanel, setOpenPanel] = useState<'usage' | 'health' | null>(null)
 
   return (
     <>
-      {usageOpen && (
+      {openPanel === 'usage' && (
         <div className="mt-2 rounded-xl bg-app-bg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
           <UsageMeter />
         </div>
       )}
-      <div className="-mx-3 mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-4 pt-2">
+      {openPanel === 'health' && <HealthCard />}
+      <div className="-mx-3 mt-2 flex h-10 shrink-0 items-center gap-1 border-t border-app-border px-4 pt-2">
         <button
           type="button"
-          onClick={() => setUsageOpen((open) => !open)}
-          className={`rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${usageOpen ? 'bg-app-surface-2 text-app-text' : ''}`}
+          onClick={() => setOpenPanel((panel) => panel === 'usage' ? null : 'usage')}
+          className={`rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${openPanel === 'usage' ? 'bg-app-surface-2 text-app-text' : ''}`}
           title="Usage remaining"
         >
           <Gauge className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpenPanel((panel) => panel === 'health' ? null : 'health')}
+          className={`rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${openPanel === 'health' ? 'bg-app-surface-2 text-app-text' : ''}`}
+          title="Cranberri health"
+        >
+          <Stethoscope className="h-4 w-4" />
         </button>
       </div>
     </>

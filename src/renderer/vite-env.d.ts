@@ -1,6 +1,7 @@
 import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
+import type { CranberriHealthReport } from '@/shared/health'
 
 declare module '@xterm/xterm/css/xterm.css'
 declare module '*.css' {
@@ -14,6 +15,10 @@ declare global {
   interface Window {
     cranberri: {
       getVersion: () => Promise<string>
+      health: {
+        read: () => Promise<CranberriHealthReport>
+        doctor: () => Promise<CranberriHealthReport>
+      }
       repos: {
         list: () => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
         add: (path: string) => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>

@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
+  health: {
+    read: () => ipcRenderer.invoke('health:read'),
+    doctor: () => ipcRenderer.invoke('health:doctor'),
+  },
   repos: {
     list: () => ipcRenderer.invoke('repos:list'),
     add: (path: string) => ipcRenderer.invoke('repos:add', path),
