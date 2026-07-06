@@ -28,9 +28,12 @@ function generateId(): string {
 }
 
 export function useWorkspace(): WorkspaceApi {
-  const [state, setState] = useState<WorkspaceState>({
-    windows: [{ id: generateId(), type: 'chat', title: 'Chat 1' }],
-    activeWindowId: null,
+  const [state, setState] = useState<WorkspaceState>(() => {
+    const first = generateId()
+    return {
+      windows: [{ id: first, type: 'chat', title: 'Chat 1' }],
+      activeWindowId: first,
+    }
   })
 
   const openChat = useCallback(() => {
