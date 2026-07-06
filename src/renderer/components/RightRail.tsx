@@ -194,18 +194,11 @@ export function RightRail() {
       </div>
       {bottomPanel && (
         <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
-          <div className="flex h-8 shrink-0 items-center justify-between border-b border-app-border bg-app-surface-2 px-3">
+          <div className="flex h-8 shrink-0 items-center border-b border-app-border bg-app-surface-2 px-3">
             <div className="flex items-center gap-2 text-xs font-medium text-app-text">
               <Ticket className="h-3.5 w-3.5 text-app-text-muted" />
               <span>Issue</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setBottomPanel(null)}
-              className="rounded px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-app-surface hover:text-app-text"
-            >
-              Close
-            </button>
           </div>
           <div className="p-3 text-sm text-app-text-muted">
             No Linear issue linked.
