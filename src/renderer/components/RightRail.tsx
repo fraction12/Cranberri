@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer-continued'
 import { FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight } from 'lucide-react'
-import { useGitStatus, useGitFiles, useGitRawContent } from '../state/git'
+import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
 import type { GitFileStatus, FileTreeNode } from '@/shared/git'
 
 function statusColor(status: GitFileStatus['status']) {
@@ -97,6 +97,7 @@ export function RightRail() {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <span className="text-xs font-medium truncate" title={selectedFile.path}>{selectedFile.path}</span>
+                  <DiffStats filePath={selectedFile.path} status={selectedFile.status} />
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto p-0">
                   {diffLoading ? (
@@ -301,6 +302,7 @@ function DiffViewer({ filePath, status }: { filePath: string; status: GitFileSta
         splitView={false}
         showDiffOnly={false}
         hideLineNumbers
+        hideSummary
         disableWordDiff
         styles={{
           variables: {
@@ -338,6 +340,19 @@ function DiffViewer({ filePath, status }: { filePath: string; status: GitFileSta
           },
         }}
       />
+    </div>
+  )
+}
+
+function DiffStats({ filePath }: { filePath: string; status: GitFileStatus['status'] }) {
+  const { data: fileDiff } = useGitDiffForFile(filePath)
+  if (!fileDiff?.files.length) return null
+  const { additions, deletions } = fileDiff.files[0]
+  if (additions === 0 && deletions === 0) return null
+  return (
+    <div className="ml-auto flex items-center gap-2 text-[10px] font-medium">
+      {additions > 0 && <span className="text-green-400">+{additions}</span>}
+      {deletions > 0 && <span className="text-red-400">−{deletions}</span>}
     </div>
   )
 }
