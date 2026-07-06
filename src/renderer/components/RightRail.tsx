@@ -300,27 +300,24 @@ function DiffViewer({ filePath, status }: { filePath: string; status: GitFileSta
         newValue={newContent ?? ''}
         splitView={false}
         showDiffOnly={false}
+        hideLineNumbers
+        disableWordDiff
         styles={{
           variables: {
             light: {
               diffViewerBackground: 'var(--app-surface)',
-              gutterBackground: 'var(--app-surface-2)',
-              gutterBackgroundDark: 'var(--app-surface-2)',
-              addedBackground: 'rgba(34, 197, 94, 0.12)',
-              addedColor: 'var(--app-text)',
-              removedBackground: 'rgba(239, 68, 68, 0.12)',
-              removedColor: 'var(--app-text)',
-              wordAddedBackground: 'rgba(34, 197, 94, 0.25)',
-              wordRemovedBackground: 'rgba(239, 68, 68, 0.25)',
-              addedGutterBackground: 'rgba(34, 197, 94, 0.20)',
-              removedGutterBackground: 'rgba(239, 68, 68, 0.20)',
-              gutterColor: 'var(--app-text-muted)',
-              codeFoldBackground: 'var(--app-surface-2)',
-              codeFoldGutterBackground: 'var(--app-surface-2)',
               diffViewerColor: 'var(--app-text)',
               diffViewerTitleBackground: 'var(--app-surface-2)',
               diffViewerTitleColor: 'var(--app-text)',
               diffViewerTitleBorderColor: 'var(--app-border)',
+              addedBackground: 'rgba(34, 197, 94, 0.12)',
+              addedColor: 'var(--app-text)',
+              removedBackground: 'rgba(239, 68, 68, 0.12)',
+              removedColor: 'var(--app-text)',
+              changedBackground: 'transparent',
+              gutterColor: 'var(--app-text-muted)',
+              codeFoldBackground: 'var(--app-surface-2)',
+              codeFoldGutterBackground: 'var(--app-surface-2)',
             },
           },
           diffContainer: {
@@ -330,21 +327,6 @@ function DiffViewer({ filePath, status }: { filePath: string; status: GitFileSta
           },
           line: {
             minHeight: '20px',
-          },
-          gutter: {
-            minWidth: '44px',
-            padding: '0 8px',
-            textAlign: 'right',
-            color: 'var(--app-text-muted)',
-            backgroundColor: 'var(--app-surface-2)',
-            borderRight: '1px solid var(--app-border)',
-          },
-          marker: {
-            width: '20px',
-            textAlign: 'center',
-            backgroundColor: 'var(--app-surface-2)',
-            color: 'var(--app-text-muted)',
-            borderRight: '1px solid var(--app-border)',
           },
           content: {
             width: '100%',
