@@ -43,6 +43,8 @@ declare global {
         unarchiveThread: (cwd: string, threadId: string) => Promise<{ thread: CodexSessionThread }>
         deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         renameThread: (cwd: string, threadId: string, name: string) => Promise<{ ok: boolean }>
+        getRateLimits: () => Promise<import('@/shared/codex').CodexRateLimitsReadResult>
+        consumeRateLimitResetCredit: () => Promise<{ outcome: string }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {

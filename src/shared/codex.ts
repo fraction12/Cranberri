@@ -52,6 +52,55 @@ export interface CodexPluginInfo {
   toolCount: number
 }
 
+export interface CodexRateLimitWindow {
+  usedPercent: number
+  windowDurationMins: number
+  resetsAt: number
+}
+
+export interface CodexRateLimitCredits {
+  hasCredits: boolean
+  unlimited: boolean
+  balance: string
+}
+
+export interface CodexRateLimits {
+  limitId: string
+  limitName: string | null
+  primary: CodexRateLimitWindow
+  secondary: CodexRateLimitWindow
+  credits: CodexRateLimitCredits | null
+  individualLimit: unknown
+  planType: string
+  rateLimitReachedType: string | null
+}
+
+export interface CodexRateLimitResetCredits {
+  availableCount: number
+}
+
+export interface CodexRateLimitsReadResult {
+  rateLimits: CodexRateLimits
+  rateLimitsByLimitId: Record<string, CodexRateLimits>
+  rateLimitResetCredits: CodexRateLimitResetCredits
+}
+
+export interface CodexDailyUsageBucket {
+  startDate: string
+  tokens: number
+}
+
+export interface CodexAccountUsageReadResult {
+  summary: {
+    lifetimeTokens: number
+    peakDailyTokens: number
+    longestRunningTurnSec: number
+    currentStreakDays: number
+    longestStreakDays: number
+  }
+  dailyUsageBuckets: CodexDailyUsageBucket[]
+}
+
 export interface CodexContextUsage {
   usedTokens: number
   contextWindow: number

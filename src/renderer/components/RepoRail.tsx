@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Archive, ChevronRight, FolderGit2, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useRepos } from '../state/repos'
 import { useCodex } from '../state/codex'
+import { UsageMeter } from './UsageMeter'
 import type { CodexSessionSummary } from '@/shared/codex'
 
 function relativeTime(value: number): string {
@@ -331,6 +332,7 @@ export function RepoRail() {
           </div>
         ))}
       </div>
+      <UsageMeter />
       {repoMenu && (
         <div
           className="fixed z-50 w-40 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-xl"

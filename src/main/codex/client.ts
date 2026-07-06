@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult } from '../../shared/codex'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -213,6 +213,21 @@ export class CodexClient extends EventEmitter {
 
   async setThreadName(threadId: string, name: string): Promise<void> {
     await this.call('thread/name/set', { threadId, name })
+  }
+
+  async getRateLimits(): Promise<CodexRateLimitsReadResult> {
+    const res = await this.call('account/rateLimits/read', {})
+    return res.result as CodexRateLimitsReadResult
+  }
+
+  async getAccountUsage(): Promise<CodexAccountUsageReadResult> {
+    const res = await this.call('account/usage/read', {})
+    return res.result as CodexAccountUsageReadResult
+  }
+
+  async consumeRateLimitResetCredit(idempotencyKey: string): Promise<{ outcome: string }> {
+    const res = await this.call('account/rateLimitResetCredit/consume', { idempotencyKey })
+    return res.result as { outcome: string }
   }
 
   async approve(approvalId: string, threadId: string): Promise<void> {

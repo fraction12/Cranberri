@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
 import type { CodexEvent, CodexPluginInfo, CodexTurnSettings } from '../../shared/codex'
+import { randomUUID } from 'node:crypto'
 
 interface Session {
   cwd: string
@@ -126,6 +127,13 @@ function getOrCreateSession(cwd: string): Session {
   return session
 }
 
+async function getAccountClient(): Promise<CodexClient> {
+  const fallbackCwd = sessions.keys().next().value ?? process.cwd()
+  const session = getOrCreateSession(fallbackCwd)
+  await session.client.start()
+  return session.client
+}
+
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   const broadcast = (event: CodexEvent) => {
     const win = mainWindowGetter()
@@ -230,6 +238,16 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     await session.client.start()
     await session.client.abort(threadId)
     return { ok: true }
+  })
+
+  ipcMain.handle('codex:account:rateLimits', async () => {
+    const client = await getAccountClient()
+    return client.getRateLimits()
+  })
+
+  ipcMain.handle('codex:account:consumeResetCredit', async () => {
+    const client = await getAccountClient()
+    return client.consumeRateLimitResetCredit(randomUUID())
   })
 
   ipcMain.handle('codex:stop', async (_, cwd: string) => {
