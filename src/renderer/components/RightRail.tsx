@@ -284,14 +284,20 @@ function ProcessesPanel({ repoPath }: { repoPath: string | null }) {
       {!loading && processes.length === 0 && <div className="p-2 text-xs text-app-text-muted">No running processes found for this repo.</div>}
       <div className="space-y-1">
         {processes.map((processInfo) => (
-          <div key={processInfo.pid} className="rounded-lg bg-app-surface/70 p-2 text-xs">
+          <button
+            key={processInfo.id}
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('cranberri:open-process-terminal', { detail: { process: processInfo } }))}
+            className="w-full rounded-lg bg-app-surface/70 p-2 text-left text-xs transition hover:bg-app-surface-2 focus:outline-none focus:ring-1 focus:ring-app-accent"
+            title="Open in terminal"
+          >
             <div className="flex items-center justify-between gap-2">
               <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">{processInfo.kind}</span>
               <span className="text-[10px] text-app-text-muted">pid {processInfo.pid}</span>
             </div>
             <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>{processInfo.command}</div>
             {processInfo.cwd && <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>{processInfo.cwd}</div>}
-          </div>
+          </button>
         ))}
       </div>
     </div>

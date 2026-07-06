@@ -8,6 +8,7 @@ export interface AgentProcessInfo {
   ppid?: number | null
   command: string
   cwd?: string
+  terminalWindowId?: string
   repoPath: string
   kind: AgentProcessKind
   source: AgentProcessSource

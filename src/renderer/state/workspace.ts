@@ -15,7 +15,7 @@ interface WorkspaceState {
 
 interface WorkspaceApi extends WorkspaceState {
   openChat: (id?: string, title?: string) => string
-  openTerminal: () => void
+  openTerminal: (id?: string, title?: string) => string
   closeWindow: (id: string) => void
   setActiveWindow: (id: string) => void
   renameWindow: (id: string, title: string) => void
@@ -43,12 +43,16 @@ export function useWorkspace(): WorkspaceApi {
     return newWindow.id
   }, [state.windows])
 
-  const openTerminal = useCallback(() => {
+  const openTerminal = useCallback((id?: string, title?: string) => {
+    const windowId = id ?? generateId()
     setState((prev) => {
+      const existingWindow = prev.windows.find((w) => w.id === windowId)
+      if (existingWindow) return { ...prev, activeWindowId: windowId }
       const existing = prev.windows.filter((w) => w.type === 'terminal').length + 1
-      const newWindow: WorkspaceWindow = { id: generateId(), type: 'terminal', title: `Terminal ${existing}` }
+      const newWindow: WorkspaceWindow = { id: windowId, type: 'terminal', title: title ?? `Terminal ${existing}` }
       return { windows: [...prev.windows, newWindow], activeWindowId: newWindow.id }
     })
+    return windowId
   }, [])
 
   const closeWindow = useCallback((id: string) => {

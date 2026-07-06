@@ -23,6 +23,22 @@ export function Workspace() {
     return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
   }, [openChat, openSession])
 
+  useEffect(() => {
+    const onOpenProcessTerminal = (event: Event) => {
+      const processInfo = (event as CustomEvent).detail?.process
+      const terminalWindowId = processInfo?.terminalWindowId
+      if (terminalWindowId) {
+        openTerminal(terminalWindowId, 'Terminal')
+        return
+      }
+      if (processInfo?.cwd) {
+        openTerminal(undefined, `Terminal · pid ${processInfo.pid ?? 'unknown'}`)
+      }
+    }
+    window.addEventListener('cranberri:open-process-terminal', onOpenProcessTerminal)
+    return () => window.removeEventListener('cranberri:open-process-terminal', onOpenProcessTerminal)
+  }, [openTerminal])
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div className="h-9 flex items-center border-b border-app-border bg-app-surface shrink-0 px-2 gap-1">
@@ -65,7 +81,7 @@ export function Workspace() {
         </button>
         <button
           type="button"
-          onClick={openTerminal}
+          onClick={() => openTerminal()}
           className="flex items-center gap-1 px-2 py-1 rounded text-xs text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
         >
           <Plus className="w-3.5 h-3.5" />

@@ -71,10 +71,12 @@ export function initTerminalIpc(): void {
     const session = startSession(cwd, cols, rows)
     const resolvedCwd = resolveCwd(cwd)
     const processRecord = registerProcess({
+      id: `terminal:${id}`,
       pid: session.pid,
       ppid: process.pid,
       command: 'Cranberri terminal',
       cwd: resolvedCwd,
+      terminalWindowId: id,
       repoPath: resolvedCwd,
       kind: 'terminal',
       source: 'terminal',

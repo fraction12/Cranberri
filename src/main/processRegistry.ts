@@ -126,6 +126,7 @@ async function discoverChildrenForRunningTerminals(processes: AgentProcessInfo[]
         ppid: child.ppid,
         command: child.command,
         cwd: terminal.cwd,
+        terminalWindowId: terminal.terminalWindowId,
         repoPath: normalizeRepoPath(repoPath),
         kind: classify(child.command),
         source: terminal.source,
