@@ -199,8 +199,8 @@ function RepoSessions({ repoPath }: { repoPath: string }) {
   }
 
   return (
-    <div className="ml-6 mt-1 flex min-h-0 flex-1 flex-col pl-2">
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+    <div className="ml-6 mt-1 flex min-h-0 flex-col pl-2">
+      <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
         {recent.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
         {recent.map((session) => (
           <SessionRow key={session.id} session={session} active={openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
@@ -425,9 +425,9 @@ export function RepoRail() {
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pr-1">
         {repos.map((repo) => (
-          <div key={repo.id} className={activeRepoId === repo.id && expandedRepoIds[repo.id] ? 'flex min-h-0 flex-1 flex-col' : 'shrink-0'}>
+          <div key={repo.id} className="shrink-0">
             <div
               onClick={() => setActiveRepo(repo.id)}
               onContextMenu={(event) => {
@@ -454,7 +454,7 @@ export function RepoRail() {
                 <ChevronRight className={`w-3 h-3 transition-transform ${expandedRepoIds[repo.id] ? 'rotate-90' : ''}`} />
               </button>
             </div>
-            {activeRepoId === repo.id && expandedRepoIds[repo.id] && <RepoSessions repoPath={repo.path} />}
+            {expandedRepoIds[repo.id] && <RepoSessions repoPath={repo.path} />}
           </div>
         ))}
       </div>
