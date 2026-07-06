@@ -78,6 +78,41 @@ async function hydrateCommands(processes: AgentProcessInfo[]): Promise<AgentProc
   })
 }
 
+async function appProcessIds(): Promise<Set<number>> {
+  const psOutput = await run('ps', ['-axo', 'pid=,ppid=,command='])
+  const children = new Map<number, number[]>()
+  const appIds = new Set<number>([process.pid])
+
+  for (const line of psOutput.split('\n')) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)
+    if (!match) continue
+    const pid = Number(match[1])
+    const ppid = Number(match[2])
+    const command = match[3]
+    children.set(ppid, [...(children.get(ppid) ?? []), pid])
+    if (command.includes('electron-vite') || command.includes('out/main/index.cjs')) {
+      appIds.add(pid)
+    }
+  }
+
+  const queue = [...appIds]
+  for (const pid of queue) {
+    for (const childPid of children.get(pid) ?? []) {
+      if (appIds.has(childPid)) continue
+      appIds.add(childPid)
+      queue.push(childPid)
+    }
+  }
+
+  return appIds
+}
+
+function isAppLevelProcess(processInfo: AgentProcessInfo, appIds: Set<number>): boolean {
+  if (appIds.has(processInfo.pid) || appIds.has(processInfo.ppid)) return true
+  const command = processInfo.command.toLowerCase()
+  return command.includes('electron-vite') || command.includes('out/main/index.cjs') || command.includes('cranberri')
+}
+
 export function initProcessesIpc(): void {
   ipcMain.handle('processes:list', async (_, repoPath: string) => {
     const terminalProcesses = listTerminalProcesses().filter((processInfo) => isInsideRepo(processInfo.cwd, repoPath))
@@ -86,6 +121,8 @@ export function initProcessesIpc(): void {
     for (const processInfo of [...terminalProcesses, ...cwdProcesses]) {
       byPid.set(processInfo.pid, processInfo)
     }
-    return { processes: await hydrateCommands([...byPid.values()]) }
+    const hydrated = await hydrateCommands([...byPid.values()])
+    const appIds = await appProcessIds()
+    return { processes: hydrated.filter((processInfo) => !isAppLevelProcess(processInfo, appIds)) }
   })
 }
