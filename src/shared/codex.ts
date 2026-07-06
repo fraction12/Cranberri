@@ -84,6 +84,8 @@ export interface CodexThread {
   messages: CodexMessage[]
   pendingApprovals: PendingApproval[]
   isRunning: boolean
+  isCompacting?: boolean
+  lastCompactionResult?: 'completed' | 'failed'
   currentActivity?: string
   runStartedAt?: number
   lastRunDurationMs?: number
@@ -99,6 +101,7 @@ export type CodexEvent =
   | { type: 'run_start'; threadId: string }
   | { type: 'run_end'; threadId: string; error?: string }
   | { type: 'context_usage'; threadId: string; usedTokens: number; contextWindow: number }
+  | { type: 'context_compaction'; threadId: string; state: 'started' | 'completed' | 'failed'; message?: string }
   | { type: 'final_answer'; threadId: string; text: string }
   | { type: 'item_started'; threadId: string; itemId?: string; itemType: string }
   | { type: 'log'; level: string; text: string }

@@ -213,6 +213,22 @@ export class CodexClient extends EventEmitter {
         if (text) this.emit('event', { type: 'log', level: 'warning', text } as CodexEvent)
         break
       }
+      case 'context/summary/started':
+      case 'context/compaction/started': {
+        this.emit('event', { type: 'context_compaction', threadId, state: 'started' } as CodexEvent)
+        break
+      }
+      case 'context/summary/completed':
+      case 'context/compaction/completed': {
+        this.emit('event', { type: 'context_compaction', threadId, state: 'completed' } as CodexEvent)
+        break
+      }
+      case 'context/summary/failed':
+      case 'context/compaction/failed': {
+        const message = (params as { message?: string }).message ?? ''
+        this.emit('event', { type: 'context_compaction', threadId, state: 'failed', message } as CodexEvent)
+        break
+      }
       case 'item/agentMessage/delta': {
         const itemId = (params as { itemId?: string }).itemId
         const delta = (params as { delta?: string }).delta ?? ''

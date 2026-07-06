@@ -761,6 +761,26 @@ export function ChatWindow({ id }: { id: string }) {
       )
     }
 
+    if (thread?.isCompacting || thread?.lastCompactionResult) {
+      nodes.push(
+        <div key="context-compaction" className="flex items-center gap-3 text-sm text-[var(--app-text-muted)]">
+          <div className="h-px flex-1 bg-[var(--app-border)]" />
+          <div className="flex items-center gap-2">
+            {thread.isCompacting ? (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--app-text-muted)]" />
+              </span>
+            ) : (
+              <span className="h-2 w-2 rounded-full bg-[var(--app-text-muted)]" />
+            )}
+            <span>{thread.isCompacting ? 'Compacting context' : thread.lastCompactionResult === 'completed' ? 'Context compacted' : 'Context compaction failed'}</span>
+          </div>
+          <div className="h-px flex-1 bg-[var(--app-border)]" />
+        </div>,
+      )
+    }
+
     return nodes
   }
 

@@ -144,6 +144,10 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             }
             break
           }
+          case 'context_compaction':
+            thread.isCompacting = e.state === 'started'
+            if (e.state !== 'started') thread.lastCompactionResult = e.state
+            break
           case 'context_usage':
             thread.contextUsage = { usedTokens: e.usedTokens, contextWindow: e.contextWindow }
             break
