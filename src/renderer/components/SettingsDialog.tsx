@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { X, Command, Keyboard, Monitor, Bot, FileJson } from 'lucide-react'
-import * as Tabs from '@radix-ui/react-tabs'
 import { useSettings } from '../state/settings'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_APPROVAL_MODES } from '@/shared/codex'
 
@@ -9,9 +8,11 @@ interface SettingsDialogProps {
   onClose: () => void
 }
 
+type TabValue = 'general' | 'shortcuts' | 'about'
+
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const { settings, loading, updateSection } = useSettings()
-  const [activeTab, setActiveTab] = useState('general')
+  const [activeTab, setActiveTab] = useState<TabValue>('general')
   const [version, setVersion] = useState('…')
 
   useEffect(() => {
@@ -22,27 +23,29 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-4">
-      <div className="flex h-[540px] w-full max-w-[640px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl">
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="flex w-full">
-          <div className="flex w-44 flex-col border-r border-app-border bg-app-bg">
-            <DialogSidebar activeTab={activeTab} />
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="flex h-[540px] w-full max-w-[640px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex w-44 flex-col border-r border-app-border bg-app-bg p-2">
+          <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="shortcuts" icon={Keyboard} label="Shortcuts" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="about" icon={FileJson} label="About" onClick={setActiveTab} />
+        </div>
+
+        <div className="flex flex-1 flex-col min-h-0">
+          <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
+            <span className="text-sm font-semibold">Settings</span>
+            <button type="button" onClick={onClose} className="rounded p-1 hover:bg-app-surface-2" aria-label="Close settings">
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="flex flex-1 flex-col min-h-0">
-            <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
-              <span className="text-sm font-semibold">Settings</span>
-              <button type="button" onClick={onClose} className="rounded p-1 hover:bg-app-surface-2" aria-label="Close settings">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5">
-              {loading ? (
-                <div className="text-sm text-app-text-muted">Loading settings...</div>
-              ) : (
-                <>
-                  <Tabs.Content value="general" className="space-y-5">
+          <div className="flex-1 overflow-y-auto p-5">
+            {loading ? (
+              <div className="text-sm text-app-text-muted">Loading settings...</div>
+            ) : (
+              <div className="space-y-5">
+                {activeTab === 'general' && (
+                  <>
                     <Section title="Codex defaults" icon={Bot}>
                       <label className="block">
                         <span className="mb-1.5 block text-xs text-app-text-muted">Default model</span>
@@ -96,65 +99,68 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       </label>
                       <p className="text-xs text-app-text-muted">Light theme is a placeholder; the app currently enforces dark mode.</p>
                     </Section>
-                  </Tabs.Content>
+                  </>
+                )}
 
-                  <Tabs.Content value="shortcuts" className="space-y-5">
-                    <Section title="Keyboard shortcuts" icon={Keyboard}>
-                      <ShortcutRow keys={['⌘', ',']} description="Open settings" />
-                      <ShortcutRow keys={['Enter']} description="Send message" />
-                      <ShortcutRow keys={['Shift', 'Enter']} description="New line in composer" />
-                    </Section>
-                  </Tabs.Content>
+                {activeTab === 'shortcuts' && (
+                  <Section title="Keyboard shortcuts" icon={Keyboard}>
+                    <ShortcutRow keys={['⌘', ',']} description="Open settings" />
+                    <ShortcutRow keys={['Enter']} description="Send message" />
+                    <ShortcutRow keys={['Shift', 'Enter']} description="New line in composer" />
+                  </Section>
+                )}
 
-                  <Tabs.Content value="about" className="space-y-5">
-                    <Section title="About Cranberri" icon={FileJson}>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-app-text-muted">Version</span>
-                          <span>{version}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-app-text-muted">Codex integration</span>
-                          <span>v2 app-server (stdio JSON-RPC)</span>
-                        </div>
-                        <p className="pt-2 text-xs text-app-text-muted">
-                          Cranberri is a private, chat-first coding cockpit for local repo work.
-                        </p>
+                {activeTab === 'about' && (
+                  <Section title="About Cranberri" icon={FileJson}>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-app-text-muted">Version</span>
+                        <span>{version}</span>
                       </div>
-                    </Section>
-                  </Tabs.Content>
-                </>
-              )}
-            </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-app-text-muted">Codex integration</span>
+                        <span>v2 app-server (stdio JSON-RPC)</span>
+                      </div>
+                      <p className="pt-2 text-xs text-app-text-muted">
+                        Cranberri is a private, chat-first coding cockpit for local repo work.
+                      </p>
+                    </div>
+                  </Section>
+                )}
+              </div>
+            )}
           </div>
-        </Tabs.Root>
+        </div>
       </div>
     </div>
   )
 }
 
-function DialogSidebar({ activeTab }: { activeTab: string }) {
-  const items = [
-    { value: 'general', label: 'General', icon: Command },
-    { value: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
-    { value: 'about', label: 'About', icon: FileJson },
-  ]
-
+function SidebarButton({
+  active,
+  value,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: TabValue
+  value: TabValue
+  icon: React.ElementType
+  label: string
+  onClick: (value: TabValue) => void
+}) {
+  const isActive = active === value
   return (
-    <div className="flex flex-col p-2">
-      {items.map((item) => (
-        <Tabs.Trigger
-          key={item.value}
-          value={item.value}
-          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-            activeTab === item.value ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/50'
-          }`}
-        >
-          <item.icon className="h-4 w-4" />
-          {item.label}
-        </Tabs.Trigger>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={() => onClick(value)}
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+        isActive ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/50'
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
   )
 }
 
