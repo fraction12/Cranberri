@@ -1,5 +1,5 @@
 import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
-import type { CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
 
 declare module '@xterm/xterm/css/xterm.css'
@@ -44,6 +44,8 @@ declare global {
         unarchiveThread: (cwd: string, threadId: string) => Promise<{ thread: CodexSessionThread }>
         deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         renameThread: (cwd: string, threadId: string, name: string) => Promise<{ ok: boolean }>
+        getConnectionStatus: () => Promise<CodexConnectionStatus>
+        connect: () => Promise<CodexConnectionStatus>
         getRateLimits: () => Promise<import('@/shared/codex').CodexRateLimitsReadResult>
         consumeRateLimitResetCredit: () => Promise<{ outcome: string }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void

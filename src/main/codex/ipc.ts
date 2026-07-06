@@ -1,9 +1,10 @@
 import { dialog, ipcMain } from 'electron'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
-import type { CodexEvent, CodexPluginInfo, CodexTurnSettings } from '../../shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexTurnSettings } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 
 interface PluginManifest {
@@ -22,6 +23,64 @@ const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
 
 let client: CodexClient | null = null
 let clientStarting = false
+
+function run(command: string, args: string[], timeout = 15000): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { timeout, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({
+        stdout: stdout?.toString() ?? '',
+        stderr: stderr?.toString() ?? '',
+        code: error ? 1 : 0,
+      })
+    })
+  })
+}
+
+async function findCodexBinary(): Promise<string | null> {
+  return findExecutable('codex', ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'])
+}
+
+async function findExecutable(name: string, candidates: string[]): Promise<string | null> {
+  const fromPath = await run('which', [name], 5000)
+  const found = fromPath.stdout.trim().split('\n')[0]
+  if (fromPath.code === 0 && found) return found
+
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate
+  }
+  return null
+}
+
+async function installCodexCli(): Promise<void> {
+  const npmPath = await findExecutable('npm', ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'])
+  if (!npmPath) throw new Error('Codex CLI was not found, and npm is not available to install it.')
+
+  const install = await run(npmPath, ['install', '-g', '@openai/codex'], 300000)
+  if (install.code !== 0) {
+    const detail = (install.stderr || install.stdout).trim() || 'Failed to install Codex CLI.'
+    throw new Error(detail)
+  }
+}
+
+async function getCodexConnectionStatus(): Promise<CodexConnectionStatus> {
+  const cliPath = await findCodexBinary()
+  if (!cliPath) {
+    return {
+      installed: false,
+      authenticated: false,
+      detail: 'Codex CLI was not found on this machine.',
+    }
+  }
+
+  const status = await run(cliPath, ['login', 'status'], 15000)
+  const detail = (status.stdout || status.stderr).trim() || 'Codex login status returned no output.'
+  return {
+    installed: true,
+    authenticated: status.code === 0 && /logged in/i.test(detail),
+    cliPath,
+    detail,
+  }
+}
 
 function titleizePluginName(name: string): string {
   return name
@@ -152,6 +211,29 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   }).catch((err) => console.error('Failed to start persistent Codex client:', err))
 
   ipcMain.handle('codex:plugins', async () => ({ plugins: await listConfiguredPlugins() }))
+
+  ipcMain.handle('codex:connection:status', async () => {
+    return getCodexConnectionStatus()
+  })
+
+  ipcMain.handle('codex:connection:connect', async () => {
+    let cliPath = await findCodexBinary()
+    if (!cliPath) {
+      await installCodexCli()
+      cliPath = await findCodexBinary()
+      if (!cliPath) throw new Error('Codex CLI installed, but Cranberri could not find it on this machine.')
+    }
+
+    const login = await run(cliPath, ['login', '--device-auth'], 120000)
+    if (login.code !== 0) {
+      const detail = (login.stderr || login.stdout).trim() || 'Codex login failed.'
+      throw new Error(detail)
+    }
+
+    client?.stop()
+    client = null
+    return getCodexConnectionStatus()
+  })
 
   ipcMain.handle('codex:pick-files', async () => {
     const result = await dialog.showOpenDialog({

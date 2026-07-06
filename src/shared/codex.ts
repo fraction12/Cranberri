@@ -52,6 +52,13 @@ export interface CodexPluginInfo {
   toolCount: number
 }
 
+export interface CodexConnectionStatus {
+  installed: boolean
+  authenticated: boolean
+  cliPath?: string
+  detail: string
+}
+
 export interface CodexRateLimitWindow {
   usedPercent: number
   windowDurationMins: number

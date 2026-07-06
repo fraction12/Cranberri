@@ -32,6 +32,8 @@ const api = {
     unarchiveThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:unarchive', cwd, threadId),
     deleteThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:delete', cwd, threadId),
     renameThread: (cwd: string, threadId: string, name: string) => ipcRenderer.invoke('codex:threads:rename', cwd, threadId, name),
+    getConnectionStatus: () => ipcRenderer.invoke('codex:connection:status'),
+    connect: () => ipcRenderer.invoke('codex:connection:connect'),
     getRateLimits: () => ipcRenderer.invoke('codex:account:rateLimits'),
     consumeRateLimitResetCredit: () => ipcRenderer.invoke('codex:account:consumeResetCredit'),
     onEvent: (cb: (event: unknown) => void) => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, Command, Keyboard, Monitor, Bot, FileJson } from 'lucide-react'
 import { useSettings } from '../state/settings'
-import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES } from '@/shared/codex'
+import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES, type CodexConnectionStatus } from '@/shared/codex'
 
 interface SettingsDialogProps {
   open: boolean
@@ -14,11 +14,34 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const { settings, loading, updateSection } = useSettings()
   const [activeTab, setActiveTab] = useState<TabValue>('general')
   const [version, setVersion] = useState('…')
+  const [codexStatus, setCodexStatus] = useState<CodexConnectionStatus | null>(null)
+  const [connectingCodex, setConnectingCodex] = useState(false)
+  const [codexError, setCodexError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     window.cranberri.getVersion().then((v) => setVersion(v)).catch(() => setVersion('unknown'))
+    window.cranberri.codex.getConnectionStatus()
+      .then((status) => {
+        setCodexStatus(status)
+        setCodexError(null)
+      })
+      .catch((err) => setCodexError(err instanceof Error ? err.message : 'Failed to check Codex connection'))
   }, [open])
+
+  const connectCodex = async () => {
+    setConnectingCodex(true)
+    setCodexError(null)
+    try {
+      const status = await window.cranberri.codex.connect()
+      setCodexStatus(status)
+    } catch (err) {
+      setCodexError(err instanceof Error ? err.message : 'Failed to connect Codex')
+      window.cranberri.codex.getConnectionStatus().then(setCodexStatus).catch(() => undefined)
+    } finally {
+      setConnectingCodex(false)
+    }
+  }
 
   if (!open) return null
 
@@ -47,6 +70,28 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 {activeTab === 'general' && (
                   <>
                     <Section title="Codex defaults" icon={Bot}>
+                      <div className="rounded-xl border border-app-border bg-app-bg p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-app-text">Codex connection</div>
+                            <div className="mt-1 truncate text-xs text-app-text-muted" title={codexError ?? codexStatus?.detail}>
+                              {codexError ?? codexStatus?.detail ?? 'Checking Codex…'}
+                            </div>
+                            {codexStatus?.cliPath && <div className="mt-1 truncate font-mono text-[10px] text-app-text-muted" title={codexStatus.cliPath}>{codexStatus.cliPath}</div>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void connectCodex()}
+                            disabled={connectingCodex || codexStatus?.authenticated === true}
+                            className="shrink-0 rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:bg-app-surface-2 disabled:text-app-text-muted"
+                          >
+                            {connectingCodex ? 'Connecting…' : codexStatus?.authenticated ? 'Connected' : codexStatus?.installed === false ? 'Install & Connect' : 'Connect Codex'}
+                          </button>
+                        </div>
+                        {!codexStatus?.installed && (
+                          <p className="mt-2 text-[11px] text-app-text-muted">Cranberri will install the Codex CLI with npm, then launch Codex device auth.</p>
+                        )}
+                      </div>
                       <label className="block">
                         <span className="mb-1.5 block text-xs text-app-text-muted">Default model</span>
                         <select
