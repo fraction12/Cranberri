@@ -174,7 +174,7 @@ export function RightRail() {
                   </button>
                   {diffMenu}
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-0">
+                <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">
                   {diffLoading ? (
                     <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
                   ) : (
@@ -391,7 +391,7 @@ function DiffViewer({
         styles={{
           variables: {
             light: {
-              diffViewerBackground: 'var(--app-surface)',
+              diffViewerBackground: 'var(--app-bg)',
               diffViewerColor: 'var(--app-text)',
               diffViewerTitleBackground: 'var(--app-surface-2)',
               diffViewerTitleColor: 'var(--app-text)',
