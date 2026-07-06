@@ -40,7 +40,7 @@ function formatCodexText(text: string) {
       return (
         <code
           key={index}
-          className="rounded-md bg-[#2a303a] px-1.5 py-0.5 font-mono text-[0.9em] text-[#d7dce5]"
+          className="rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 font-mono text-[0.9em] text-[var(--app-text)]"
         >
           {part.slice(1, -1)}
         </code>
@@ -52,11 +52,11 @@ function formatCodexText(text: string) {
 
 function MessageActions({ text }: { text: string }) {
   return (
-    <div className="mt-4 flex items-center gap-3 text-[#7f8794]">
+    <div className="mt-4 flex items-center gap-3 text-[var(--app-text-muted)]">
       <button
         type="button"
         onClick={() => navigator.clipboard.writeText(text).catch((error) => console.error('Failed to copy response:', error))}
-        className="rounded p-0.5 hover:text-[#d7dce5]"
+        className="rounded p-0.5 hover:text-[var(--app-text)]"
         aria-label="Copy response"
       >
         <Copy className="h-3.5 w-3.5" />
@@ -83,25 +83,25 @@ function ReasoningGroup({
   if (messages.length === 0 && !isRunning) return null
 
   return (
-    <div className="max-w-full text-[#8b93a1]">
+    <div className="max-w-full text-[var(--app-text-muted)]">
       <button
         type="button"
         onClick={onToggle}
-        className="mb-2 flex items-center gap-2 text-sm hover:text-[#c0c7d2]"
+        className="mb-2 flex items-center gap-2 text-sm hover:text-[var(--app-text)]"
       >
         {isRunning ? (
           <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#8b93a1] opacity-40" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#8b93a1]" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--app-text-muted)]" />
           </span>
         ) : (
-          <span className="h-2.5 w-2.5 rounded-full bg-[#4e5868]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[var(--app-text-muted)]" />
         )}
         <span>{isRunning ? (activity ?? 'Working') : `Worked${durationMs ? ` for ${Math.max(1, Math.round(durationMs / 1000))}s` : ''}`}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
-        <div className="space-y-5 border-l border-[#2a3344] pl-4">
+        <div className="space-y-5 border-l border-[var(--app-border)] pl-4">
           {messages.map((message) => (
             <TranscriptMessage key={message.id} msg={message} />
           ))}
@@ -114,7 +114,7 @@ function ReasoningGroup({
 function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
-      <div className="max-w-full text-[15px] leading-7 text-[#8b93a1]">
+      <div className="max-w-full text-[15px] leading-7 text-[var(--app-text-muted)]">
         <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
       </div>
     )
@@ -123,7 +123,7 @@ function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[76%] rounded-2xl bg-[#202632] px-4 py-3 text-[15px] leading-6 text-[#e7ebf2] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        <div className="max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-4 py-3 text-[15px] leading-6 text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
           <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
         </div>
       </div>
@@ -131,7 +131,7 @@ function TranscriptMessage({ msg }: { msg: CodexMessage }) {
   }
 
   return (
-    <article className="max-w-full text-[15px] leading-7 text-[#d9dee7]">
+    <article className="max-w-full text-[15px] leading-7 text-[var(--app-text)]">
       <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
       <MessageActions text={msg.content} />
     </article>
@@ -242,23 +242,23 @@ function ModelSelector({
   const mainPopover = open && mainPosition ? (
     <div
       data-model-selector-popover="true"
-      className="fixed z-[1000] w-52 -translate-y-full rounded-xl border border-[#303848] bg-[#202635] p-1.5 text-sm text-[#e3e7ef] shadow-2xl shadow-black/40"
+      className="fixed z-[1000] w-52 -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-sm text-[var(--app-text)] shadow-2xl shadow-black/40"
       style={{ top: mainPosition.top, left: mainPosition.left }}
     >
-      <div className="px-1.5 pb-1.5 pt-1 text-xs text-[#7f8794]">Reasoning</div>
+      <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Reasoning</div>
       {CODEX_EFFORTS.map((option) => (
         <button
           key={option.value}
           type="button"
           onClick={() => onChange({ ...settings, effort: option.value })}
-          className="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[#303747]"
+          className="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--app-surface-2)]"
         >
           <span>{option.label}</span>
-          {settings.effort === option.value && <Check className="h-3.5 w-3.5 text-[#dce2eb]" />}
+          {settings.effort === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
         </button>
       ))}
 
-      <div className="my-1 h-px bg-[#303848]" />
+      <div className="my-1 h-px bg-[var(--app-border)]" />
 
       <button
         ref={modelRowRef}
@@ -266,11 +266,11 @@ function ModelSelector({
         onMouseEnter={() => openSubmenu('model')}
         onMouseLeave={scheduleCloseSubmenu}
         className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
-          submenu === 'model' ? 'bg-[#303747]' : 'hover:bg-[#303747]'
+          submenu === 'model' ? 'bg-[var(--app-surface-2)]' : 'hover:bg-[var(--app-surface-2)]'
         }`}
       >
         <span>{selectedModel.label}</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[#a6afbe]" />
+        <ChevronRight className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
       </button>
       <button
         ref={speedRowRef}
@@ -278,11 +278,11 @@ function ModelSelector({
         onMouseEnter={() => openSubmenu('speed')}
         onMouseLeave={scheduleCloseSubmenu}
         className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
-          submenu === 'speed' ? 'bg-[#303747]' : 'hover:bg-[#303747]'
+          submenu === 'speed' ? 'bg-[var(--app-surface-2)]' : 'hover:bg-[var(--app-surface-2)]'
         }`}
       >
         <span>Speed</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[#a6afbe]" />
+        <ChevronRight className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
       </button>
     </div>
   ) : null
@@ -294,14 +294,14 @@ function ModelSelector({
         if (closeSubmenuTimerRef.current) window.clearTimeout(closeSubmenuTimerRef.current)
       }}
       onMouseLeave={scheduleCloseSubmenu}
-      className={`fixed z-[1001] rounded-xl border border-[#303848] bg-[#202635] p-1.5 text-sm text-[#e3e7ef] shadow-2xl shadow-black/40 ${
+      className={`fixed z-[1001] rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-1.5 text-sm text-[var(--app-text)] shadow-2xl shadow-black/40 ${
         submenu === 'model' ? 'w-52' : 'w-44'
       }`}
       style={{ top: submenuPosition.top, left: submenuPosition.left }}
     >
       {submenu === 'model' ? (
         <>
-          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[#7f8794]">Model</div>
+          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Model</div>
           {CODEX_MODELS.map((option) => (
             <button
               key={option.value}
@@ -311,17 +311,17 @@ function ModelSelector({
                 setOpen(false)
                 setSubmenu(null)
               }}
-              className="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[#303747]"
+              className="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--app-surface-2)]"
             >
               <span>{option.label}</span>
-              {settings.model === option.value && <Check className="h-3.5 w-3.5 text-[#dce2eb]" />}
+              {settings.model === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
             </button>
           ))}
         </>
       ) : (
         <>
-          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[#7f8794]">Speed</div>
-          <div className="px-1.5 py-1.5 text-[#a6afbe]">Default</div>
+          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Speed</div>
+          <div className="px-1.5 py-1.5 text-[var(--app-text-muted)]">Default</div>
         </>
       )}
     </div>
@@ -336,11 +336,11 @@ function ModelSelector({
           setOpen((value) => !value)
           setSubmenu(null)
         }}
-        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[#c0c7d2] hover:bg-[#30394a] hover:text-[#eef2f8]"
+        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]"
       >
         <span>{selectedModel.label.replace('GPT-', '')}</span>
         <span>{selectedEffort.label}</span>
-        <ChevronDown className="h-3 w-3 text-[#7f8794]" />
+        <ChevronDown className="h-3 w-3 text-[var(--app-text-muted)]" />
       </button>
 
       {mainPopover && createPortal(mainPopover, document.body)}
@@ -358,20 +358,20 @@ function ContextWindowIndicator({ usedTokens, contextWindow = 258400 }: { usedTo
   const fillDegrees = Math.round((percentUsed / 100) * 360)
 
   return (
-    <div className="group relative flex h-5 w-5 items-center justify-center text-[#7f8794]">
+    <div className="group relative flex h-5 w-5 items-center justify-center text-[var(--app-text-muted)]">
       <div
         className="flex h-3 w-3 items-center justify-center rounded-full"
         style={{
           background: percentUsed === 0
             ? 'transparent'
-            : `conic-gradient(#9aa3b2 ${fillDegrees}deg, rgba(127,135,148,0.35) ${fillDegrees}deg)`,
+            : `conic-gradient(var(--app-text) ${fillDegrees}deg, rgba(127,135,148,0.35) ${fillDegrees}deg)`,
           boxShadow: percentUsed === 0 ? 'inset 0 0 0 2px rgba(127,135,148,0.35)' : 'none',
         }}
       >
-        {percentUsed > 0 && <div className="h-1.5 w-1.5 rounded-full bg-[#202635]" />}
+        {percentUsed > 0 && <div className="h-1.5 w-1.5 rounded-full bg-[var(--app-surface)]" />}
       </div>
-      <div className="pointer-events-none absolute bottom-6 left-1/2 z-[1200] w-[165px] -translate-x-1/2 rounded-lg border border-[#303848] bg-[#202635] px-3 py-2 text-center text-sm text-[#d9dee7] opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100">
-        <div className="mb-1 text-xs text-[#8b93a1]">Context window:</div>
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-[1200] w-[165px] -translate-x-1/2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-center text-sm text-[var(--app-text)] opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100">
+        <div className="mb-1 text-xs text-[var(--app-text-muted)]">Context window:</div>
         <div>{percentUsed}% used ({percentLeft}% left)</div>
         <div>{compactUsed} / {compactTotal} tokens used</div>
       </div>
@@ -413,21 +413,21 @@ function ApprovalSelector({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[#9aa3b2] hover:bg-[#30394a] hover:text-[#d9dee7]"
+        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]"
       >
         <Settings2 className="h-3.5 w-3.5" />
         {selected.value === 'custom' ? 'Custom' : selected.label}
-        <ChevronDown className="h-3 w-3 text-[#7f8794]" />
+        <ChevronDown className="h-3 w-3 text-[var(--app-text-muted)]" />
       </button>
       {open && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[1200] -translate-y-full rounded-xl border border-[#303848] bg-[#202635] p-2 text-sm text-[#e3e7ef] shadow-2xl shadow-black/50"
+          className="fixed z-[1200] -translate-y-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-sm text-[var(--app-text)] shadow-2xl shadow-black/50"
           style={{ top, left, width }}
         >
-          <div className="flex items-center justify-between px-2 pb-2 text-xs text-[#8b93a1]">
+          <div className="flex items-center justify-between px-2 pb-2 text-xs text-[var(--app-text-muted)]">
             <span>How should Codex actions be approved?</span>
-            <button type="button" className="underline decoration-[#697284] underline-offset-2 hover:text-[#d9dee7]">
+            <button type="button" className="underline decoration-[var(--app-text-muted)] underline-offset-2 hover:text-[var(--app-text)]">
               Learn more
             </button>
           </div>
@@ -439,16 +439,16 @@ function ApprovalSelector({
                 onChange(option.value)
                 setOpen(false)
               }}
-              className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-[#303747]"
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--app-surface-2)]"
             >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#9aa3b2]">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[var(--app-text)]">
                 {option.value === 'ask' ? <Hand className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[#e3e7ef]">{option.label}</span>
-                <span className="block truncate text-[#8b93a1]">{option.description}</span>
+                <span className="block text-[var(--app-text)]">{option.label}</span>
+                <span className="block truncate text-[var(--app-text-muted)]">{option.description}</span>
               </span>
-              {value === option.value && <Check className="h-3.5 w-3.5 shrink-0 text-[#dce2eb]" />}
+              {value === option.value && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--app-text)]" />}
             </button>
           ))}
         </div>,
@@ -513,7 +513,7 @@ function AddMenu({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="rounded p-1 hover:bg-[#2b3342] hover:text-[#d9dee7]"
+        className="rounded p-1 hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]"
         aria-label="Add context"
       >
         <Plus className="h-4 w-4" />
@@ -521,39 +521,39 @@ function AddMenu({
       {open && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[1200] max-h-[320px] -translate-y-full overflow-y-auto rounded-xl border border-[#303848] bg-[#202635] p-2 text-sm text-[#e3e7ef] shadow-2xl shadow-black/50"
+          className="fixed z-[1200] max-h-[320px] -translate-y-full overflow-y-auto rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-sm text-[var(--app-text)] shadow-2xl shadow-black/50"
           style={{ top, left, width: menuWidth }}
         >
-          <div className="px-2 pb-1 text-xs text-[#8b93a1]">Add</div>
-          <button type="button" onClick={() => runAndClose(onAttachFiles)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[#303747]">
-            <FolderOpen className="h-4 w-4 text-[#9aa3b2]" />
+          <div className="px-2 pb-1 text-xs text-[var(--app-text-muted)]">Add</div>
+          <button type="button" onClick={() => runAndClose(onAttachFiles)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--app-surface-2)]">
+            <FolderOpen className="h-4 w-4 text-[var(--app-text)]" />
             <span>Files and folders</span>
           </button>
-          <button type="button" onClick={() => runAndClose(onGoal)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[#303747]">
-            <Goal className="h-4 w-4 text-[#9aa3b2]" />
+          <button type="button" onClick={() => runAndClose(onGoal)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--app-surface-2)]">
+            <Goal className="h-4 w-4 text-[var(--app-text)]" />
             <span>Goal</span>
-            <span className="text-[#7f8794]">Set a goal that Codex will keep working towards</span>
+            <span className="text-[var(--app-text-muted)]">Set a goal that Codex will keep working towards</span>
           </button>
-          <button type="button" onClick={() => runAndClose(onPlanMode)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[#303747]">
-            <Gauge className="h-4 w-4 text-[#9aa3b2]" />
+          <button type="button" onClick={() => runAndClose(onPlanMode)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--app-surface-2)]">
+            <Gauge className="h-4 w-4 text-[var(--app-text)]" />
             <span>Plan mode</span>
-            <span className="text-[#7f8794]">Turn plan mode on</span>
+            <span className="text-[var(--app-text-muted)]">Turn plan mode on</span>
           </button>
 
-          <div className="mt-1 px-2 pb-1 pt-2 text-xs text-[#8b93a1]">Plugins</div>
-          {plugins.length === 0 && <div className="px-2 py-1.5 text-[#7f8794]">No enabled Codex plugins found.</div>}
+          <div className="mt-1 px-2 pb-1 pt-2 text-xs text-[var(--app-text-muted)]">Plugins</div>
+          {plugins.length === 0 && <div className="px-2 py-1.5 text-[var(--app-text-muted)]">No enabled Codex plugins found.</div>}
           {plugins.map((plugin) => (
             <button
               key={plugin.id}
               type="button"
               onClick={() => runAndClose(() => onPlugin(plugin))}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[#303747]"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--app-surface-2)]"
               title={plugin.toolCount ? `${plugin.toolCount} live connector tools available` : plugin.id}
             >
-              <span className="flex h-4 w-4 items-center justify-center text-xs text-[#8fb9ff]">◆</span>
+              <span className="flex h-4 w-4 items-center justify-center text-xs text-[var(--app-accent)]">◆</span>
               <span className="shrink-0 whitespace-nowrap">{plugin.displayName}</span>
-              <span className="min-w-0 flex-1 truncate text-[#7f8794]">{plugin.description || plugin.prompt}</span>
-              {plugin.toolCount > 0 && <span className="ml-auto shrink-0 text-[11px] text-[#6f7785]">{plugin.toolCount} tools</span>}
+              <span className="min-w-0 flex-1 truncate text-[var(--app-text-muted)]">{plugin.description || plugin.prompt}</span>
+              {plugin.toolCount > 0 && <span className="ml-auto shrink-0 text-[11px] text-[var(--app-text-muted)]">{plugin.toolCount} tools</span>}
             </button>
           ))}
         </div>,
@@ -721,33 +721,33 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded border border-[#202634] bg-[#101724]">
+    <div className="flex h-full w-full flex-col overflow-hidden rounded border border-[var(--app-surface)] bg-[var(--app-bg)]">
       <div className="relative flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto px-6 pb-36 pt-8">
           <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-7">
             {!thread && (
-              <div className="text-sm text-[#7f8794]">Starting Codex thread...</div>
+              <div className="text-sm text-[var(--app-text-muted)]">Starting Codex thread...</div>
             )}
             {thread?.messages.length === 0 && (
-              <div className="pt-16 text-center text-sm text-[#7f8794]">
+              <div className="pt-16 text-center text-sm text-[var(--app-text-muted)]">
                 Ask Codex to inspect, edit, or explain this repo.
               </div>
             )}
             {renderTranscript()}
             {thread?.pendingApprovals.map((approval) => (
-              <div key={approval.id} className="rounded-xl border border-[#4c3f22] bg-[#231f16] p-4 text-sm text-[#d9dee7]">
+              <div key={approval.id} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-sm text-[var(--app-text)]">
                 <div className="mb-1 font-medium">Approval needed: {approval.tool}</div>
-                <div className="mb-3 text-[#9aa3b2]">{approval.description}</div>
+                <div className="mb-3 text-[var(--app-text)]">{approval.description}</div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => threadId && sendMessage(threadId, 'yes')}
-                    className="flex items-center gap-1 rounded-md bg-[#d9dee7] px-2 py-1 text-xs text-[#101724]"
+                    className="flex items-center gap-1 rounded-md bg-[var(--app-text)] px-2 py-1 text-xs text-[var(--app-bg)]"
                   >
                     <Check className="h-3 w-3" /> Approve
                   </button>
                   <button
                     onClick={() => threadId && sendMessage(threadId, 'no')}
-                    className="flex items-center gap-1 rounded-md bg-[#272f3d] px-2 py-1 text-xs text-[#d9dee7]"
+                    className="flex items-center gap-1 rounded-md bg-[var(--app-surface-2)] px-2 py-1 text-xs text-[var(--app-text)]"
                   >
                     <X className="h-3 w-3" /> Deny
                   </button>
@@ -758,7 +758,7 @@ export function ChatWindow({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[900] bg-gradient-to-t from-[#101724] via-[#101724]/95 to-transparent px-6 pb-4 pt-16">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[900] bg-gradient-to-t from-[var(--app-bg)] via-[var(--app-bg)]/95 to-transparent px-6 pb-4 pt-16">
           <div
             ref={composerRef}
             data-chat-composer="true"
@@ -770,7 +770,7 @@ export function ChatWindow({ id }: { id: string }) {
               if (nextTarget && composerRef.current?.contains(nextTarget)) return
               composerHadFocusRef.current = false
             }}
-            className="pointer-events-auto mx-auto w-full max-w-[760px] rounded-3xl border border-[#2a3344] bg-[#202635] p-3 shadow-2xl shadow-black/30"
+            className="pointer-events-auto mx-auto w-full max-w-[760px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30"
           >
             {attachments.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5 px-1">
@@ -779,7 +779,7 @@ export function ChatWindow({ id }: { id: string }) {
                     key={filePath}
                     type="button"
                     onClick={() => setAttachments((current) => current.filter((item) => item !== filePath))}
-                    className="rounded-full bg-[#303747] px-2 py-0.5 text-[11px] text-[#c0c7d2] hover:bg-[#3a4354]"
+                    className="rounded-full bg-[var(--app-surface-2)] px-2 py-0.5 text-[11px] text-[var(--app-text)] hover:bg-[var(--app-border)]"
                     title="Click to remove"
                   >
                     {filePath.split('/').pop() || filePath} ×
@@ -805,9 +805,9 @@ export function ChatWindow({ id }: { id: string }) {
               }}
               placeholder={isRunning ? 'Keep typing while Codex works...' : goalMode ? 'Describe your goal, define measurable outcomes for best results' : 'Ask for follow-up changes'}
               rows={2}
-              className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-[#e7ebf2] outline-none placeholder:text-[#6f7785]"
+              className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-1 text-[15px] leading-6 text-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]"
             />
-            <div className="flex items-center justify-between pt-2 text-[#87909e]">
+            <div className="flex items-center justify-between pt-2 text-[var(--app-text-muted)]">
               <div className="flex items-center gap-3">
                 <AddMenu
                   onAttachFiles={attachFiles}
@@ -821,16 +821,16 @@ export function ChatWindow({ id }: { id: string }) {
                 />
                 {goalMode && (
                   <>
-                    <div className="h-4 w-px bg-[#3a4354]" />
+                    <div className="h-4 w-px bg-[var(--app-border)]" />
                     <button
                       type="button"
                       onClick={() => setGoalMode(false)}
-                      className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-[#9aa3b2] hover:bg-[#2b3342] hover:text-[#d9dee7]"
+                      className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]"
                       title="Remove goal"
                     >
                       <Goal className="h-3.5 w-3.5" />
                       <span>Goal</span>
-                      <X className="hidden h-3 w-3 text-[#7f8794] group-hover:block" />
+                      <X className="hidden h-3 w-3 text-[var(--app-text-muted)] group-hover:block" />
                     </button>
                   </>
                 )}
@@ -843,7 +843,7 @@ export function ChatWindow({ id }: { id: string }) {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={handleSend}
                   disabled={isRunning || !input.trim()}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[#9aa3b2] text-[#101724] transition hover:bg-[#c4cad4] disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)] text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40"
                   aria-label="Send message"
                 >
                   {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
