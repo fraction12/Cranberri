@@ -269,7 +269,7 @@ function LeftRailFooter() {
   return (
     <>
       {usageOpen && <UsageMeter className="border-t border-app-border" />}
-      <div className="mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-1 pt-2">
+      <div className="-mx-3 mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-4 pt-2">
         <button
           type="button"
           onClick={() => setUsageOpen((open) => !open)}
