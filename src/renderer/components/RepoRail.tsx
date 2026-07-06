@@ -268,7 +268,11 @@ function LeftRailFooter() {
 
   return (
     <>
-      {usageOpen && <UsageMeter className="border-t border-app-border" />}
+      {usageOpen && (
+        <div className="mt-2 rounded-xl bg-app-bg/70 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+          <UsageMeter />
+        </div>
+      )}
       <div className="-mx-3 mt-2 flex h-10 shrink-0 items-center border-t border-app-border px-4 pt-2">
         <button
           type="button"
