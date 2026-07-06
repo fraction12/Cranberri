@@ -1,9 +1,11 @@
 import simpleGit from 'simple-git'
 import { ipcMain } from 'electron'
 import fs from 'node:fs'
-import path from 'node:path'
 import { z } from 'zod'
 import type { GitHubRepoSummary } from '@/shared/git'
+import { getRegisteredRepoPaths } from './repos'
+import { resolveRepoFilePath, validateRepoPath, validateRepoRelativePath } from './repoSecurity'
+import { commitRepo } from './gitCommit'
 
 const fileStatusSchema = z.object({
   path: z.string(),
@@ -55,7 +57,8 @@ export type DiffResult = Diff
 
 export function initGitIpc(): void {
   ipcMain.handle('git:status', async (_, repoPath: string) => {
-    const git = simpleGit(repoPath)
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const git = simpleGit(safeRepoPath)
     const status = await git.status()
 
     const files: GitFileStatus[] = []
@@ -77,7 +80,8 @@ export function initGitIpc(): void {
   })
 
   ipcMain.handle('git:files', async (_, repoPath: string) => {
-    const git = simpleGit(repoPath)
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const git = simpleGit(safeRepoPath)
     const tracked = await git.raw(['ls-files'])
     const untracked = await git.raw(['ls-files', '--others', '--exclude-standard'])
     const all = new Set([
@@ -122,27 +126,33 @@ export function initGitIpc(): void {
   })
 
   ipcMain.handle('git:diff', async (_, repoPath: string) => {
-    const git = simpleGit(repoPath)
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const git = simpleGit(safeRepoPath)
     const raw = await git.diff()
     return parseGitDiff(raw)
   })
 
   ipcMain.handle('git:diff-file', async (_, repoPath: string, filePath: string) => {
-    const git = simpleGit(repoPath)
-    const raw = await git.diff(['--', filePath])
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const safeFilePath = validateRepoRelativePath(safeRepoPath, filePath)
+    const git = simpleGit(safeRepoPath)
+    const raw = await git.diff(['--', safeFilePath])
     return parseGitDiff(raw)
   })
 
   ipcMain.handle('git:raw-content', async (_, repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => {
-    const git = simpleGit(repoPath)
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const safeFilePath = validateRepoRelativePath(safeRepoPath, filePath)
+    const git = simpleGit(safeRepoPath)
     if (ref === 'WORKING') {
-      return fs.promises.readFile(path.join(repoPath, filePath), 'utf8').catch(() => '')
+      return fs.promises.readFile(resolveRepoFilePath(safeRepoPath, safeFilePath), 'utf8').catch(() => '')
     }
-    return git.show(['HEAD:' + filePath]).catch(() => '')
+    return git.show(['HEAD:' + safeFilePath]).catch(() => '')
   })
 
   ipcMain.handle('git:github-summary', async (_, repoPath: string): Promise<GitHubRepoSummary> => {
-    const git = simpleGit(repoPath)
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const git = simpleGit(safeRepoPath)
     const [remotes, status] = await Promise.all([
       git.getRemotes(true),
       git.status(),
@@ -161,6 +171,11 @@ export function initGitIpc(): void {
       behind: status.behind,
       isGitHub: parsed.isGitHub,
     }
+  })
+
+  ipcMain.handle('git:commit', async (_, repoPath: string, title: string, summary: string) => {
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    return commitRepo(safeRepoPath, title, summary)
   })
 }
 

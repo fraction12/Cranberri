@@ -173,7 +173,7 @@ async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
   return plugins.sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
-async function getClient(): Promise<CodexClient> {
+export async function getCodexClient(): Promise<CodexClient> {
   if (client) {
     await client.start()
     return client
@@ -206,7 +206,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   }
 
   // forward all events from the single persistent client
-  getClient().then((c) => {
+  getCodexClient().then((c) => {
     c.on('event', (event: CodexEvent) => broadcast(event))
   }).catch((err) => console.error('Failed to start persistent Codex client:', err))
 
@@ -244,88 +244,88 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:start', async (_, cwd: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     return { started: true }
   })
 
   ipcMain.handle('codex:create-thread', async (_, cwd: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     const thread = await c.createThread(cwd)
     return { threadId: thread.id }
   })
 
   ipcMain.handle('codex:threads:list', async (_, cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     return c.listThreads(cwd, options ?? {})
   })
 
   ipcMain.handle('codex:threads:read', async (_, cwd: string, threadId: string, archived?: boolean) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     return { thread: await c.readThread(threadId, archived) }
   })
 
   ipcMain.handle('codex:threads:resume', async (_, cwd: string, threadId: string, settings?: CodexTurnSettings) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     return { thread: await c.resumeThread(threadId, cwd, settings) }
   })
 
   ipcMain.handle('codex:threads:archive', async (_, cwd: string, threadId: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.archiveThread(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:threads:unarchive', async (_, cwd: string, threadId: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     return { thread: await c.unarchiveThread(threadId) }
   })
 
   ipcMain.handle('codex:threads:delete', async (_, cwd: string, threadId: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.deleteThread(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:threads:rename', async (_, cwd: string, threadId: string, name: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.setThreadName(threadId, name)
     return { ok: true }
   })
 
   ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.sendMessage(threadId, content, settings)
     return { ok: true }
   })
 
   ipcMain.handle('codex:approve', async (_, cwd: string, threadId: string, approvalId: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.approve(approvalId, threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
-    const c = await getClient()
+    const c = await getCodexClient()
     c.setCwd(cwd)
     await c.abort(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:account:rateLimits', async () => {
-    const c = await getClient()
+    const c = await getCodexClient()
     return c.getRateLimits()
   })
 
   ipcMain.handle('codex:account:consumeResetCredit', async () => {
-    const c = await getClient()
+    const c = await getCodexClient()
     return c.consumeRateLimitResetCredit(randomUUID())
   })
 

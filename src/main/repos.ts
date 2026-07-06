@@ -36,6 +36,10 @@ function writeRepos(state: ReposFile): void {
   fs.writeFileSync(reposFilePath(), JSON.stringify(state, null, 2))
 }
 
+export function getRegisteredRepoPaths(): string[] {
+  return readRepos().repos.map((repo) => path.resolve(repo.path))
+}
+
 export function getRepoName(repoPath: string): string {
   return path.basename(repoPath)
 }

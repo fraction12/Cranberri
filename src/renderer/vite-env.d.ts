@@ -1,4 +1,4 @@
-import type { DiffResult, GitFileStatus, FileTreeNode, GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
+import type { DiffResult, GitCommitResult, GitFileStatus, FileTreeNode, GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 import type { AgentProcessInfo } from '@/shared/processes'
 import type { CranberriHealthReport } from '@/shared/health'
@@ -39,6 +39,7 @@ declare global {
         diffFile: (repoPath: string, filePath: string) => Promise<DiffResult>
         rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
         githubSummary: (repoPath: string) => Promise<GitHubRepoSummary>
+        commit: (repoPath: string, title: string, summary: string) => Promise<GitCommitResult>
       }
       github: {
         panelData: (repoPath: string, kind: GitHubPanelKind) => Promise<GitHubPanelData>

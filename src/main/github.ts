@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron'
 import { execFile } from 'node:child_process'
 import type { GitHubPanelData, GitHubPanelItem, GitHubPanelKind } from '@/shared/git'
+import { getRegisteredRepoPaths } from './repos'
+import { validateRepoPath } from './repoSecurity'
 
 function execGh(repoPath: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -91,6 +93,7 @@ function mapGhItem(kind: GitHubPanelKind, item: Record<string, unknown>): GitHub
 }
 
 async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Promise<GitHubPanelData> {
+  const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
   const commands: Record<GitHubPanelKind, string[]> = {
     repo: ['repo', 'view', '--json', 'nameWithOwner,name,description,url,isPrivate,stargazerCount,forkCount,issues'],
     pulls: ['pr', 'list', '--state', 'all', '--limit', '20', '--json', 'number,title,state,url,author,createdAt,updatedAt,body'],
@@ -100,7 +103,7 @@ async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Pro
     commits: ['api', 'repos/:owner/:repo/commits?per_page=20', '--paginate'],
     releases: ['release', 'list', '--limit', '20', '--json', 'name,tagName,isDraft,isPrerelease,createdAt,publishedAt'],
   }
-  const output = await execGh(repoPath, commands[kind])
+  const output = await execGh(safeRepoPath, commands[kind])
   const raw = kind === 'repo' ? [JSON.parse(output)] : parseJsonList(output)
   const items = raw.slice(0, 30).map((entry) => {
     const item = entry as Record<string, unknown>

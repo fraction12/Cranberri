@@ -50,6 +50,12 @@ export interface GitHubRepoSummary {
   isGitHub: boolean
 }
 
+export interface GitCommitResult {
+  title: string
+  summary: string
+  hash: string
+}
+
 export type GitHubPanelKind = 'repo' | 'pulls' | 'issues' | 'actions' | 'branches' | 'commits' | 'releases'
 
 export interface GitHubPanelItem {

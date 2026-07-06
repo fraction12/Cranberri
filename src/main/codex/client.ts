@@ -162,6 +162,45 @@ export class CodexClient extends EventEmitter {
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
   }
 
+  async runOneShot(cwd: string, content: string, settings?: CodexTurnSettings, timeoutMs = 120_000): Promise<string> {
+    const thread = await this.createThread(cwd)
+    return new Promise((resolve, reject) => {
+      let finalText = ''
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error('Codex commit message generation timed out'))
+      }, timeoutMs)
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        this.off('event', onEvent)
+      }
+
+      const onEvent = (event: CodexEvent) => {
+        if ('threadId' in event && event.threadId !== thread.id) return
+        if (event.type === 'final_answer') {
+          finalText = event.text
+          cleanup()
+          resolve(finalText)
+          return
+        }
+        if (event.type === 'agent_message_completed' && event.text) {
+          finalText = event.text
+        }
+        if (event.type === 'run_end' && event.error) {
+          cleanup()
+          reject(new Error(event.error))
+        }
+      }
+
+      this.on('event', onEvent)
+      this.sendMessage(thread.id, content, settings).catch((err: unknown) => {
+        cleanup()
+        reject(err)
+      })
+    })
+  }
+
   async listThreads(cwd: string, options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
     this.cwd = cwd
     const archived = options.archived ?? false
