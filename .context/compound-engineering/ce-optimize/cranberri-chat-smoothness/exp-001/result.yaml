@@ -1,0 +1,26 @@
+iteration: 1
+hypotheses:
+  - exp-001
+  - exp-002
+  - exp-003
+measured_at: "2026-07-06T19:55:00Z"
+outcome: kept
+metrics:
+  chat_affordance_score: 100
+  build_passed: 1
+  chat_files_present: 1
+  duplicate_running_affordance_static: 0
+  raw_delta_render_static: 0
+  build_seconds: 3.528
+  reasoning_group_render_sites: 2
+  compact_hydration: 1
+  compact_protocol: 1
+  telemetry_available: 1
+  chat_snapshot_telemetry: 1
+  run_end_replay_risk: 0
+  telemetry_churn_risk: 0
+  duplicate_run_end_risk: 0
+learnings:
+  - "Immediate completion rendering removes post-run replay lag without reintroducing raw delta rendering."
+  - "Telemetry can stay useful while keying writes on stable scalar chat state instead of thread object identity."
+  - "Centralized emitRunEnd suppresses duplicate idle/completed/resolved end events for active threads."
