@@ -1,5 +1,5 @@
 import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
-import type { CodexEvent, CodexPluginInfo, CodexTurnSettings } from '@/shared/codex'
+import type { CodexEvent, CodexPluginInfo, CodexSessionSummary, CodexSessionThread, CodexTurnSettings } from '@/shared/codex'
 
 declare module '@xterm/xterm/css/xterm.css'
 declare module '*.css' {
@@ -25,6 +25,7 @@ declare global {
         files: (repoPath: string) => Promise<FileTreeNode[]>
         diff: (repoPath: string) => Promise<DiffResult>
         diffFile: (repoPath: string, filePath: string) => Promise<DiffResult>
+        rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
       }
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>
@@ -35,6 +36,12 @@ declare global {
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         plugins: () => Promise<{ plugins: CodexPluginInfo[] }>
         pickFiles: () => Promise<{ paths: string[] }>
+        listThreads: (cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
+        readThread: (cwd: string, threadId: string, archived?: boolean) => Promise<{ thread: CodexSessionThread }>
+        resumeThread: (cwd: string, threadId: string, settings?: CodexTurnSettings) => Promise<{ thread: CodexSessionThread }>
+        archiveThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
+        unarchiveThread: (cwd: string, threadId: string) => Promise<{ thread: CodexSessionThread }>
+        deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {

@@ -65,6 +65,43 @@ export interface CodexMessage {
   pending?: boolean
 }
 
+export interface CodexSdkThreadItem {
+  id?: string
+  type?: string
+  text?: string
+  phase?: string | null
+  content?: Array<{ type?: string; text?: string }>
+  summary?: string[]
+}
+
+export interface CodexSdkTurn {
+  id: string
+  items?: CodexSdkThreadItem[]
+  startedAt?: number | null
+  completedAt?: number | null
+  durationMs?: number | null
+  status?: unknown
+}
+
+export interface CodexSessionSummary {
+  id: string
+  sessionId?: string
+  title: string
+  preview: string
+  cwd?: string
+  createdAt: number
+  updatedAt: number
+  recencyAt?: number | null
+  archived: boolean
+  status?: unknown
+  path?: string | null
+  turnCount: number
+}
+
+export interface CodexSessionThread extends CodexSessionSummary {
+  turns: CodexSdkTurn[]
+}
+
 export interface ToolCall {
   id: string
   function: string
@@ -89,6 +126,7 @@ export interface CodexThread {
   runStartedAt?: number
   lastRunDurationMs?: number
   contextUsage?: CodexContextUsage
+  isHistorical?: boolean
 }
 
 export type CodexEvent =

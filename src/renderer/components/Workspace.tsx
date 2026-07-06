@@ -1,10 +1,25 @@
+import { useEffect } from 'react'
 import { useWorkspace } from '../state/workspace'
+import { useCodex } from '../state/codex'
 import { ChatWindow } from './ChatWindow'
 import { TerminalWindow } from './TerminalWindow'
 import { Plus, MessageSquare, Terminal, X } from 'lucide-react'
 
 export function Workspace() {
-  const { windows, activeWindowId, openChat, openTerminal, closeWindow, setActiveWindow } = useWorkspace()
+  const { windows, activeWindowId, openChat, openTerminal, closeWindow, setActiveWindow, renameWindow } = useWorkspace()
+  const { openSession } = useCodex()
+
+  useEffect(() => {
+    const onOpenSession = (event: Event) => {
+      const session = (event as CustomEvent).detail?.session
+      const archived = Boolean((event as CustomEvent).detail?.archived)
+      if (!session) return
+      const windowId = openChat()
+      openSession(windowId, session, archived).then((thread) => renameWindow(windowId, thread.title)).catch((error) => console.error('Failed to open Codex session:', error))
+    }
+    window.addEventListener('cranberri:open-codex-session', onOpenSession)
+    return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
+  }, [openChat, openSession, renameWindow])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">

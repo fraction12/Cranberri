@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexTurnSettings } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings } from '../../shared/codex'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -25,6 +25,45 @@ interface JsonRpcNotification {
 interface Thread {
   id: string
   name?: string | null
+}
+
+interface SdkThread {
+  id: string
+  sessionId?: string
+  name?: string | null
+  preview?: string
+  cwd?: string | { path?: string } | null
+  createdAt?: number
+  updatedAt?: number
+  recencyAt?: number | null
+  status?: unknown
+  path?: string | null
+  turns?: CodexSdkTurn[]
+}
+
+function cwdToString(cwd: SdkThread['cwd']): string | undefined {
+  if (typeof cwd === 'string') return cwd
+  if (cwd && typeof cwd === 'object' && typeof cwd.path === 'string') return cwd.path
+  return undefined
+}
+
+function normalizeThread(thread: SdkThread, archived: boolean): CodexSessionThread {
+  const preview = thread.preview ?? ''
+  return {
+    id: thread.id,
+    sessionId: thread.sessionId,
+    title: thread.name ?? preview.split('\n')[0] ?? 'Untitled session',
+    preview,
+    cwd: cwdToString(thread.cwd),
+    createdAt: thread.createdAt ?? 0,
+    updatedAt: thread.updatedAt ?? thread.createdAt ?? 0,
+    recencyAt: thread.recencyAt,
+    archived,
+    status: thread.status,
+    path: thread.path,
+    turnCount: thread.turns?.length ?? 0,
+    turns: thread.turns ?? [],
+  }
 }
 
 function getApprovalSettings(mode: CodexTurnSettings['approvalMode']): Record<string, unknown> {
@@ -116,6 +155,60 @@ export class CodexClient extends EventEmitter {
       ...approvalSettings,
     })
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+  }
+
+  async listThreads(options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
+    const archived = options.archived ?? false
+    const res = await this.call('thread/list', {
+      cwd: this.cwd,
+      archived,
+      cursor: options.cursor ?? null,
+      limit: options.limit ?? 50,
+      searchTerm: options.searchTerm ?? null,
+      sortKey: 'recency_at',
+      sortDirection: 'desc',
+    })
+    const result = res.result as { data?: SdkThread[]; nextCursor?: string | null; backwardsCursor?: string | null } | undefined
+    return {
+      sessions: (result?.data ?? []).map((thread) => normalizeThread(thread, archived)),
+      nextCursor: result?.nextCursor,
+      backwardsCursor: result?.backwardsCursor,
+    }
+  }
+
+  async readThread(threadId: string, archived = false): Promise<CodexSessionThread> {
+    const res = await this.call('thread/read', { threadId, includeTurns: true })
+    const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
+    if (!thread?.id) throw new Error('thread/read did not return a thread')
+    return normalizeThread(thread, archived)
+  }
+
+  async resumeThread(threadId: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
+    const approvalSettings = getApprovalSettings(settings?.approvalMode)
+    const res = await this.call('thread/resume', {
+      threadId,
+      cwd: this.cwd,
+      model: settings?.model ?? null,
+      ...approvalSettings,
+    })
+    const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
+    if (!thread?.id) throw new Error('thread/resume did not return a thread')
+    return normalizeThread(thread, false)
+  }
+
+  async archiveThread(threadId: string): Promise<void> {
+    await this.call('thread/archive', { threadId })
+  }
+
+  async unarchiveThread(threadId: string): Promise<CodexSessionThread> {
+    const res = await this.call('thread/unarchive', { threadId })
+    const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
+    if (!thread?.id) throw new Error('thread/unarchive did not return a thread')
+    return normalizeThread(thread, false)
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    await this.call('thread/delete', { threadId })
   }
 
   async approve(approvalId: string, threadId: string): Promise<void> {

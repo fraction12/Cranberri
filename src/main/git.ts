@@ -1,5 +1,7 @@
 import simpleGit from 'simple-git'
 import { ipcMain } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 
 const fileStatusSchema = z.object({
@@ -120,6 +122,14 @@ export function initGitIpc(): void {
     const git = simpleGit(repoPath)
     const raw = await git.diff(['--', filePath])
     return parseGitDiff(raw)
+  })
+
+  ipcMain.handle('git:raw-content', async (_, repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => {
+    const git = simpleGit(repoPath)
+    if (ref === 'WORKING') {
+      return fs.promises.readFile(path.join(repoPath, filePath), 'utf8').catch(() => '')
+    }
+    return git.show(['HEAD:' + filePath]).catch(() => '')
   })
 }
 

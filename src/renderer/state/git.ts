@@ -52,3 +52,15 @@ export function useGitDiffForFile(path: string | null) {
     enabled: !!activeRepo && !!path,
   })
 }
+
+export function useGitRawContent(path: string | null, ref: 'HEAD' | 'WORKING') {
+  const { activeRepo } = useRepos()
+  return useQuery<string>({
+    queryKey: ['git-raw-content', activeRepo?.id, path, ref],
+    queryFn: async () => {
+      if (!activeRepo || !path) return ''
+      return window.cranberri.git.rawContent(activeRepo.path, path, ref)
+    },
+    enabled: !!activeRepo && !!path,
+  })
+}

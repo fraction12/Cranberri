@@ -166,6 +166,44 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { threadId: thread.id }
   })
 
+  ipcMain.handle('codex:threads:list', async (_, cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    return session.client.listThreads(options)
+  })
+
+  ipcMain.handle('codex:threads:read', async (_, cwd: string, threadId: string, archived?: boolean) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    return { thread: await session.client.readThread(threadId, archived) }
+  })
+
+  ipcMain.handle('codex:threads:resume', async (_, cwd: string, threadId: string, settings?: CodexTurnSettings) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    return { thread: await session.client.resumeThread(threadId, settings) }
+  })
+
+  ipcMain.handle('codex:threads:archive', async (_, cwd: string, threadId: string) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    await session.client.archiveThread(threadId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('codex:threads:unarchive', async (_, cwd: string, threadId: string) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    return { thread: await session.client.unarchiveThread(threadId) }
+  })
+
+  ipcMain.handle('codex:threads:delete', async (_, cwd: string, threadId: string) => {
+    const session = getOrCreateSession(cwd)
+    await session.client.start()
+    await session.client.deleteThread(threadId)
+    return { ok: true }
+  })
+
   ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => {
     const session = getOrCreateSession(cwd)
     await session.client.start()

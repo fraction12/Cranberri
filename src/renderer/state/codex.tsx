@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
-import type { CodexEvent, CodexThread, CodexTurnSettings } from '@/shared/codex'
+import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings } from '@/shared/codex'
 import { useRepos } from './repos'
 
 interface CodexApi {
@@ -13,9 +13,55 @@ interface CodexApi {
   abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
   getThreadForWindow: (windowId: string) => string | undefined
+  openSession: (windowId: string, session: CodexSessionSummary, archived?: boolean) => Promise<CodexThread>
+  archiveSession: (threadId: string) => Promise<void>
+  unarchiveSession: (threadId: string) => Promise<void>
+  deleteSession: (threadId: string) => Promise<void>
 }
 
 const CodexContext = createContext<CodexApi | null>(null)
+
+function itemText(item: { content?: Array<{ text?: string }> }): string {
+  return item.content?.map((part) => part.text).filter(Boolean).join('\n') ?? ''
+}
+
+function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
+  const messages: CodexMessage[] = []
+  for (const turn of thread.turns) {
+    const timestamp = (turn.startedAt ?? thread.updatedAt ?? Date.now() / 1000) * 1000
+    for (const item of turn.items ?? []) {
+      if (item.type === 'userMessage') {
+        const content = itemText(item)
+        if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'user', content, timestamp })
+      } else if (item.type === 'agentMessage' && item.text) {
+        messages.push({
+          id: item.id ?? crypto.randomUUID(),
+          role: item.phase === 'final_answer' ? 'assistant' : 'reasoning',
+          content: item.text,
+          timestamp,
+        })
+      } else if (item.type === 'reasoning') {
+        const content = [...(item.summary ?? []), ...(Array.isArray(item.content) ? item.content as unknown as string[] : [])].filter(Boolean).join('\n')
+        if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'reasoning', content, timestamp })
+      }
+    }
+  }
+  return messages
+}
+
+function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread {
+  const lastTurn = [...session.turns].reverse().find((turn) => turn.durationMs)
+  return {
+    id: session.id,
+    title: session.title,
+    repoId,
+    messages: threadToMessages(session),
+    pendingApprovals: [],
+    isRunning: false,
+    lastRunDurationMs: lastTurn?.durationMs ?? undefined,
+    contextUsage: undefined,
+  }
+}
 
 export function CodexProvider({ children }: { children: React.ReactNode }) {
   const { activeRepo } = useRepos()
@@ -219,12 +265,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const sendMessage = useCallback(async (threadId: string, content: string, settings?: CodexTurnSettings): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
 
+    let shouldResume = false
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
+      shouldResume = Boolean(next[idx].isHistorical)
       next[idx] = {
         ...next[idx],
+        isHistorical: false,
         messages: [...next[idx].messages, {
           id: crypto.randomUUID(),
           role: 'user',
@@ -232,13 +281,14 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now(),
         }],
         isRunning: true,
-        currentActivity: 'Working',
+        currentActivity: shouldResume ? 'Resuming' : 'Working',
         runStartedAt: Date.now(),
         lastRunDurationMs: undefined,
       }
       return next
     })
 
+    if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
     await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content, settings)
   }, [activeRepo])
 
@@ -276,9 +326,38 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setActiveThreadId(threadId)
   }, [])
 
+  const openSession = useCallback(async (windowId: string, session: CodexSessionSummary, archived = false): Promise<CodexThread> => {
+    if (!activeRepo) throw new Error('No active repo')
+    const { thread } = await window.cranberri.codex.readThread(activeRepo.path, session.id, archived)
+    const hydrated = { ...hydrateThread(thread, activeRepo.id), isHistorical: true }
+    setThreads((prev) => [...prev.filter((item) => item.id !== hydrated.id), hydrated])
+    setActiveThreadId(hydrated.id)
+    setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
+    return hydrated
+  }, [activeRepo])
+
+  const archiveSession = useCallback(async (threadId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.archiveThread(activeRepo.path, threadId)
+    setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+    setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
+  }, [activeRepo])
+
+  const unarchiveSession = useCallback(async (threadId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.unarchiveThread(activeRepo.path, threadId)
+  }, [activeRepo])
+
+  const deleteSession = useCallback(async (threadId: string): Promise<void> => {
+    if (!activeRepo) throw new Error('No active repo')
+    await window.cranberri.codex.deleteThread(activeRepo.path, threadId)
+    setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+    setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
+  }, [activeRepo])
+
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow }}
+      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, openSession, archiveSession, unarchiveSession, deleteSession }}
     >
       {children}
     </CodexContext.Provider>

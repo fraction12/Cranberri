@@ -14,6 +14,7 @@ const api = {
     files: (repoPath: string) => ipcRenderer.invoke('git:files', repoPath),
     diff: (repoPath: string) => ipcRenderer.invoke('git:diff', repoPath),
     diffFile: (repoPath: string, filePath: string) => ipcRenderer.invoke('git:diff-file', repoPath, filePath),
+    rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:raw-content', repoPath, filePath, ref),
   },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
@@ -24,6 +25,12 @@ const api = {
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
     plugins: () => ipcRenderer.invoke('codex:plugins'),
     pickFiles: () => ipcRenderer.invoke('codex:pick-files'),
+    listThreads: (cwd: string, options?: unknown) => ipcRenderer.invoke('codex:threads:list', cwd, options),
+    readThread: (cwd: string, threadId: string, archived?: boolean) => ipcRenderer.invoke('codex:threads:read', cwd, threadId, archived),
+    resumeThread: (cwd: string, threadId: string, settings?: unknown) => ipcRenderer.invoke('codex:threads:resume', cwd, threadId, settings),
+    archiveThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:archive', cwd, threadId),
+    unarchiveThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:unarchive', cwd, threadId),
+    deleteThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:threads:delete', cwd, threadId),
     onEvent: (cb: (event: unknown) => void) => {
       const handler = (_: unknown, event: unknown) => cb(event)
       ipcRenderer.on('codex:event', handler)

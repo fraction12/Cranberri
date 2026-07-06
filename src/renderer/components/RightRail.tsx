@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import ReactDiffViewer from 'react-diff-viewer-continued'
 import { FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight } from 'lucide-react'
-import { useGitStatus, useGitDiffForFile, useGitFiles } from '../state/git'
-import type { GitFileStatus, FileTreeNode, DiffFile } from '@/shared/git'
+import { useGitStatus, useGitFiles, useGitRawContent } from '../state/git'
+import type { GitFileStatus, FileTreeNode } from '@/shared/git'
 
 function statusColor(status: GitFileStatus['status']) {
   switch (status) {
@@ -31,15 +32,18 @@ export function RightRail() {
 
   const { data: status, isLoading: statusLoading } = useGitStatus()
   const { data: allFiles, isLoading: filesLoading } = useGitFiles()
-  const { data: fileDiff, isLoading: diffLoading } = useGitDiffForFile(selectedFile?.path ?? null)
+  const [activeDiffFile, setActiveDiffFile] = useState<GitFileStatus | null>(null)
+  const { isLoading: diffLoading } = useGitRawContent(activeDiffFile?.path ?? null, 'WORKING')
 
   const handleSelectFile = (file: GitFileStatus) => {
     setSelectedFile(file)
+    setActiveDiffFile(file)
     setActiveTab('diff')
   }
 
   const handleBack = () => {
     setSelectedFile(null)
+    setActiveDiffFile(null)
     setActiveTab('files')
   }
 
@@ -97,10 +101,8 @@ export function RightRail() {
                 <div className="flex-1 min-h-0 overflow-y-auto p-0">
                   {diffLoading ? (
                     <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
-                  ) : fileDiff?.files.length ? (
-                    <DiffViewer file={fileDiff.files[0]} />
                   ) : (
-                    <div className="p-3 text-sm text-app-text-muted">No diff for this file.</div>
+                    <DiffViewer filePath={selectedFile.path} status={selectedFile.status} />
                   )}
                 </div>
               </div>
@@ -280,42 +282,80 @@ function FileTree({
   )
 }
 
-function DiffViewer({ file }: { file: DiffFile }) {
-  if (!file.chunks.length) {
-    return <div className="p-3 text-sm text-app-text-muted">No diff chunks for this file.</div>
+function DiffViewer({ filePath, status }: { filePath: string; status: GitFileStatus['status'] }) {
+  const { data: oldContent, isLoading: oldLoading } = useGitRawContent(
+    status === 'added' || status === 'untracked' ? null : filePath,
+    'HEAD',
+  )
+  const { data: newContent, isLoading: newLoading } = useGitRawContent(filePath, 'WORKING')
+
+  if (oldLoading || newLoading) {
+    return <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
   }
 
   return (
-    <div className="text-xs font-mono">
-      <div className="px-3 py-2 border-b border-app-border bg-app-surface-2 text-app-text-muted">
-        {file.additions} additions, {file.deletions} deletions
-      </div>
-      {file.chunks.map((chunk, ci) => (
-        <div key={ci} className="border-b border-app-border">
-          <div className="px-3 py-1 bg-app-bg/50 text-app-text-muted">
-            @@ -{chunk.oldStart},{chunk.oldLines} +{chunk.newStart},{chunk.newLines} @@
-          </div>
-          <div className="leading-relaxed">
-            {chunk.changes.map((change, li) => {
-              const bg = change.type === 'add' ? 'bg-app-accent/10' : change.type === 'del' ? 'bg-app-danger/10' : ''
-              const text = change.type === 'add' ? 'text-app-accent' : change.type === 'del' ? 'text-app-danger' : 'text-app-text-muted'
-              const prefix = change.type === 'add' ? '+' : change.type === 'del' ? '-' : ' '
-              return (
-                <div key={li} className={`flex ${bg}`}>
-                  <div className="w-12 text-right pr-2 text-app-text-muted select-none">
-                    {change.delLine ?? change.ln1 ?? ''}
-                  </div>
-                  <div className="w-12 text-right pr-2 text-app-text-muted select-none">
-                    {change.addLine ?? change.ln2 ?? ''}
-                  </div>
-                  <div className={`w-4 text-center ${text} select-none`}>{prefix}</div>
-                  <pre className={`flex-1 whitespace-pre-wrap ${text}`}>{change.line || ' '}</pre>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+    <div className="h-full overflow-auto text-xs">
+      <ReactDiffViewer
+        oldValue={oldContent ?? ''}
+        newValue={newContent ?? ''}
+        splitView={false}
+        showDiffOnly={false}
+        styles={{
+          variables: {
+            light: {
+              diffViewerBackground: 'var(--app-surface)',
+              gutterBackground: 'var(--app-surface-2)',
+              gutterBackgroundDark: 'var(--app-surface-2)',
+              addedBackground: 'rgba(34, 197, 94, 0.12)',
+              addedColor: 'var(--app-text)',
+              removedBackground: 'rgba(239, 68, 68, 0.12)',
+              removedColor: 'var(--app-text)',
+              wordAddedBackground: 'rgba(34, 197, 94, 0.25)',
+              wordRemovedBackground: 'rgba(239, 68, 68, 0.25)',
+              addedGutterBackground: 'rgba(34, 197, 94, 0.20)',
+              removedGutterBackground: 'rgba(239, 68, 68, 0.20)',
+              gutterColor: 'var(--app-text-muted)',
+              codeFoldBackground: 'var(--app-surface-2)',
+              codeFoldGutterBackground: 'var(--app-surface-2)',
+              diffViewerColor: 'var(--app-text)',
+              diffViewerTitleBackground: 'var(--app-surface-2)',
+              diffViewerTitleColor: 'var(--app-text)',
+              diffViewerTitleBorderColor: 'var(--app-border)',
+            },
+          },
+          diffContainer: {
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            borderRadius: 0,
+            border: 'none',
+          },
+          line: {
+            minHeight: '20px',
+          },
+          gutter: {
+            minWidth: '44px',
+            padding: '0 8px',
+            textAlign: 'right',
+            color: 'var(--app-text-muted)',
+            backgroundColor: 'var(--app-surface-2)',
+            borderRight: '1px solid var(--app-border)',
+          },
+          marker: {
+            width: '20px',
+            textAlign: 'center',
+            backgroundColor: 'var(--app-surface-2)',
+            color: 'var(--app-text-muted)',
+            borderRight: '1px solid var(--app-border)',
+          },
+          content: {
+            width: '100%',
+            paddingLeft: '12px',
+          },
+          codeFold: {
+            backgroundColor: 'var(--app-surface-2)',
+            color: 'var(--app-text-muted)',
+          },
+        }}
+      />
     </div>
   )
 }
