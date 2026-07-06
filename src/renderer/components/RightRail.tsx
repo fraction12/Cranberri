@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import ReactDiffViewer from 'react-diff-viewer-continued'
 import { Check, FileDiff, FileText, Ticket, ChevronLeft, Folder, ChevronRight, Menu } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
@@ -25,12 +26,29 @@ function statusColor(status: GitFileStatus['status']) {
   }
 }
 
+const DIFF_MENU_WIDTH = 176
+const VIEWPORT_PADDING = 8
+
+function getDiffMenuPosition(button: HTMLButtonElement | null) {
+  const rect = button?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    top: Math.min(rect.bottom + 4, window.innerHeight - VIEWPORT_PADDING),
+    left: Math.min(
+      Math.max(VIEWPORT_PADDING, rect.right - DIFF_MENU_WIDTH),
+      window.innerWidth - DIFF_MENU_WIDTH - VIEWPORT_PADDING,
+    ),
+  }
+}
+
 export function RightRail() {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
   const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'issue'>('files')
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
   const [diffMenuOpen, setDiffMenuOpen] = useState(false)
+  const [diffMenuPosition, setDiffMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  const diffMenuButtonRef = useRef<HTMLButtonElement>(null)
 
   const { data: status, isLoading: statusLoading } = useGitStatus()
   const { data: allFiles, isLoading: filesLoading } = useGitFiles()
@@ -49,6 +67,49 @@ export function RightRail() {
     setDiffMenuOpen(false)
     setActiveTab('files')
   }
+
+  useLayoutEffect(() => {
+    if (!diffMenuOpen) return
+    setDiffMenuPosition(getDiffMenuPosition(diffMenuButtonRef.current))
+  }, [diffMenuOpen])
+
+  useEffect(() => {
+    if (!diffMenuOpen) return undefined
+
+    const close = (event: PointerEvent) => {
+      const path = event.composedPath()
+      if (path.some((node) => node instanceof HTMLElement && node.dataset.diffMenu === 'true')) return
+      setDiffMenuOpen(false)
+    }
+    const reposition = () => setDiffMenuPosition(getDiffMenuPosition(diffMenuButtonRef.current))
+
+    document.addEventListener('pointerdown', close)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [diffMenuOpen])
+
+  const diffMenu = diffMenuOpen && diffMenuPosition ? createPortal(
+    <div
+      data-diff-menu="true"
+      className="fixed z-[1400] w-44 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-2xl shadow-black/50"
+      style={{ top: diffMenuPosition.top, left: diffMenuPosition.left }}
+    >
+      <button
+        type="button"
+        onClick={() => setWrapDiffContent((value) => !value)}
+        className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2"
+      >
+        <span>Wrap diff content</span>
+        {wrapDiffContent && <Check className="h-3.5 w-3.5 text-app-accent" />}
+      </button>
+    </div>,
+    document.body,
+  ) : null
 
   return (
     <div className="flex flex-col h-full bg-app-surface">
@@ -99,30 +160,19 @@ export function RightRail() {
                   <button type="button" onClick={handleBack} className="p-1 rounded hover:bg-app-surface">
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-medium truncate" title={selectedFile.path}>{selectedFile.path}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium" title={selectedFile.path}>{selectedFile.path}</span>
                   <DiffStats filePath={selectedFile.path} status={selectedFile.status} />
-                  <div className="relative ml-1">
-                    <button
-                      type="button"
-                      onClick={() => setDiffMenuOpen((open) => !open)}
-                      className={`rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text ${diffMenuOpen ? 'bg-app-surface text-app-text' : ''}`}
-                      title="Diff options"
-                    >
-                      <Menu className="w-4 h-4" />
-                    </button>
-                    {diffMenuOpen && (
-                      <div className="absolute right-0 top-7 z-50 w-44 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-xl">
-                        <button
-                          type="button"
-                          onClick={() => setWrapDiffContent((value) => !value)}
-                          className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2"
-                        >
-                          <span>Wrap diff content</span>
-                          {wrapDiffContent && <Check className="h-3.5 w-3.5 text-app-accent" />}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    ref={diffMenuButtonRef}
+                    type="button"
+                    data-diff-menu="true"
+                    onClick={() => setDiffMenuOpen((open) => !open)}
+                    className={`ml-auto rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text ${diffMenuOpen ? 'bg-app-surface text-app-text' : ''}`}
+                    title="Diff options"
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+                  {diffMenu}
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto p-0">
                   {diffLoading ? (
