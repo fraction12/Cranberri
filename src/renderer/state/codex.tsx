@@ -129,44 +129,18 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       delete streamTimersRef.current[itemId]
     }
 
-    let cursor = 0
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
       const thread = { ...next[idx] }
       const existing = thread.messages.find((message) => message.id === itemId)
-      if (existing) {
-        cursor = text.startsWith(existing.content) ? existing.content.length : 0
-        thread.messages = thread.messages.map((message) => message.id === itemId ? { ...message, role, content: text.slice(0, cursor) } : message)
-      } else {
-        thread.messages = [...thread.messages, { id: itemId, role, content: '', timestamp: Date.now() }]
-      }
+      thread.messages = existing
+        ? thread.messages.map((message) => message.id === itemId ? { ...message, role, content: text } : message)
+        : [...thread.messages, { id: itemId, role, content: text, timestamp: Date.now() }]
       next[idx] = thread
       return next
     })
-
-    const step = () => {
-      cursor = Math.min(text.length, cursor + Math.max(2, Math.ceil(text.length / 80)))
-      const nextContent = text.slice(0, cursor)
-      setThreads((prev) => {
-        const idx = prev.findIndex((t) => t.id === threadId)
-        if (idx === -1) return prev
-        const next = [...prev]
-        next[idx] = {
-          ...next[idx],
-          messages: next[idx].messages.map((message) => message.id === itemId ? { ...message, content: nextContent } : message),
-        }
-        return next
-      })
-      if (cursor >= text.length) {
-        window.clearInterval(streamTimersRef.current[itemId])
-        delete streamTimersRef.current[itemId]
-      }
-    }
-
-    step()
-    streamTimersRef.current[itemId] = window.setInterval(step, 32)
   }, [])
 
   useEffect(() => {

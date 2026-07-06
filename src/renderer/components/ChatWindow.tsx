@@ -780,26 +780,32 @@ export function ChatWindow({ id }: { id: string }) {
   const telemetryKey = thread
     ? `${thread.id}:${thread.isRunning}:${thread.currentActivity ?? ''}:${thread.messages.length}:${thread.messages.at(-1)?.id ?? ''}:${thread.messages.at(-1)?.role ?? ''}:${thread.messages.at(-1)?.content.length ?? 0}`
     : 'no-thread'
+  const telemetrySnapshot = thread
+    ? {
+        windowId: id,
+        threadId: thread.id,
+        isRunning: thread.isRunning,
+        currentActivity: thread.currentActivity,
+        runStartedAt: thread.runStartedAt,
+        lastRunDurationMs: thread.lastRunDurationMs,
+        messageCount: thread.messages.length,
+        messages: thread.messages.slice(-12).map((message) => ({
+          id: message.id,
+          role: message.role,
+          length: message.content.length,
+          preview: message.content.slice(0, 80),
+          pending: message.pending,
+        })),
+      }
+    : null
+  const telemetrySnapshotRef = useRef(telemetrySnapshot)
+  telemetrySnapshotRef.current = telemetrySnapshot
 
   useEffect(() => {
-    if (!thread) return
-    window.cranberri.telemetry.log('renderer', 'chat-window:snapshot', {
-      windowId: id,
-      threadId: thread.id,
-      isRunning: thread.isRunning,
-      currentActivity: thread.currentActivity,
-      runStartedAt: thread.runStartedAt,
-      lastRunDurationMs: thread.lastRunDurationMs,
-      messageCount: thread.messages.length,
-      messages: thread.messages.slice(-12).map((message) => ({
-        id: message.id,
-        role: message.role,
-        length: message.content.length,
-        preview: message.content.slice(0, 80),
-        pending: message.pending,
-      })),
-    }).catch((err) => console.warn('Failed to write chat telemetry:', err))
-  }, [id, thread, telemetryKey])
+    const snapshot = telemetrySnapshotRef.current
+    if (!snapshot) return
+    window.cranberri.telemetry.log('renderer', 'chat-window:snapshot', snapshot).catch((err) => console.warn('Failed to write chat telemetry:', err))
+  }, [telemetryKey])
 
   const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }

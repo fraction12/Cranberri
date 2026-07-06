@@ -87,6 +87,7 @@ export class CodexClient extends EventEmitter {
   private buffer = ''
   private cwd: string
   private startPromise: Promise<void> | null = null
+  private activeRunThreads = new Set<string>()
 
   constructor(cwd: string) {
     super()
@@ -123,7 +124,7 @@ export class CodexClient extends EventEmitter {
     })
 
     this.process.on('exit', (code) => {
-      this.emit('event', { type: 'run_end', threadId: '', error: `Codex app-server exited with code ${code ?? 'unknown'}` } as CodexEvent)
+      this.emitRunEnd('', `Codex app-server exited with code ${code ?? 'unknown'}`)
       this.process = null
       this.startPromise = null
     })
@@ -159,7 +160,7 @@ export class CodexClient extends EventEmitter {
       effort: settings?.effort ?? null,
       ...approvalSettings,
     })
-    this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+    this.emitRunStart(threadId)
   }
 
   async compactThread(threadId: string): Promise<void> {
@@ -304,6 +305,19 @@ export class CodexClient extends EventEmitter {
     }
   }
 
+  private emitRunStart(threadId: string): void {
+    if (threadId) this.activeRunThreads.add(threadId)
+    this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+  }
+
+  private emitRunEnd(threadId: string, error?: string): void {
+    if (threadId) {
+      if (!this.activeRunThreads.has(threadId) && !error) return
+      this.activeRunThreads.delete(threadId)
+    }
+    this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
+  }
+
   private handleMessage(msg: JsonRpcResponse | JsonRpcNotification): void {
     if ('id' in msg && msg.id !== undefined) {
       const resolve = this.pending.get(msg.id)
@@ -329,9 +343,9 @@ export class CodexClient extends EventEmitter {
       case 'thread/status/changed': {
         const status = params.status as { type?: string; activeFlags?: string[] } | undefined
         if (status?.type === 'active') {
-          this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+          this.emitRunStart(threadId)
         } else if (status?.type === 'idle') {
-          this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+          this.emitRunEnd(threadId)
         }
         break
       }
@@ -346,12 +360,12 @@ export class CodexClient extends EventEmitter {
       case 'task_complete': {
         const text = (params as { last_agent_message?: string }).last_agent_message ?? ''
         if (text) this.emit('event', { type: 'final_answer', threadId, text } as CodexEvent)
-        this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+        this.emitRunEnd(threadId)
         break
       }
       case 'turn/completed': {
         const error = (params as { turn?: { error?: { message?: string } } }).turn?.error?.message
-        this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
+        this.emitRunEnd(threadId, error)
         break
       }
       case 'token_count':
@@ -433,7 +447,7 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'serverRequest/resolved':
-        this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+        this.emitRunEnd(threadId)
         break
       default:
         break
