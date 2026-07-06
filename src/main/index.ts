@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
-import { initCodexIpc } from './codex/ipc'
+import { initCodexIpc, stopCodexClient } from './codex/ipc'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 
@@ -56,7 +56,12 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   killAllTerminals()
+  stopCodexClient()
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  stopCodexClient()
 })
 
 ipcMain.handle('app:get-version', () => app.getVersion())

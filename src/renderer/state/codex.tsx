@@ -81,7 +81,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (!activeRepo) return
     let running = true
     window.cranberri.codex.start(activeRepo.path).catch((err) => {
-      if (running) console.error('Failed to start Codex session:', err)
+      if (running) console.error('Failed to set active Codex cwd:', err)
     })
     return () => {
       running = false

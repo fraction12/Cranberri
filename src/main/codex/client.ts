@@ -93,6 +93,10 @@ export class CodexClient extends EventEmitter {
     this.cwd = cwd
   }
 
+  setCwd(cwd: string): void {
+    this.cwd = cwd
+  }
+
   async start(): Promise<void> {
     if (this.process && !this.startPromise) return
     if (this.startPromise) return this.startPromise
@@ -133,7 +137,8 @@ export class CodexClient extends EventEmitter {
     this.startPromise = null
   }
 
-  async createThread(): Promise<Thread> {
+  async createThread(cwd?: string): Promise<Thread> {
+    if (cwd) this.cwd = cwd
     const res = await this.call('thread/start', { cwd: this.cwd })
     const thread = (res.result as { thread: Thread } | undefined)?.thread
     if (!thread?.id) {
@@ -157,10 +162,11 @@ export class CodexClient extends EventEmitter {
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
   }
 
-  async listThreads(options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
+  async listThreads(cwd: string, options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
+    this.cwd = cwd
     const archived = options.archived ?? false
     const res = await this.call('thread/list', {
-      cwd: this.cwd,
+      cwd,
       archived,
       cursor: options.cursor ?? null,
       limit: options.limit ?? 50,
@@ -183,7 +189,8 @@ export class CodexClient extends EventEmitter {
     return normalizeThread(thread, archived)
   }
 
-  async resumeThread(threadId: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
+  async resumeThread(threadId: string, cwd?: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
+    if (cwd) this.cwd = cwd
     const approvalSettings = getApprovalSettings(settings?.approvalMode)
     const res = await this.call('thread/resume', {
       threadId,

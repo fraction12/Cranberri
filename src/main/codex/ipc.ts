@@ -6,14 +6,6 @@ import { CodexClient } from './client'
 import type { CodexEvent, CodexPluginInfo, CodexTurnSettings } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 
-interface Session {
-  cwd: string
-  client: CodexClient
-}
-
-const sessions = new Map<string, Session>()
-const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
-
 interface PluginManifest {
   name?: string
   description?: string
@@ -25,6 +17,11 @@ interface PluginManifest {
     composerIcon?: string
   }
 }
+
+const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
+
+let client: CodexClient | null = null
+let clientStarting = false
 
 function titleizePluginName(name: string): string {
   return name
@@ -117,21 +114,28 @@ async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
   return plugins.sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
-function getOrCreateSession(cwd: string): Session {
-  let session = sessions.get(cwd)
-  if (!session) {
-    const client = new CodexClient(cwd)
-    session = { cwd, client }
-    sessions.set(cwd, session)
+async function getClient(): Promise<CodexClient> {
+  if (client) {
+    await client.start()
+    return client
   }
-  return session
-}
+  if (clientStarting) {
+    while (clientStarting) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (!client) throw new Error('Codex client failed to start')
+    return client
+  }
 
-async function getAccountClient(): Promise<CodexClient> {
-  const fallbackCwd = sessions.keys().next().value ?? process.cwd()
-  const session = getOrCreateSession(fallbackCwd)
-  await session.client.start()
-  return session.client
+  clientStarting = true
+  try {
+    const newClient = new CodexClient(process.cwd())
+    await newClient.start()
+    client = newClient
+    return newClient
+  } finally {
+    clientStarting = false
+  }
 }
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
@@ -141,6 +145,11 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       win.webContents.send('codex:event', event)
     }
   }
+
+  // forward all events from the single persistent client
+  getClient().then((c) => {
+    c.on('event', (event: CodexEvent) => broadcast(event))
+  }).catch((err) => console.error('Failed to start persistent Codex client:', err))
 
   ipcMain.handle('codex:plugins', async () => ({ plugins: await listConfiguredPlugins() }))
 
@@ -153,109 +162,99 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:start', async (_, cwd: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-
-    // forward events from this session only
-    session.client.removeAllListeners('event')
-    session.client.on('event', (event: CodexEvent) => {
-      if ((event as { threadId?: string }).threadId) {
-        broadcast(event)
-      }
-    })
-
+    const c = await getClient()
+    c.setCwd(cwd)
     return { started: true }
   })
 
   ipcMain.handle('codex:create-thread', async (_, cwd: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    const thread = await session.client.createThread()
+    const c = await getClient()
+    const thread = await c.createThread(cwd)
     return { threadId: thread.id }
   })
 
   ipcMain.handle('codex:threads:list', async (_, cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    return session.client.listThreads(options)
+    const c = await getClient()
+    return c.listThreads(cwd, options ?? {})
   })
 
   ipcMain.handle('codex:threads:read', async (_, cwd: string, threadId: string, archived?: boolean) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    return { thread: await session.client.readThread(threadId, archived) }
+    const c = await getClient()
+    c.setCwd(cwd)
+    return { thread: await c.readThread(threadId, archived) }
   })
 
   ipcMain.handle('codex:threads:resume', async (_, cwd: string, threadId: string, settings?: CodexTurnSettings) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    return { thread: await session.client.resumeThread(threadId, settings) }
+    const c = await getClient()
+    return { thread: await c.resumeThread(threadId, cwd, settings) }
   })
 
   ipcMain.handle('codex:threads:archive', async (_, cwd: string, threadId: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.archiveThread(threadId)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.archiveThread(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:threads:unarchive', async (_, cwd: string, threadId: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    return { thread: await session.client.unarchiveThread(threadId) }
+    const c = await getClient()
+    c.setCwd(cwd)
+    return { thread: await c.unarchiveThread(threadId) }
   })
 
   ipcMain.handle('codex:threads:delete', async (_, cwd: string, threadId: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.deleteThread(threadId)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.deleteThread(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:threads:rename', async (_, cwd: string, threadId: string, name: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.setThreadName(threadId, name)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.setThreadName(threadId, name)
     return { ok: true }
   })
 
   ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.sendMessage(threadId, content, settings)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.sendMessage(threadId, content, settings)
     return { ok: true }
   })
 
   ipcMain.handle('codex:approve', async (_, cwd: string, threadId: string, approvalId: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.approve(approvalId, threadId)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.approve(approvalId, threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
-    const session = getOrCreateSession(cwd)
-    await session.client.start()
-    await session.client.abort(threadId)
+    const c = await getClient()
+    c.setCwd(cwd)
+    await c.abort(threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:account:rateLimits', async () => {
-    const client = await getAccountClient()
-    return client.getRateLimits()
+    const c = await getClient()
+    return c.getRateLimits()
   })
 
   ipcMain.handle('codex:account:consumeResetCredit', async () => {
-    const client = await getAccountClient()
-    return client.consumeRateLimitResetCredit(randomUUID())
+    const c = await getClient()
+    return c.consumeRateLimitResetCredit(randomUUID())
   })
 
-  ipcMain.handle('codex:stop', async (_, cwd: string) => {
-    const session = sessions.get(cwd)
-    if (session) {
-      session.client.stop()
-      sessions.delete(cwd)
-    }
+  ipcMain.handle('codex:stop', async () => {
+    client?.stop()
+    client = null
     return { stopped: true }
   })
+}
+
+export function stopCodexClient(): void {
+  client?.stop()
+  client = null
 }
