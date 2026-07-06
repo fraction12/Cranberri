@@ -7,7 +7,7 @@ import { Plus, MessageSquare, Terminal, X } from 'lucide-react'
 
 export function Workspace() {
   const { windows, activeWindowId, openChat, openTerminal, closeWindow, setActiveWindow } = useWorkspace()
-  const { openSession } = useCodex()
+  const { openSession, closeThreadWindow } = useCodex()
 
   useEffect(() => {
     const onOpenSession = (event: Event) => {
@@ -42,6 +42,7 @@ export function Workspace() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
+                closeThreadWindow(win.id)
                 closeWindow(win.id)
               }}
               className="ml-1 p-0.5 rounded hover:bg-app-border"

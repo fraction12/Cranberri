@@ -6,6 +6,7 @@ interface CodexApi {
   threads: CodexThread[]
   activeThreadId: string | null
   activeThread: CodexThread | null
+  openThreadIds: string[]
   getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
   sendMessage: (threadId: string, content: string, settings?: CodexTurnSettings) => Promise<void>
@@ -13,6 +14,7 @@ interface CodexApi {
   abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
   getThreadForWindow: (windowId: string) => string | undefined
+  closeThreadWindow: (windowId: string) => void
   openSession: (windowId: string, session: CodexSessionSummary, archived?: boolean) => Promise<CodexThread>
   archiveSession: (threadId: string) => Promise<void>
   unarchiveSession: (threadId: string) => Promise<void>
@@ -72,6 +74,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const streamTimersRef = useRef<Record<string, number>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
+  const openThreadIds = [...new Set(Object.values(windowToThread))]
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
 
   useEffect(() => {
@@ -234,6 +237,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 
+  const closeThreadWindow = useCallback((windowId: string) => {
+    setWindowToThread((prev) => {
+      if (!prev[windowId]) return prev
+      const { [windowId]: closedThreadId, ...next } = prev
+      setActiveThreadId((current) => current === closedThreadId ? (Object.values(next)[0] ?? null) : current)
+      return next
+    })
+  }, [])
+
   const createThread = useCallback(async (windowId: string, initialContent?: string): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
     const { threadId } = await window.cranberri.codex.createThread(activeRepo.path)
@@ -257,6 +269,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setThreads((prev) => [...prev, thread])
     setActiveThreadId(threadId)
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     if (initialContent) {
       await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialContent)
     }
@@ -340,6 +353,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const archiveSession = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
     await window.cranberri.codex.archiveThread(activeRepo.path, threadId)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
@@ -347,11 +361,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const unarchiveSession = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
     await window.cranberri.codex.unarchiveThread(activeRepo.path, threadId)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
   }, [activeRepo])
 
   const deleteSession = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
     await window.cranberri.codex.deleteThread(activeRepo.path, threadId)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
@@ -359,12 +375,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const renameSession = useCallback(async (threadId: string, name: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
     await window.cranberri.codex.renameThread(activeRepo.path, threadId, name)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     setThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, title: name } : thread))
   }, [activeRepo])
 
   return (
     <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
+      value={{ threads, activeThreadId, activeThread, openThreadIds, getThread, createThread, sendMessage, approve, abort, switchThread, getThreadForWindow, closeThreadWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
     >
       {children}
     </CodexContext.Provider>
