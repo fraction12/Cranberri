@@ -269,7 +269,7 @@ function LeftRailFooter() {
   return (
     <>
       {usageOpen && (
-        <div className="mt-2 rounded-xl bg-app-bg/70 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        <div className="mt-2 rounded-xl bg-app-bg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
           <UsageMeter />
         </div>
       )}
