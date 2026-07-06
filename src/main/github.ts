@@ -86,13 +86,13 @@ function mapGhItem(kind: GitHubPanelKind, item: Record<string, unknown>): GitHub
     subtitle: valueString(item.description),
     state: item.isPrivate ? 'private' : 'public',
     url: valueString(item.url),
-    meta: { stars: valueNumber(item.stargazerCount) ?? null, forks: valueNumber(item.forkCount) ?? null, openIssues: valueNumber(item.openIssues) ?? null },
+    meta: { stars: valueNumber(item.stargazerCount) ?? null, forks: valueNumber(item.forkCount) ?? null, issues: Array.isArray(item.issues) ? item.issues.length : null },
   }
 }
 
 async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Promise<GitHubPanelData> {
   const commands: Record<GitHubPanelKind, string[]> = {
-    repo: ['repo', 'view', '--json', 'nameWithOwner,name,description,url,isPrivate,stargazerCount,forkCount,openIssues'],
+    repo: ['repo', 'view', '--json', 'nameWithOwner,name,description,url,isPrivate,stargazerCount,forkCount,issues'],
     pulls: ['pr', 'list', '--state', 'all', '--limit', '20', '--json', 'number,title,state,url,author,createdAt,updatedAt,body'],
     issues: ['issue', 'list', '--state', 'all', '--limit', '20', '--json', 'number,title,state,url,author,createdAt,updatedAt,body,labels'],
     actions: ['run', 'list', '--limit', '20', '--json', 'databaseId,name,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url'],
