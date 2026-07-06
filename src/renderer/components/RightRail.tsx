@@ -328,7 +328,7 @@ function DiffViewer({
   }
 
   return (
-    <div className="h-full overflow-auto text-xs">
+    <div className={`h-full overflow-y-auto text-xs ${wrapContent ? 'overflow-x-hidden' : 'overflow-x-auto'}`}>
       <ReactDiffViewer
         oldValue={oldContent ?? ''}
         newValue={newContent ?? ''}
@@ -359,19 +359,38 @@ function DiffViewer({
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
             borderRadius: 0,
             border: 'none',
+            width: '100%',
+            overflowX: wrapContent ? 'hidden' : 'auto',
+            tableLayout: 'fixed',
+            pre: {
+              margin: 0,
+              lineHeight: '1.6em',
+              whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
+              width: wrapContent ? 'auto' : 'fit-content',
+            },
           },
           line: {
             minHeight: '20px',
           },
+          marker: {
+            width: '24px',
+            minWidth: '24px',
+            paddingLeft: '8px',
+            paddingRight: '6px',
+          },
           content: {
             width: '100%',
+            maxWidth: 0,
             paddingLeft: '12px',
             whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
             wordBreak: wrapContent ? 'break-word' : 'normal',
+            overflowWrap: wrapContent ? 'anywhere' : 'normal',
           },
           contentText: {
             whiteSpace: wrapContent ? 'pre-wrap' : 'pre',
             wordBreak: wrapContent ? 'break-word' : 'normal',
+            overflowWrap: wrapContent ? 'anywhere' : 'normal',
+            lineBreak: wrapContent ? 'anywhere' : 'auto',
           },
           codeFold: {
             backgroundColor: 'var(--app-surface-2)',
