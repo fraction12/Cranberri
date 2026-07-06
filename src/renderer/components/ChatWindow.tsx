@@ -21,7 +21,7 @@ import {
 import { useCodex } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
-import type { CodexApprovalMode, CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings } from '@/shared/codex'
+import type { CodexApprovalMode, CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES } from '@/shared/codex'
 
 type PopoverPosition = {
@@ -69,20 +69,44 @@ function selectedSkillsFromInput(input: string, skills: CodexSkillInfo[]): Codex
   return skills.filter((skill) => inputHasSkill(input, skill))
 }
 
-function renderComposerText(input: string, skills: CodexSkillInfo[]): ReactNode[] {
-  const selectedSkills = selectedSkillsFromInput(input, skills)
-  if (selectedSkills.length === 0) return [input]
+function skillTextElements(text: string, skills: CodexSkillInfo[]): NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']> {
+  const encoder = new TextEncoder()
+  return skills.flatMap((skill) => {
+    const token = inlineSkillText(skill)
+    const elements: NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']> = []
+    let offset = text.indexOf(token)
+    while (offset !== -1) {
+      elements.push({
+        byteRange: {
+          start: encoder.encode(text.slice(0, offset)).length,
+          end: encoder.encode(text.slice(0, offset + token.length)).length,
+        },
+        placeholder: token,
+      })
+      offset = text.indexOf(token, offset + token.length)
+    }
+    return elements
+  })
+}
+
+function renderSkillText(text: string, skills: CodexSkillInfo[]): ReactNode[] {
+  const selectedSkills = selectedSkillsFromInput(text, skills)
+  if (selectedSkills.length === 0) return formatCodexText(text)
 
   const pattern = new RegExp(`(${selectedSkills.map((skill) => escapeRegExp(inlineSkillText(skill))).join('|')})`, 'g')
-  return input.split(pattern).map((part, index) => {
+  return text.split(pattern).map((part, index) => {
     const skill = selectedSkills.find((item) => inlineSkillText(item) === part)
-    if (!skill) return <span key={index}>{part}</span>
+    if (!skill) return <span key={index}>{formatCodexText(part)}</span>
     return (
       <span key={index} className="inline text-[#ff8f8f] underline decoration-[#ff8f8f]/70 underline-offset-2">
         {inlineSkillText(skill)}
       </span>
     )
   })
+}
+
+function renderComposerText(input: string, skills: CodexSkillInfo[]): ReactNode[] {
+  return renderSkillText(input, skills)
 }
 
 function formatCodexText(text: string) {
@@ -178,7 +202,7 @@ function ReasoningGroup({
   )
 }
 
-function TranscriptMessage({ msg }: { msg: CodexMessage }) {
+function TranscriptMessage({ msg, skills = [] }: { msg: CodexMessage; skills?: CodexSkillInfo[] }) {
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
       <div className="max-w-full text-[13px] leading-5 text-[var(--app-text-muted)]">
@@ -191,7 +215,7 @@ function TranscriptMessage({ msg }: { msg: CodexMessage }) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5 text-[13px] leading-5 text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
-          <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
+          <div className="whitespace-pre-wrap">{renderSkillText(msg.content, skills)}</div>
         </div>
       </div>
     )
@@ -737,15 +761,18 @@ export function ChatWindow({ id }: { id: string }) {
     textarea.setSelectionRange(start, end)
   }, [thread?.messages.length, thread?.isRunning])
 
-  const buildMessage = (text: string) => {
-    const parts: string[] = []
-    if (goalMode) parts.push('Create and run this as a Codex goal. Keep working until the goal is complete, and report progress only when you need a decision or finish.')
-    if (planMode) parts.push('Plan mode: do not edit files yet. Inspect the repo, produce a concise implementation plan, risks, and verification steps, then wait for approval.')
-    if (attachments.length > 0) parts.push(`Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}`)
+  const buildMessage = (text: string): { displayText: string; input: CodexUserInput[] } => {
+    const inputParts: CodexUserInput[] = []
+    if (goalMode) inputParts.push({ type: 'text', text: 'Create and run this as a Codex goal. Keep working until the goal is complete, and report progress only when you need a decision or finish.' })
+    if (planMode) inputParts.push({ type: 'text', text: 'Plan mode: do not edit files yet. Inspect the repo, produce a concise implementation plan, risks, and verification steps, then wait for approval.' })
+    if (attachments.length > 0) inputParts.push({ type: 'text', text: `Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}` })
+
     const inlineSkills = selectedSkillsFromInput(text, skills)
-    if (inlineSkills.length > 0) parts.push(`Use these skills:\n${inlineSkills.map((skill) => `- ${skillToken(skill, '/')}`).join('\n')}`)
-    parts.push(text)
-    return parts.join('\n\n')
+    const textElements = skillTextElements(text, inlineSkills)
+    inputParts.push({ type: 'text', text, ...(textElements.length > 0 ? { text_elements: textElements } : {}) })
+    inputParts.push(...inlineSkills.map((skill) => ({ type: 'skill' as const, name: skill.name, path: skill.path })))
+
+    return { displayText: text, input: inputParts }
   }
 
   const handleSend = async () => {
@@ -760,7 +787,8 @@ export function ChatWindow({ id }: { id: string }) {
       if (text === '/compact') {
         await compactThread(threadId)
       } else {
-        await sendMessage(threadId, buildMessage(text), turnSettings)
+        const message = buildMessage(text)
+        await sendMessage(threadId, message.displayText, message.input, turnSettings)
       }
     } finally {
       requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
@@ -907,7 +935,7 @@ export function ChatWindow({ id }: { id: string }) {
       }
       flushReasoning()
       if (index === lastUserIndex && !renderedReasoningGroup && !hasRunningReasoning) {
-        nodes.push(<TranscriptMessage key={message.id} msg={message} />)
+        nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} />)
         renderWorkingGroup(`working-after-${message.id}`)
         return
       }
@@ -937,7 +965,7 @@ export function ChatWindow({ id }: { id: string }) {
         )
         return
       }
-      nodes.push(<TranscriptMessage key={message.id} msg={message} />)
+      nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} />)
     })
     flushReasoning()
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
-import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings } from '@/shared/codex'
+import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import { useRepos } from './repos'
 
 interface CodexApi {
@@ -9,7 +9,7 @@ interface CodexApi {
   openThreadIds: string[]
   getThread: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string) => Promise<CodexThread>
-  sendMessage: (threadId: string, content: string, settings?: CodexTurnSettings) => Promise<void>
+  sendMessage: (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings) => Promise<void>
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string) => Promise<void>
   abort: (threadId: string) => Promise<void>
@@ -302,12 +302,12 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     if (initialContent) {
-      await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialContent)
+      await window.cranberri.codex.sendMessage(activeRepo.path, threadId, [{ type: 'text', text: initialContent }])
     }
     return thread
   }, [activeRepo])
 
-  const sendMessage = useCallback(async (threadId: string, content: string, settings?: CodexTurnSettings): Promise<void> => {
+  const sendMessage = useCallback(async (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
 
     let shouldResume = false
@@ -334,7 +334,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
 
     if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
-    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, content, settings)
+    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, input ?? [{ type: 'text', text: content }], settings)
   }, [activeRepo])
 
   const compactThread = useCallback(async (threadId: string): Promise<void> => {

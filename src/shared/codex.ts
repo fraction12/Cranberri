@@ -57,9 +57,14 @@ export interface CodexSkillInfo {
   name: string
   displayName: string
   description: string
+  path: string
   source: 'personal' | 'system' | 'plugin'
   pluginName?: string
 }
+
+export type CodexUserInput =
+  | { type: 'text'; text: string; text_elements?: Array<{ byteRange: { start: number; end: number }; placeholder?: string | null }> }
+  | { type: 'skill'; name: string; path: string }
 
 export interface CodexConnectionStatus {
   installed: boolean

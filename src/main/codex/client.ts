@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput } from '../../shared/codex'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -151,11 +151,11 @@ export class CodexClient extends EventEmitter {
     return thread
   }
 
-  async sendMessage(threadId: string, content: string, settings?: CodexTurnSettings): Promise<void> {
+  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
     const approvalSettings = getApprovalSettings(settings?.approvalMode)
     await this.call('turn/start', {
       threadId,
-      input: [{ type: 'text', text: content }],
+      input,
       model: settings?.model ?? null,
       effort: settings?.effort ?? null,
       ...approvalSettings,
@@ -199,7 +199,7 @@ export class CodexClient extends EventEmitter {
       }
 
       this.on('event', onEvent)
-      this.sendMessage(thread.id, content, settings).catch((err: unknown) => {
+      this.sendMessage(thread.id, [{ type: 'text', text: content }], settings).catch((err: unknown) => {
         cleanup()
         reject(err)
       })

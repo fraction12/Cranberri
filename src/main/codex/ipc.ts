@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
-import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings } from '../../shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
 
@@ -158,6 +158,7 @@ async function skillFromFile(filePath: string, baseDir: string, source: CodexSki
     name,
     displayName: titleizeSkillName(name),
     description,
+    path: skillDir,
     source: isSystem ? 'system' : source,
     pluginName,
   }
@@ -384,10 +385,10 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { ok: true }
   })
 
-  ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => {
+  ipcMain.handle('codex:send-message', async (_, cwd: string, threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings) => {
     const c = await getCodexClient()
     c.setCwd(cwd)
-    await c.sendMessage(threadId, content, settings)
+    await c.sendMessage(threadId, input, settings)
     return { ok: true }
   })
 
