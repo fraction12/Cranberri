@@ -73,6 +73,7 @@ function ReasoningGroup({
   isRunning,
   activity,
   durationMs,
+  runStartedAt,
 }: {
   messages: CodexMessage[]
   expanded: boolean
@@ -80,8 +81,22 @@ function ReasoningGroup({
   isRunning: boolean
   activity?: string
   durationMs?: number
+  runStartedAt?: number
 }) {
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const displayedDurationMs = isRunning ? elapsedMs : (durationMs ?? 0)
+
+  useEffect(() => {
+    if (!isRunning) return undefined
+    const start = runStartedAt ?? Date.now()
+    setElapsedMs(Date.now() - start)
+    const id = window.setInterval(() => setElapsedMs(Date.now() - start), 1000)
+    return () => window.clearInterval(id)
+  }, [isRunning, runStartedAt])
+
   if (messages.length === 0 && !isRunning) return null
+
+  const seconds = Math.max(1, Math.round(displayedDurationMs / 1000))
 
   return (
     <div className="max-w-full text-[var(--app-text-muted)]">
@@ -98,7 +113,7 @@ function ReasoningGroup({
         ) : (
           <span className="h-2.5 w-2.5 rounded-full bg-[var(--app-text-muted)]" />
         )}
-        <span>{isRunning ? (activity ?? 'Working') : `Worked${durationMs ? ` for ${Math.max(1, Math.round(durationMs / 1000))}s` : ''}`}</span>
+        <span>{isRunning ? `${activity ?? 'Working'} · ${seconds}s` : `Worked${durationMs ? ` for ${seconds}s` : ''}`}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
@@ -716,6 +731,7 @@ export function ChatWindow({ id }: { id: string }) {
           isRunning={isRunning}
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
+          runStartedAt={thread?.runStartedAt}
         />,
       )
     }
@@ -740,6 +756,7 @@ export function ChatWindow({ id }: { id: string }) {
           isRunning={isRunning}
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
+          runStartedAt={thread?.runStartedAt}
         />,
       )
     }
