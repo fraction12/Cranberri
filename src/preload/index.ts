@@ -18,10 +18,12 @@ const api = {
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
     createThread: (cwd: string) => ipcRenderer.invoke('codex:create-thread', cwd),
-    sendMessage: (cwd: string, threadId: string, content: string) => ipcRenderer.invoke('codex:send-message', cwd, threadId, content),
+    sendMessage: (cwd: string, threadId: string, content: string, settings?: unknown) => ipcRenderer.invoke('codex:send-message', cwd, threadId, content, settings),
     approve: (cwd: string, threadId: string, approvalId: string) => ipcRenderer.invoke('codex:approve', cwd, threadId, approvalId),
     interrupt: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:interrupt', cwd, threadId),
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
+    plugins: () => ipcRenderer.invoke('codex:plugins'),
+    pickFiles: () => ipcRenderer.invoke('codex:pick-files'),
     onEvent: (cb: (event: unknown) => void) => {
       const handler = (_: unknown, event: unknown) => cb(event)
       ipcRenderer.on('codex:event', handler)
@@ -43,6 +45,10 @@ const api = {
       ipcRenderer.on('terminal:exit', handler)
       return () => ipcRenderer.off('terminal:exit', handler)
     },
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (settings: import('@/shared/settings').AppSettings) => ipcRenderer.invoke('settings:set', settings),
   },
 }
 

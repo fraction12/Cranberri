@@ -1,5 +1,5 @@
 import type { DiffResult, GitFileStatus, FileTreeNode } from '@/shared/git'
-import type { CodexEvent } from '@/shared/codex'
+import type { CodexEvent, CodexPluginInfo, CodexTurnSettings } from '@/shared/codex'
 
 declare module '@xterm/xterm/css/xterm.css'
 declare module '*.css' {
@@ -29,10 +29,12 @@ declare global {
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>
         createThread: (cwd: string) => Promise<{ threadId: string }>
-        sendMessage: (cwd: string, threadId: string, content: string) => Promise<{ ok: boolean }>
+        sendMessage: (cwd: string, threadId: string, content: string, settings?: CodexTurnSettings) => Promise<{ ok: boolean }>
         approve: (cwd: string, threadId: string, approvalId: string) => Promise<{ ok: boolean }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
+        plugins: () => Promise<{ plugins: CodexPluginInfo[] }>
+        pickFiles: () => Promise<{ paths: string[] }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {
@@ -42,6 +44,10 @@ declare global {
         kill: (id: string) => Promise<void>
         onData: (cb: (payload: { id: string; data: string }) => void) => () => void
         onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => () => void
+      }
+      settings: {
+        get: () => Promise<{ settings: import('@/shared/settings').AppSettings }>
+        set: (settings: import('@/shared/settings').AppSettings) => Promise<{ settings: import('@/shared/settings').AppSettings }>
       }
     }
   }

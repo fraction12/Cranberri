@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent } from '../../shared/codex'
+import type { CodexEvent, CodexTurnSettings } from '../../shared/codex'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -25,6 +25,20 @@ interface JsonRpcNotification {
 interface Thread {
   id: string
   name?: string | null
+}
+
+function getApprovalSettings(mode: CodexTurnSettings['approvalMode']): Record<string, unknown> {
+  switch (mode) {
+    case 'ask':
+      return { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' }
+    case 'approve':
+      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' }
+    case 'full':
+      return { approvalPolicy: 'never', sandboxMode: 'danger-full-access' }
+    case 'custom':
+    default:
+      return {}
+  }
 }
 
 export class CodexClient extends EventEmitter {
@@ -92,10 +106,14 @@ export class CodexClient extends EventEmitter {
     return thread
   }
 
-  async sendMessage(threadId: string, content: string): Promise<void> {
+  async sendMessage(threadId: string, content: string, settings?: CodexTurnSettings): Promise<void> {
+    const approvalSettings = getApprovalSettings(settings?.approvalMode)
     await this.call('turn/start', {
       threadId,
       input: [{ type: 'text', text: content }],
+      model: settings?.model ?? null,
+      effort: settings?.effort ?? null,
+      ...approvalSettings,
     })
     this.emit('event', { type: 'run_start', threadId } as CodexEvent)
   }
@@ -155,9 +173,33 @@ export class CodexClient extends EventEmitter {
         }
         break
       }
+      case 'agent_message': {
+        const message = (params as { message?: string }).message ?? ''
+        const phase = (params as { phase?: string }).phase
+        if (message) {
+          this.emit('event', { type: 'agent_message_completed', threadId, itemId: crypto.randomUUID(), text: message, phase } as CodexEvent)
+        }
+        break
+      }
+      case 'task_complete': {
+        const text = (params as { last_agent_message?: string }).last_agent_message ?? ''
+        if (text) this.emit('event', { type: 'final_answer', threadId, text } as CodexEvent)
+        this.emit('event', { type: 'run_end', threadId } as CodexEvent)
+        break
+      }
       case 'turn/completed': {
         const error = (params as { turn?: { error?: { message?: string } } }).turn?.error?.message
         this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
+        break
+      }
+      case 'token_count':
+      case 'codex/token_count': {
+        const info = (params as { info?: { last_token_usage?: { total_tokens?: number }; model_context_window?: number } }).info
+        const usedTokens = info?.last_token_usage?.total_tokens
+        const contextWindow = info?.model_context_window
+        if (usedTokens && contextWindow) {
+          this.emit('event', { type: 'context_usage', threadId, usedTokens, contextWindow } as CodexEvent)
+        }
         break
       }
       case 'item/started': {
@@ -186,9 +228,9 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/completed': {
-        const item = (params as { item?: { id?: string; type?: string; text?: string } }).item
+        const item = (params as { item?: { id?: string; type?: string; text?: string; phase?: string } }).item
         if (item?.type === 'agentMessage' && item.id) {
-          this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '' } as CodexEvent)
+          this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '', phase: item.phase } as CodexEvent)
         }
         break
       }

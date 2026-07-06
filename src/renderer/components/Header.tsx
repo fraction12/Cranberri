@@ -1,7 +1,7 @@
-import { Command } from 'lucide-react'
+import { Command, Settings } from 'lucide-react'
 import { useRepos } from '../state/repos'
 
-export function Header() {
+export function Header({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { activeRepo } = useRepos()
 
   return (
@@ -16,6 +16,14 @@ export function Header() {
         ) : (
           <span>No repo selected</span>
         )}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="p-1.5 rounded hover:bg-app-surface-2 text-app-text-muted hover:text-app-text"
+          title="Settings (⌘,)"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
       </div>
     </header>
   )
