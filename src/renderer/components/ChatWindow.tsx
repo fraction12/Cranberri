@@ -746,13 +746,18 @@ export function ChatWindow({ id }: { id: string }) {
     })
   }, [thread?.isRunning, thread?.messages])
 
-  useEffect(() => {
+  // Pin the transcript to the bottom while streaming, and keep it there whenever
+  // the user is already close to the bottom. Direct scrollTop assignment avoids
+  // scrollIntoView quirks that can leave the newest content above the fold.
+  useLayoutEffect(() => {
     const container = scrollContainerRef.current
-    const end = messagesEndRef.current
-    if (!container || !end) return
+    if (!container) return
     if (!shouldScrollToBottomRef.current) return
-    const behavior = thread?.isRunning ? 'auto' : 'smooth'
-    end.scrollIntoView({ behavior, block: 'end' })
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    const isNearBottom = distanceFromBottom <= 80
+    if (thread?.isRunning || isNearBottom) {
+      container.scrollTop = container.scrollHeight - container.clientHeight
+    }
   }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning])
 
   const handleScroll = useCallback(() => {

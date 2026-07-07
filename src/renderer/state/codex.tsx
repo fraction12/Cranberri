@@ -29,6 +29,14 @@ function itemText(item: { content?: Array<{ text?: string }> }): string {
   return item.content?.map((part) => part.text).filter(Boolean).join('\n') ?? ''
 }
 
+function agentMessageRole(phase: string | null | undefined): 'assistant' | 'reasoning' {
+  // Only explicit commentary / reasoning phases belong in the collapsible reasoning group.
+  // Everything else — including missing, unknown, or final_answer phases — renders as a
+  // first-class assistant message so the final response is never hidden.
+  if (phase === 'commentary' || phase === 'reasoning') return 'reasoning'
+  return 'assistant'
+}
+
 function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
   const messages: CodexMessage[] = []
   for (const turn of thread.turns) {
@@ -40,7 +48,7 @@ function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
       } else if (item.type === 'agentMessage' && item.text) {
         messages.push({
           id: item.id ?? crypto.randomUUID(),
-          role: item.phase === 'final_answer' ? 'assistant' : 'reasoning',
+          role: agentMessageRole(item.phase),
           content: item.text,
           timestamp,
         })
@@ -161,7 +169,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const finalizeStreamingMessage = useCallback((threadId: string, itemId: string) => {
+  const finalizeStreamingMessage = useCallback((threadId: string, itemId: string, role?: 'assistant' | 'reasoning') => {
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
@@ -170,7 +178,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const finalText = streamingBuffersRef.current[itemId] ?? ''
       thread.messages = thread.messages.map((m) => {
         if (m.id !== itemId) return m
-        return { ...m, content: finalText || m.content, pending: false }
+        return { ...m, content: finalText || m.content, pending: false, ...(role ? { role } : {}) }
       })
       next[idx] = thread
       return next
@@ -188,7 +196,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       if (!threadId) return
 
       if (e.type === 'agent_message_delta') {
-        const role = e.phase === 'final_answer' ? 'assistant' : 'reasoning'
+        const role = agentMessageRole(e.phase)
         queueMicrotask(() => updateStreamingMessage(threadId, e.itemId, e.delta, role))
         return
       }
@@ -208,7 +216,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
               thread.currentActivity = 'Writing'
               streamingBuffersRef.current[e.itemId] = e.text
             }
-            queueMicrotask(() => finalizeStreamingMessage(threadId, e.itemId))
+            queueMicrotask(() => finalizeStreamingMessage(threadId, e.itemId, agentMessageRole(e.phase)))
             break
           case 'tool_call':
             thread.currentActivity = `Calling ${e.tool.function}`
