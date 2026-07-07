@@ -4,6 +4,7 @@ import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES, type CodexConnectionStatus } from '@/shared/codex'
 import type { UpdateInfo } from '@/shared/update'
+import type { AppSettings } from '@/shared/settings'
 
 interface SettingsDialogProps {
   open: boolean
@@ -172,7 +173,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 )}
 
                 {activeTab === 'updates' && (
-                  <UpdatesSection update={update} />
+                  <UpdatesSection update={update} settings={settings} updateSection={updateSection} />
                 )}
 
                 {activeTab === 'about' && (
@@ -254,7 +255,11 @@ function ShortcutRow({ keys, description }: { keys: string[]; description: strin
   )
 }
 
-function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
+function UpdatesSection({ update, settings, updateSection }: {
+  update: ReturnType<typeof useUpdate>
+  settings: AppSettings
+  updateSection: <Section extends keyof AppSettings>(section: Section, values: Partial<AppSettings[Section]>) => Promise<void>
+}) {
   const status = update.status
   const progress = update.progress
   const pendingResult = update.pendingResult
@@ -263,9 +268,55 @@ function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
 
   const commit = (hash?: string | null) => (hash ? hash.slice(0, 7) : 'unknown')
 
+  const pickBetaRepo = async () => {
+    const repoPath = await window.cranberri.repos.pickDirectory()
+    if (!repoPath) return
+    await updateSection('updater', { sourceRepoPath: repoPath })
+  }
+
   return (
     <Section title="Updates" icon={PackageOpen}>
       <div className="space-y-3">
+        <div className="rounded-xl border border-app-border bg-app-bg p-3">
+          <div className="mb-2 text-xs font-medium text-app-text-muted">Update channel</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(['stable', 'beta'] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => updateSection('updater', { channel })}
+                className={`rounded-lg border px-3 py-2 text-left text-xs ${settings.updater.channel === channel ? 'border-app-accent bg-app-accent/10 text-app-text' : 'border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border'}`}
+              >
+                <div className="font-medium capitalize">{channel}</div>
+                <div className="mt-1 text-[10px] leading-snug opacity-80">
+                  {channel === 'stable' ? 'GitHub Actions release artifacts.' : 'Build latest origin/main from local source.'}
+                </div>
+              </button>
+            ))}
+          </div>
+          {settings.updater.channel === 'beta' && (
+            <div className="mt-3 space-y-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs text-app-text-muted">Cranberri source repo path</span>
+                <input
+                  value={settings.updater.sourceRepoPath ?? ''}
+                  onChange={(event) => updateSection('updater', { sourceRepoPath: event.target.value })}
+                  placeholder="/Users/you/Projects/Cranberri"
+                  className="w-full rounded-lg border border-app-border bg-app-surface px-3 py-2 font-mono text-xs outline-none focus:border-app-text-muted"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void pickBetaRepo()}
+                className="rounded-lg bg-app-surface-2 px-3 py-2 text-xs font-medium hover:bg-app-surface-2/80"
+              >
+                Choose repo…
+              </button>
+              <p className="text-[11px] text-app-text-muted">Beta requires a local clone. Cranberri fetches origin/main, builds it, packages it, then installs that app.</p>
+            </div>
+          )}
+        </div>
+
         <StatusRow icon={status?.status === 'upToDate' ? CheckCircle2 : status?.status === 'updateAvailable' ? Download : status?.status === 'failed' ? AlertCircle : RotateCw} label="Status">
           <span className={status?.status === 'updateAvailable' ? 'text-app-accent' : status?.status === 'failed' ? 'text-app-danger' : ''}>
             {formatUpdateStatus(status)}
@@ -276,7 +327,7 @@ function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
           <StatusRow label="Running commit">{commit(status.currentCommit)}</StatusRow>
         )}
         {status?.latestCommit && (
-          <StatusRow label="Latest origin/main">{commit(status.latestCommit)}</StatusRow>
+          <StatusRow label={settings.updater.channel === 'beta' ? 'Latest origin/main' : 'Latest release'}>{commit(status.latestCommit)}</StatusRow>
         )}
         {status?.commitsBehind !== undefined && status.commitsBehind !== null && (
           <StatusRow label="Commits behind">{status.commitsBehind}</StatusRow>
@@ -343,7 +394,7 @@ function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
               disabled={checking || installing}
               className="rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {installing ? 'Installing…' : 'Download & install update'}
+              {installing ? 'Installing…' : settings.updater.channel === 'beta' ? 'Build & install beta' : 'Download & install update'}
             </button>
           )}
         </div>
@@ -358,8 +409,8 @@ function formatUpdateStatus(status: UpdateInfo | null): string {
     case 'unknown': return 'Unknown'
     case 'checking': return 'Checking for updates…'
     case 'upToDate': return `Up to date (${status.currentCommit?.slice(0, 7) ?? 'unknown'})`
-    case 'updateAvailable': return `${status.commitsBehind ?? 'Some'} commit${status.commitsBehind === 1 ? '' : 's'} behind`
-    case 'building': return 'Building update…'
+    case 'updateAvailable': return status.commitsBehind === null ? 'Update available' : `${status.commitsBehind} commit${status.commitsBehind === 1 ? '' : 's'} behind`
+    case 'building': return 'Preparing update…'
     case 'readyToInstall': return 'Update ready to install'
     case 'installing': return 'Installing and relaunching…'
     case 'blocked': return status.blockedMessage || 'Update blocked'

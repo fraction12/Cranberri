@@ -7,6 +7,7 @@ import { APP_SETTINGS_VERSION, DEFAULT_APP_SETTINGS, type AppSettings } from '@/
 const codexReasoningEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh'])
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
 const themeSchema = z.enum(['dark', 'light'])
+const updaterChannelSchema = z.enum(['stable', 'beta'])
 
 const codexSpeedSchema = z.enum(['standard', 'fast'])
 
@@ -31,6 +32,10 @@ const settingsSchema = z.object({
     appearance: z.object({
       theme: themeSchema,
     }),
+    updater: z.object({
+      channel: updaterChannelSchema,
+      sourceRepoPath: z.string().optional(),
+    }),
   }),
 })
 
@@ -52,6 +57,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
   const editor = getSection(incoming, 'editor')
   const terminal = getSection(incoming, 'terminal')
   const appearance = getSection(incoming, 'appearance')
+  const updater = getSection(incoming, 'updater')
 
   const data: AppSettings = {
     codex: {
@@ -71,6 +77,10 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
     },
     appearance: {
       theme: themeSchema.safeParse(appearance.theme).success ? (appearance.theme as AppSettings['appearance']['theme']) : DEFAULT_APP_SETTINGS.appearance.theme,
+    },
+    updater: {
+      channel: updaterChannelSchema.safeParse(updater.channel).success ? (updater.channel as AppSettings['updater']['channel']) : DEFAULT_APP_SETTINGS.updater.channel,
+      sourceRepoPath: typeof updater.sourceRepoPath === 'string' && updater.sourceRepoPath ? updater.sourceRepoPath : DEFAULT_APP_SETTINGS.updater.sourceRepoPath,
     },
   }
 

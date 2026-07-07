@@ -18,6 +18,10 @@ export const updateBlockedReasonSchema = z.enum([
   'developmentMode',
   'noRelease',
   'noArtifact',
+  'noSourceRepo',
+  'dirtySourceRepo',
+  'sourceNotGitHub',
+  'gitFetchFailed',
   'releaseCheckFailed',
   'comparisonUnknown',
 ])

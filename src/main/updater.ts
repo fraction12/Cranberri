@@ -3,7 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import https from 'node:https'
+import simpleGit from 'simple-git'
 import { buildInfo } from '@/shared/buildInfo'
+import { readSettings } from './settings'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
 
@@ -50,6 +52,55 @@ interface ReleaseUpdate {
   release: GitHubRelease
   asset: ReleaseAsset
   latestCommit: string
+}
+
+interface SourceRepo {
+  path: string
+  remoteUrl: string
+  isDirty: boolean
+  containsCommit: boolean
+}
+
+async function resolveSourceRepo(): Promise<SourceRepo | null> {
+  const repoPath = readSettings().updater.sourceRepoPath
+  if (!repoPath) return null
+
+  const git = simpleGit(repoPath)
+  const remotes = await git.getRemotes(true)
+  const origin = remotes.find((r) => r.name === 'origin') ?? remotes[0]
+  const remoteUrl = origin?.refs?.fetch || origin?.refs?.push || ''
+  const status = await git.status()
+  const containsCommit = await commitExistsInRepo(git, buildInfo.commit)
+  return { path: repoPath, remoteUrl, isDirty: status.files.length > 0, containsCommit }
+}
+
+async function commitExistsInRepo(git: ReturnType<typeof simpleGit>, commit: string): Promise<boolean> {
+  try {
+    const result = await git.raw(['cat-file', '-t', commit])
+    return result.trim() === 'commit'
+  } catch {
+    return false
+  }
+}
+
+async function checkCommitsBehind(sourceRepo: SourceRepo, currentCommit: string): Promise<{ latestCommit: string; commitsBehind: number | null; comparisonUnknown: boolean }> {
+  if (!sourceRepo.containsCommit) {
+    return { latestCommit: '', commitsBehind: null, comparisonUnknown: true }
+  }
+  const git = simpleGit(sourceRepo.path)
+  await git.fetch(['origin', 'main'])
+  const latestCommit = (await git.raw(['rev-parse', 'origin/main'])).trim()
+  if (latestCommit === currentCommit) {
+    return { latestCommit, commitsBehind: 0, comparisonUnknown: false }
+  }
+  try {
+    const countOutput = await git.raw(['rev-list', '--count', `${currentCommit}..origin/main`])
+    const commitsBehind = Number.parseInt(countOutput.trim(), 10)
+    if (Number.isNaN(commitsBehind)) throw new Error('Invalid behind count')
+    return { latestCommit, commitsBehind, comparisonUnknown: false }
+  } catch {
+    return { latestCommit, commitsBehind: null, comparisonUnknown: true }
+  }
 }
 
 function requestBuffer(url: string, redirectCount = 0): Promise<Buffer> {
@@ -145,73 +196,84 @@ async function resolveReleaseUpdate(): Promise<ReleaseUpdate | null> {
   return { release, asset, latestCommit: await resolveReleaseCommit(release) }
 }
 
-type UpdateBlockedReasonLiteral = 'developmentMode' | 'noRelease' | 'noArtifact' | 'releaseCheckFailed' | 'comparisonUnknown'
+type UpdateBlockedReasonLiteral = 'developmentMode' | 'noRelease' | 'noArtifact' | 'noSourceRepo' | 'dirtySourceRepo' | 'sourceNotGitHub' | 'gitFetchFailed' | 'releaseCheckFailed' | 'comparisonUnknown'
+
+function makeStatus(values: Partial<UpdateInfo>): UpdateInfo {
+  return {
+    status: values.status ?? 'unknown',
+    currentCommit: buildInfo.commit,
+    latestCommit: values.latestCommit ?? null,
+    commitsBehind: values.commitsBehind ?? null,
+    sourceRepoPath: values.sourceRepoPath ?? null,
+    sourceRepoDirty: values.sourceRepoDirty ?? null,
+    blockedReason: values.blockedReason ?? null,
+    blockedMessage: values.blockedMessage ?? null,
+    phase: values.phase ?? null,
+    phaseMessage: values.phaseMessage ?? null,
+    failedPhase: values.failedPhase ?? null,
+    failureMessage: values.failureMessage ?? null,
+    logPath: values.logPath ?? null,
+  }
+}
 
 async function performCheck(): Promise<UpdateInfo> {
   if (!buildInfo.packaged) {
     return blocked('developmentMode', 'Updates install packaged app builds. Development builds update through git.')
   }
 
+  const channel = readSettings().updater.channel
+  return channel === 'beta' ? performBetaCheck() : performStableCheck()
+
+  function blocked(reason: UpdateBlockedReasonLiteral, message: string, latestCommit: string | null = null): UpdateInfo {
+    return makeStatus({ status: 'blocked', latestCommit, blockedReason: reason, blockedMessage: message })
+  }
+}
+
+async function performStableCheck(): Promise<UpdateInfo> {
   try {
     const update = await resolveReleaseUpdate()
     if (!update) {
-      return blocked('noArtifact', 'No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release.')
+      return makeStatus({ status: 'blocked', blockedReason: 'noArtifact', blockedMessage: 'No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release.' })
     }
     if (!update.latestCommit) {
-      return blocked('noRelease', 'No GitHub release metadata is available for Cranberri.')
+      return makeStatus({ status: 'blocked', blockedReason: 'noRelease', blockedMessage: 'No GitHub release metadata is available for Cranberri.' })
     }
     if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
-      return {
-        status: 'upToDate',
-        currentCommit: buildInfo.commit,
-        latestCommit: update.latestCommit,
-        commitsBehind: 0,
-        sourceRepoPath: update.asset.name,
-        sourceRepoDirty: null,
-        blockedReason: null,
-        blockedMessage: null,
-        phase: null,
-        phaseMessage: null,
-        failedPhase: null,
-        failureMessage: null,
-        logPath: null,
-      }
+      return makeStatus({ status: 'upToDate', latestCommit: update.latestCommit, commitsBehind: 0, sourceRepoPath: update.asset.name })
     }
-    return {
-      status: 'updateAvailable',
-      currentCommit: buildInfo.commit,
-      latestCommit: update.latestCommit,
-      commitsBehind: null,
-      sourceRepoPath: update.asset.name,
-      sourceRepoDirty: null,
-      blockedReason: null,
-      blockedMessage: null,
-      phase: null,
-      phaseMessage: null,
-      failedPhase: null,
-      failureMessage: null,
-      logPath: null,
-    }
+    return makeStatus({ status: 'updateAvailable', latestCommit: update.latestCommit, sourceRepoPath: update.asset.name })
   } catch (error) {
-    return blocked('releaseCheckFailed', error instanceof Error ? error.message : String(error))
+    return makeStatus({ status: 'blocked', blockedReason: 'releaseCheckFailed', blockedMessage: error instanceof Error ? error.message : String(error) })
   }
+}
 
-  function blocked(reason: UpdateBlockedReasonLiteral, message: string, latestCommit: string | null = null): UpdateInfo {
-    return {
-      status: 'blocked',
-      currentCommit: buildInfo.commit,
-      latestCommit,
-      commitsBehind: null,
-      sourceRepoPath: null,
-      sourceRepoDirty: null,
-      blockedReason: reason,
-      blockedMessage: message,
-      phase: null,
-      phaseMessage: null,
-      failedPhase: null,
-      failureMessage: null,
-      logPath: null,
+async function performBetaCheck(): Promise<UpdateInfo> {
+  let sourceRepo: SourceRepo | null = null
+  try {
+    sourceRepo = await resolveSourceRepo()
+    if (!sourceRepo) {
+      return makeStatus({ status: 'blocked', blockedReason: 'noSourceRepo', blockedMessage: 'Beta updates require a local Cranberri source repo path in Settings.' })
     }
+    if (!sourceRepo.remoteUrl.includes('github.com')) {
+      return makeStatus({ status: 'blocked', blockedReason: 'sourceNotGitHub', blockedMessage: 'The configured beta source repo origin is not GitHub.', sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+    }
+    if (sourceRepo.isDirty) {
+      return makeStatus({ status: 'blocked', blockedReason: 'dirtySourceRepo', blockedMessage: 'The configured beta source repo has uncommitted changes. Commit, stash, or clean it before updating.', sourceRepoPath: sourceRepo.path, sourceRepoDirty: true })
+    }
+    if (!sourceRepo.containsCommit) {
+      return makeStatus({ status: 'blocked', blockedReason: 'comparisonUnknown', blockedMessage: `Running commit ${buildInfo.commit.slice(0, 7)} is not in the beta source repo history.`, sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+    }
+
+    const { latestCommit, commitsBehind, comparisonUnknown } = await checkCommitsBehind(sourceRepo, buildInfo.commit)
+    if (comparisonUnknown) {
+      return makeStatus({ status: 'blocked', latestCommit, blockedReason: 'comparisonUnknown', blockedMessage: `Running commit ${buildInfo.commit.slice(0, 7)} cannot be compared with origin/main.`, sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+    }
+    if (commitsBehind === 0) {
+      return makeStatus({ status: 'upToDate', latestCommit, commitsBehind: 0, sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+    }
+    return makeStatus({ status: 'updateAvailable', latestCommit, commitsBehind, sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+  } catch (error) {
+    return makeStatus({ status: 'blocked', blockedReason: 'gitFetchFailed', blockedMessage: error instanceof Error ? error.message : String(error), sourceRepoPath: sourceRepo?.path ?? null, sourceRepoDirty: sourceRepo?.isDirty ?? null })
   }
 }
 
@@ -246,33 +308,13 @@ async function installUpdate(): Promise<InstallResult> {
   const logPath = path.join(stagingDir, 'build.log')
   fs.mkdirSync(stagingDir, { recursive: true })
 
-  setStatus({ status: 'building', phase: 'preparing', phaseMessage: 'Preparing update download', logPath })
+  const channel = readSettings().updater.channel
+  setStatus({ status: 'building', phase: 'preparing', phaseMessage: channel === 'beta' ? 'Preparing beta source build' : 'Preparing update download', logPath })
 
   try {
-    emitProgress({ phase: 'preparing', message: 'Finding latest release artifact', percent: 5 })
-    const update = await resolveReleaseUpdate()
-    if (!update) throw new Error('No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release')
-    if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
-      setStatus({
-        status: 'upToDate',
-        currentCommit: buildInfo.commit,
-        latestCommit: update.latestCommit,
-        commitsBehind: 0,
-        sourceRepoPath: update.asset.name,
-        sourceRepoDirty: null,
-        blockedReason: null,
-        blockedMessage: null,
-        phase: null,
-        phaseMessage: null,
-        failedPhase: null,
-        failureMessage: null,
-        logPath,
-      })
-      return { success: true, phase: 'upToDate' as const, message: 'Already up to date after refresh.', logPath }
-    }
-
-    emitProgress({ phase: 'fetching', message: `Downloading ${update.asset.name}`, percent: 20 })
-    const stagedAppPath = await stageReleaseAsset(update.asset, stagingDir, logPath)
+    const stagedAppPath = channel === 'beta'
+      ? await prepareBetaUpdate(stagingDir, logPath)
+      : await prepareStableUpdate(stagingDir, logPath)
     emitProgress({ phase: 'readyToInstall', message: 'Ready to install', percent: 95 })
     setStatus({ status: 'readyToInstall', phase: 'readyToInstall', phaseMessage: 'Ready to install' })
 
@@ -317,6 +359,9 @@ async function installUpdate(): Promise<InstallResult> {
     app.quit()
     return { success: true, phase: 'relaunching', message: 'Quitting to install update', logPath }
   } catch (error) {
+    if (error instanceof AlreadyUpToDateError) {
+      return { success: true, phase: 'upToDate' as const, message: error.message, logPath }
+    }
     const message = error instanceof Error ? error.message : String(error)
     setStatus({ status: 'failed', failedPhase: currentStatus.phase, failureMessage: message, logPath })
     return { success: false, phase: currentStatus.phase, message, logPath }
@@ -379,6 +424,59 @@ async function makeBuildEnv(): Promise<NodeJS.ProcessEnv> {
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   }
+}
+
+async function prepareStableUpdate(stagingDir: string, logPath: string): Promise<string> {
+  emitProgress({ phase: 'preparing', message: 'Finding latest stable release artifact', percent: 5 })
+  const update = await resolveReleaseUpdate()
+  if (!update) throw new Error('No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release')
+  if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
+    setStatus(makeStatus({ status: 'upToDate', latestCommit: update.latestCommit, commitsBehind: 0, sourceRepoPath: update.asset.name, logPath }))
+    throw new AlreadyUpToDateError('Already up to date after refresh.')
+  }
+
+  emitProgress({ phase: 'fetching', message: `Downloading ${update.asset.name}`, percent: 20 })
+  return stageReleaseAsset(update.asset, stagingDir, logPath)
+}
+
+async function prepareBetaUpdate(stagingDir: string, logPath: string): Promise<string> {
+  emitProgress({ phase: 'preparing', message: 'Refreshing beta source repo', percent: 5 })
+  const sourceRepo = await resolveSourceRepo()
+  if (!sourceRepo) throw new Error('Beta updates require a local Cranberri source repo path in Settings')
+  if (sourceRepo.isDirty) throw new Error('The configured beta source repo has uncommitted changes')
+
+  const refreshed = await checkCommitsBehind(sourceRepo, buildInfo.commit)
+  const targetCommit = refreshed.latestCommit || currentStatus.latestCommit
+  if (!targetCommit) throw new Error('Could not determine latest beta commit')
+  if (refreshed.commitsBehind === 0) {
+    setStatus(makeStatus({ status: 'upToDate', latestCommit: targetCommit, commitsBehind: 0, sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty, logPath }))
+    throw new AlreadyUpToDateError('Already up to date after refresh.')
+  }
+
+  await stageSource(sourceRepo.path, targetCommit, stagingDir, logPath)
+  emitProgress({ phase: 'dependencies', message: 'Installing beta dependencies', percent: 15 })
+  await runLogged(['npm', 'install'], path.join(stagingDir, 'source'), logPath)
+  emitProgress({ phase: 'building', message: 'Building beta application', percent: 40 })
+  await runLogged(['npm', 'run', 'build'], path.join(stagingDir, 'source'), logPath)
+  emitProgress({ phase: 'packaging', message: 'Packaging beta macOS app', percent: 70 })
+  await runLogged(['npm', 'run', 'package:dir'], path.join(stagingDir, 'source'), logPath)
+
+  const stagedAppPath = path.join(stagingDir, 'source', 'dist', 'mac-arm64', 'Cranberri.app')
+  if (!fs.existsSync(stagedAppPath)) {
+    throw new Error(`Packaged beta app not found at ${stagedAppPath}`)
+  }
+  return stagedAppPath
+}
+
+class AlreadyUpToDateError extends Error {}
+
+async function stageSource(repoPath: string, commit: string, stagingDir: string, logPath: string): Promise<void> {
+  const sourceDir = path.join(stagingDir, 'source')
+  fs.rmSync(sourceDir, { recursive: true, force: true })
+  fs.mkdirSync(stagingDir, { recursive: true })
+  emitProgress({ phase: 'fetching', message: `Cloning beta source at ${commit.slice(0, 7)}`, percent: 8 })
+  await runLogged(['git', 'clone', '--shared', '--no-checkout', repoPath, sourceDir], stagingDir, logPath)
+  await runLogged(['git', 'checkout', commit], sourceDir, logPath)
 }
 
 async function stageReleaseAsset(asset: ReleaseAsset, stagingDir: string, logPath: string): Promise<string> {

@@ -19,6 +19,10 @@ export interface AppSettings {
   appearance: {
     theme: 'dark' | 'light'
   }
+  updater: {
+    channel: 'stable' | 'beta'
+    sourceRepoPath?: string
+  }
 }
 
 export const APP_SETTINGS_VERSION = 1
@@ -39,5 +43,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   appearance: {
     theme: 'dark',
+  },
+  updater: {
+    channel: 'stable',
   },
 }
