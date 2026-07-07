@@ -23,7 +23,6 @@ declare global {
         status: () => Promise<import('@/shared/update').UpdateInfo>
         install: () => Promise<import('@/shared/update').InstallResult>
         onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => (() => void)
-        setSourceRepo: (repoPath: string) => Promise<{ ok: boolean }>
         pendingResult: () => Promise<import('@/shared/update').InstallResult | null>
         clearResult: () => Promise<{ ok: boolean }>
       }

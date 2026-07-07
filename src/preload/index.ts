@@ -89,7 +89,6 @@ const api = {
       ipcRenderer.on('updater:event', handler)
       return () => ipcRenderer.removeListener('updater:event', handler)
     },
-    setSourceRepo: (repoPath: string) => ipcRenderer.invoke('updater:set-source-repo', repoPath) as Promise<{ ok: boolean }>,
     pendingResult: () => ipcRenderer.invoke('updater:pending-result') as Promise<import('@/shared/update').InstallResult | null>,
     clearResult: () => ipcRenderer.invoke('updater:clear-result') as Promise<{ ok: boolean }>,
   },

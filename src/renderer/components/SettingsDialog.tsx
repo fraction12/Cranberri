@@ -264,7 +264,7 @@ function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
   const commit = (hash?: string | null) => (hash ? hash.slice(0, 7) : 'unknown')
 
   return (
-    <Section title="Source-built updates" icon={PackageOpen}>
+    <Section title="Updates" icon={PackageOpen}>
       <div className="space-y-3">
         <StatusRow icon={status?.status === 'upToDate' ? CheckCircle2 : status?.status === 'updateAvailable' ? Download : status?.status === 'failed' ? AlertCircle : RotateCw} label="Status">
           <span className={status?.status === 'updateAvailable' ? 'text-app-accent' : status?.status === 'failed' ? 'text-app-danger' : ''}>
@@ -343,7 +343,7 @@ function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
               disabled={checking || installing}
               className="rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {installing ? 'Building…' : 'Build & install update'}
+              {installing ? 'Installing…' : 'Download & install update'}
             </button>
           )}
         </div>

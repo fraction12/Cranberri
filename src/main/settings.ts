@@ -31,9 +31,6 @@ const settingsSchema = z.object({
     appearance: z.object({
       theme: themeSchema,
     }),
-    updater: z.object({
-      sourceRepoPath: z.string().optional(),
-    }).optional(),
   }),
 })
 

@@ -16,11 +16,9 @@ export type UpdateStatus = z.infer<typeof updateStatusSchema>
 
 export const updateBlockedReasonSchema = z.enum([
   'developmentMode',
-  'noSourceRepo',
-  'missingOrigin',
-  'dirtySourceRepo',
-  'sourceNotGitHub',
-  'gitFetchFailed',
+  'noRelease',
+  'noArtifact',
+  'releaseCheckFailed',
   'comparisonUnknown',
 ])
 

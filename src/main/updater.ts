@@ -2,14 +2,14 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import simpleGit from 'simple-git'
+import https from 'node:https'
 import { buildInfo } from '@/shared/buildInfo'
-import { readSettings, writeSettings } from './settings'
-import { getRegisteredRepoPaths } from './repos'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
 
 const UPDATE_CHANNEL = 'updater:event'
+const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
+const USER_AGENT = 'CranberriUpdater/0.1.0'
 
 function getUserData(...segments: string[]): string {
   return path.join(app.getPath('userData'), ...segments)
@@ -34,108 +34,140 @@ function emitStatus(status: UpdateInfo): void {
   broadcast({ type: 'status', status: updateInfoSchema.parse(status) })
 }
 
-interface SourceRepo {
-  path: string
-  remoteUrl: string
-  owner: string
-  repo: string
-  isDirty: boolean
-  containsCommit: boolean
+interface ReleaseAsset {
+  name: string
+  browser_download_url: string
 }
 
-async function resolveSourceRepo(): Promise<SourceRepo | null> {
-  const settings = readSettings()
-  const candidatePaths: string[] = []
-  if (settings.updater?.sourceRepoPath) {
-    candidatePaths.push(settings.updater.sourceRepoPath)
-  }
-  // Fallback: discover from registered repos if they match the Cranberri origin.
-  for (const repoPath of getRegisteredRepoPaths()) {
-    if (!candidatePaths.includes(repoPath)) candidatePaths.push(repoPath)
-  }
-
-  const repos: SourceRepo[] = []
-  for (const repoPath of candidatePaths) {
-    try {
-      const git = simpleGit(repoPath)
-      const remotes = await git.getRemotes(true)
-      const origin = remotes.find((r) => r.name === 'origin') ?? remotes[0]
-      const remoteUrl = origin?.refs?.fetch || origin?.refs?.push || ''
-      const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/)
-      if (!match) continue
-      const [, owner, repo] = match
-      const status = await git.status()
-      const containsCommit = await commitExistsInRepo(git, buildInfo.commit)
-      repos.push({ path: repoPath, remoteUrl, owner, repo, isDirty: status.files.length > 0, containsCommit })
-    } catch {
-      continue
-    }
-  }
-
-  // Prefer a repo that actually contains the running commit; otherwise return the first valid one.
-  return repos.find((r) => r.containsCommit) ?? repos[0] ?? null
+interface GitHubRelease {
+  tag_name: string
+  target_commitish: string
+  html_url: string
+  assets: ReleaseAsset[]
 }
 
-async function commitExistsInRepo(git: ReturnType<typeof simpleGit>, commit: string): Promise<boolean> {
+interface ReleaseUpdate {
+  release: GitHubRelease
+  asset: ReleaseAsset
+  latestCommit: string
+}
+
+function requestBuffer(url: string, redirectCount = 0): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/vnd.github+json' } }, (res) => {
+      const location = res.headers.location
+      if (location && res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
+        res.resume()
+        if (redirectCount > 5) reject(new Error('Too many redirects while downloading update'))
+        else resolve(requestBuffer(new URL(location, url).toString(), redirectCount + 1))
+        return
+      }
+
+      if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () => reject(new Error(`Request failed ${res.statusCode}: ${Buffer.concat(chunks).toString('utf8').slice(0, 300)}`)))
+        return
+      }
+
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+    })
+    req.on('error', reject)
+    req.setTimeout(30_000, () => {
+      req.destroy(new Error('Request timed out'))
+    })
+  })
+}
+
+async function fetchLatestRelease(): Promise<GitHubRelease> {
+  const buffer = await requestBuffer(RELEASES_API_URL)
+  const json = JSON.parse(buffer.toString('utf8')) as Partial<GitHubRelease>
+  return {
+    tag_name: typeof json.tag_name === 'string' ? json.tag_name : '',
+    target_commitish: typeof json.target_commitish === 'string' ? json.target_commitish : '',
+    html_url: typeof json.html_url === 'string' ? json.html_url : '',
+    assets: Array.isArray(json.assets)
+      ? json.assets.flatMap((asset) => {
+        const value = asset as Partial<ReleaseAsset>
+        return typeof value.name === 'string' && typeof value.browser_download_url === 'string'
+          ? [{ name: value.name, browser_download_url: value.browser_download_url }]
+          : []
+      })
+      : [],
+  }
+}
+
+function pickReleaseAsset(release: GitHubRelease): ReleaseAsset | null {
+  return release.assets.find((asset) => /Cranberri-.*arm64-mac\.zip$/.test(asset.name))
+    ?? release.assets.find((asset) => /Cranberri-.*arm64\.dmg$/.test(asset.name))
+    ?? null
+}
+
+interface GitRefResponse {
+  object?: {
+    sha?: string
+    type?: string
+  }
+}
+
+interface GitTagResponse {
+  object?: {
+    sha?: string
+  }
+}
+
+async function resolveReleaseCommit(release: GitHubRelease): Promise<string> {
+  if (/^[a-f0-9]{40}$/i.test(release.target_commitish)) return release.target_commitish
+  if (!release.tag_name) return release.target_commitish
+
   try {
-    const result = await git.raw(['cat-file', '-t', commit])
-    return result.trim() === 'commit'
+    const encodedTag = encodeURIComponent(release.tag_name)
+    const refBuffer = await requestBuffer(`https://api.github.com/repos/fraction12/Cranberri/git/ref/tags/${encodedTag}`)
+    const ref = JSON.parse(refBuffer.toString('utf8')) as GitRefResponse
+    const sha = ref.object?.sha
+    if (!sha) return release.target_commitish || release.tag_name
+    if (ref.object?.type !== 'tag') return sha
+
+    const tagBuffer = await requestBuffer(`https://api.github.com/repos/fraction12/Cranberri/git/tags/${sha}`)
+    const tag = JSON.parse(tagBuffer.toString('utf8')) as GitTagResponse
+    return tag.object?.sha ?? sha
   } catch {
-    return false
+    return release.target_commitish || release.tag_name
   }
 }
 
-async function checkCommitsBehind(sourceRepo: SourceRepo, currentCommit: string): Promise<{ latestCommit: string; commitsBehind: number | null; comparisonUnknown: boolean }> {
-  if (!sourceRepo.containsCommit) {
-    return { latestCommit: '', commitsBehind: null, comparisonUnknown: true }
-  }
-  const git = simpleGit(sourceRepo.path)
-  await git.fetch(['origin', 'main'])
-  const latestCommit = (await git.raw(['rev-parse', 'origin/main'])).trim()
-  if (latestCommit === currentCommit) {
-    return { latestCommit, commitsBehind: 0, comparisonUnknown: false }
-  }
-  try {
-    const countOutput = await git.raw(['rev-list', '--count', `${currentCommit}..origin/main`])
-    const commitsBehind = Number.parseInt(countOutput.trim(), 10)
-    if (Number.isNaN(commitsBehind)) throw new Error('Invalid behind count')
-    return { latestCommit, commitsBehind, comparisonUnknown: false }
-  } catch {
-    return { latestCommit, commitsBehind: null, comparisonUnknown: true }
-  }
+async function resolveReleaseUpdate(): Promise<ReleaseUpdate | null> {
+  const release = await fetchLatestRelease()
+  const asset = pickReleaseAsset(release)
+  if (!asset) return null
+  return { release, asset, latestCommit: await resolveReleaseCommit(release) }
 }
 
-type UpdateBlockedReasonLiteral = 'developmentMode' | 'noSourceRepo' | 'missingOrigin' | 'sourceNotGitHub' | 'gitFetchFailed' | 'comparisonUnknown' | 'dirtySourceRepo'
+type UpdateBlockedReasonLiteral = 'developmentMode' | 'noRelease' | 'noArtifact' | 'releaseCheckFailed' | 'comparisonUnknown'
 
 async function performCheck(): Promise<UpdateInfo> {
-  let sourceRepo: SourceRepo | null = null
   if (!buildInfo.packaged) {
     return blocked('developmentMode', 'Updates install packaged app builds. Development builds update through git.')
   }
-  sourceRepo = await resolveSourceRepo()
-  if (!sourceRepo) {
-    return blocked('noSourceRepo', 'No Cranberri source repo is configured. Add one in Settings.')
-  }
-  if (!sourceRepo.remoteUrl.includes('github.com')) {
-    return blocked('sourceNotGitHub', 'The configured source repo origin is not GitHub.')
-  }
-  if (!sourceRepo.containsCommit) {
-    return blocked('comparisonUnknown', `Running commit ${buildInfo.commit.slice(0, 7)} is not in the source repo at ${sourceRepo.path}.`, null)
-  }
 
   try {
-    const { latestCommit, commitsBehind, comparisonUnknown } = await checkCommitsBehind(sourceRepo, buildInfo.commit)
-    if (comparisonUnknown) {
-      return blocked('comparisonUnknown', `Running commit ${buildInfo.commit.slice(0, 7)} is not in the source repo history.`, latestCommit)
+    const update = await resolveReleaseUpdate()
+    if (!update) {
+      return blocked('noArtifact', 'No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release.')
     }
-    if (commitsBehind === 0) {
+    if (!update.latestCommit) {
+      return blocked('noRelease', 'No GitHub release metadata is available for Cranberri.')
+    }
+    if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
       return {
         status: 'upToDate',
         currentCommit: buildInfo.commit,
-        latestCommit,
+        latestCommit: update.latestCommit,
         commitsBehind: 0,
-        sourceRepoPath: sourceRepo.path,
-        sourceRepoDirty: sourceRepo.isDirty,
+        sourceRepoPath: update.asset.name,
+        sourceRepoDirty: null,
         blockedReason: null,
         blockedMessage: null,
         phase: null,
@@ -148,10 +180,10 @@ async function performCheck(): Promise<UpdateInfo> {
     return {
       status: 'updateAvailable',
       currentCommit: buildInfo.commit,
-      latestCommit,
-      commitsBehind,
-      sourceRepoPath: sourceRepo.path,
-      sourceRepoDirty: sourceRepo.isDirty,
+      latestCommit: update.latestCommit,
+      commitsBehind: null,
+      sourceRepoPath: update.asset.name,
+      sourceRepoDirty: null,
       blockedReason: null,
       blockedMessage: null,
       phase: null,
@@ -161,7 +193,7 @@ async function performCheck(): Promise<UpdateInfo> {
       logPath: null,
     }
   } catch (error) {
-    return blocked('gitFetchFailed', error instanceof Error ? error.message : String(error))
+    return blocked('releaseCheckFailed', error instanceof Error ? error.message : String(error))
   }
 
   function blocked(reason: UpdateBlockedReasonLiteral, message: string, latestCommit: string | null = null): UpdateInfo {
@@ -170,8 +202,8 @@ async function performCheck(): Promise<UpdateInfo> {
       currentCommit: buildInfo.commit,
       latestCommit,
       commitsBehind: null,
-      sourceRepoPath: sourceRepo?.path ?? null,
-      sourceRepoDirty: sourceRepo?.isDirty ?? null,
+      sourceRepoPath: null,
+      sourceRepoDirty: null,
       blockedReason: reason,
       blockedMessage: message,
       phase: null,
@@ -209,29 +241,25 @@ async function installUpdate(): Promise<InstallResult> {
   if (currentStatus.status !== 'updateAvailable' && currentStatus.status !== 'failed') {
     return { success: false, phase: null, message: 'No update is available.', logPath: null }
   }
-  const sourceRepo = await resolveSourceRepo()
-  if (!sourceRepo) {
-    return { success: false, phase: null, message: 'Source repo not found.', logPath: null }
-  }
 
   const stagingDir = getUserData('updater-staging')
   const logPath = path.join(stagingDir, 'build.log')
   fs.mkdirSync(stagingDir, { recursive: true })
 
-  setStatus({ status: 'building', phase: 'preparing', phaseMessage: 'Preparing hidden staging area', logPath })
+  setStatus({ status: 'building', phase: 'preparing', phaseMessage: 'Preparing update download', logPath })
 
   try {
-    emitProgress({ phase: 'preparing', message: 'Refreshing latest origin/main', percent: 2 })
-    const refreshed = await checkCommitsBehind(sourceRepo, buildInfo.commit)
-    const targetCommit = refreshed.latestCommit || currentStatus.latestCommit!
-    if (refreshed.commitsBehind === 0) {
+    emitProgress({ phase: 'preparing', message: 'Finding latest release artifact', percent: 5 })
+    const update = await resolveReleaseUpdate()
+    if (!update) throw new Error('No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release')
+    if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
       setStatus({
         status: 'upToDate',
         currentCommit: buildInfo.commit,
-        latestCommit: targetCommit,
+        latestCommit: update.latestCommit,
         commitsBehind: 0,
-        sourceRepoPath: sourceRepo.path,
-        sourceRepoDirty: sourceRepo.isDirty,
+        sourceRepoPath: update.asset.name,
+        sourceRepoDirty: null,
         blockedReason: null,
         blockedMessage: null,
         phase: null,
@@ -243,20 +271,10 @@ async function installUpdate(): Promise<InstallResult> {
       return { success: true, phase: 'upToDate' as const, message: 'Already up to date after refresh.', logPath }
     }
 
-    await stageSource(sourceRepo.path, targetCommit, stagingDir)
-    emitProgress({ phase: 'dependencies', message: 'Installing dependencies', percent: 15 })
-    await runLogged(['npm', 'install'], path.join(stagingDir, 'source'), logPath)
-    emitProgress({ phase: 'building', message: 'Building application', percent: 40 })
-    await runLogged(['npm', 'run', 'build'], path.join(stagingDir, 'source'), logPath)
-    emitProgress({ phase: 'packaging', message: 'Packaging macOS app', percent: 70 })
-    await runLogged(['npm', 'run', 'package:dir'], path.join(stagingDir, 'source'), logPath)
+    emitProgress({ phase: 'fetching', message: `Downloading ${update.asset.name}`, percent: 20 })
+    const stagedAppPath = await stageReleaseAsset(update.asset, stagingDir, logPath)
     emitProgress({ phase: 'readyToInstall', message: 'Ready to install', percent: 95 })
     setStatus({ status: 'readyToInstall', phase: 'readyToInstall', phaseMessage: 'Ready to install' })
-
-    const stagedAppPath = path.join(stagingDir, 'source', 'dist', 'mac-arm64', 'Cranberri.app')
-    if (!fs.existsSync(stagedAppPath)) {
-      throw new Error(`Packaged app not found at ${stagedAppPath}`)
-    }
 
     const currentAppPath = getCurrentAppPath()
     const backupAppPath = getUserData('updater-backup', 'Cranberri.app')
@@ -283,15 +301,16 @@ async function installUpdate(): Promise<InstallResult> {
       ? path.join(appPath.replace(/app\.asar$/, 'app.asar.unpacked'), 'out', 'updater', 'install-helper.mjs')
       : path.join(__dirname, '../updater/install-helper.mjs')
     const nodeBinary = await findNodeBinary()
-    if (!nodeBinary) {
-      throw new Error('Cannot find node binary to run install helper')
-    }
+    const helperRunner = nodeBinary ?? process.execPath
+    const helperEnv = nodeBinary
+      ? { ...process.env, CRANBERRI_UPDATER: '1' }
+      : { ...process.env, CRANBERRI_UPDATER: '1', ELECTRON_RUN_AS_NODE: '1' }
     const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
     const helperOut = fs.openSync(helperLogPath, 'a')
-    spawn(nodeBinary, [helperPath, manifestPath, String(process.pid)], {
+    spawn(helperRunner, [helperPath, manifestPath, String(process.pid)], {
       detached: true,
       stdio: ['ignore', helperOut, helperOut],
-      env: { ...process.env, CRANBERRI_UPDATER: '1' },
+      env: helperEnv,
     }).unref()
     fs.closeSync(helperOut)
 
@@ -334,6 +353,7 @@ const RESOLVABLE_TOOLS: Record<string, string[]> = {
   npm: ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'],
   git: ['/opt/homebrew/bin/git', '/usr/local/bin/git', '/usr/bin/git'],
   node: ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'],
+  ditto: ['/usr/bin/ditto'],
 }
 
 async function resolveCommand(command: string[]): Promise<string[]> {
@@ -361,13 +381,43 @@ async function makeBuildEnv(): Promise<NodeJS.ProcessEnv> {
   }
 }
 
-async function stageSource(repoPath: string, commit: string, stagingDir: string): Promise<void> {
-  const sourceDir = path.join(stagingDir, 'source')
-  fs.rmSync(sourceDir, { recursive: true, force: true })
-  fs.mkdirSync(stagingDir, { recursive: true })
-  emitProgress({ phase: 'fetching', message: `Cloning source at ${commit.slice(0, 7)}`, percent: 5 })
-  await runLogged(['git', 'clone', '--shared', '--no-checkout', repoPath, sourceDir], stagingDir, path.join(stagingDir, 'clone.log'))
-  await runLogged(['git', 'checkout', commit], sourceDir, path.join(stagingDir, 'clone.log'))
+async function stageReleaseAsset(asset: ReleaseAsset, stagingDir: string, logPath: string): Promise<string> {
+  const downloadDir = path.join(stagingDir, 'download')
+  const extractDir = path.join(stagingDir, 'extracted')
+  fs.rmSync(downloadDir, { recursive: true, force: true })
+  fs.rmSync(extractDir, { recursive: true, force: true })
+  fs.mkdirSync(downloadDir, { recursive: true })
+  fs.mkdirSync(extractDir, { recursive: true })
+
+  const assetPath = path.join(downloadDir, asset.name)
+  fs.appendFileSync(logPath, `\nDownloading ${asset.browser_download_url}\n`)
+  fs.writeFileSync(assetPath, await requestBuffer(asset.browser_download_url))
+  fs.appendFileSync(logPath, `Downloaded ${asset.name} (${fs.statSync(assetPath).size} bytes)\n`)
+
+  if (!asset.name.endsWith('.zip')) {
+    throw new Error(`Unsupported update artifact ${asset.name}. Publish the macOS zip asset for in-app updates.`)
+  }
+
+  emitProgress({ phase: 'packaging', message: 'Extracting downloaded app', percent: 70 })
+  await runLogged(['ditto', '-x', '-k', assetPath, extractDir], stagingDir, logPath)
+  const stagedAppPath = findAppBundle(extractDir)
+  if (!stagedAppPath) {
+    throw new Error(`Cranberri.app not found inside ${asset.name}`)
+  }
+  return stagedAppPath
+}
+
+function findAppBundle(root: string): string | null {
+  const entries = fs.readdirSync(root, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name)
+    if (entry.isDirectory() && entry.name === 'Cranberri.app') return fullPath
+    if (entry.isDirectory()) {
+      const nested = findAppBundle(fullPath)
+      if (nested) return nested
+    }
+  }
+  return null
 }
 
 async function runLogged(command: string[], cwd: string, logPath: string): Promise<void> {
@@ -437,13 +487,6 @@ export function initUpdaterIpc(): void {
     } catch {
       return { ok: false }
     }
-  })
-
-  ipcMain.handle('updater:set-source-repo', (_, repoPath: string) => {
-    const settings = readSettings()
-    const next = { ...settings, updater: { ...(settings.updater ?? {}), sourceRepoPath: repoPath } }
-    writeSettings(next)
-    return { ok: true }
   })
 
   // Auto-check on startup in packaged builds, but don't block the window.
