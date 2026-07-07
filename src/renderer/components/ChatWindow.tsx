@@ -108,6 +108,12 @@ export function ChatWindow({ id }: { id: string }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottomRef = useRef(true)
 
+  const scrollTranscriptToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+  }, [])
+
   useEffect(() => {
     window.cranberri.codex.skills()
       .then((result) => setSkills(result.skills))
@@ -140,6 +146,14 @@ export function ChatWindow({ id }: { id: string }) {
     })
   }, [thread?.isRunning, thread?.messages])
 
+  useLayoutEffect(() => {
+    if (!threadId) return
+    shouldScrollToBottomRef.current = true
+    scrollTranscriptToBottom()
+    const frame = requestAnimationFrame(scrollTranscriptToBottom)
+    return () => cancelAnimationFrame(frame)
+  }, [threadId, scrollTranscriptToBottom])
+
   // Pin the transcript to the bottom while streaming, and keep it there whenever
   // the user is already close to the bottom. Direct scrollTop assignment avoids
   // scrollIntoView quirks that can leave the newest content above the fold.
@@ -150,9 +164,9 @@ export function ChatWindow({ id }: { id: string }) {
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     const isNearBottom = distanceFromBottom <= 80
     if (thread?.isRunning || isNearBottom) {
-      container.scrollTop = container.scrollHeight - container.clientHeight
+      scrollTranscriptToBottom()
     }
-  }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning])
+  }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
