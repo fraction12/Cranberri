@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowUp,
@@ -705,12 +705,14 @@ export function ChatWindow({ id }: { id: string }) {
   const [attachments, setAttachments] = useState<string[]>([])
   const [skills, setSkills] = useState<CodexSkillInfo[]>([])
   const [skillIndex, setSkillIndex] = useState(0)
-  const [commentaryExpanded, setCommentaryExpanded] = useState(true)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const composerHadFocusRef = useRef(false)
   const selectionRef = useRef({ start: 0, end: 0 })
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const shouldScrollToBottomRef = useRef(true)
 
   useEffect(() => {
     window.cranberri.codex.skills()
@@ -730,14 +732,35 @@ export function ChatWindow({ id }: { id: string }) {
     }
   }, [id, thread?.title, renameWindow])
 
+  // Auto-collapse completed reasoning groups once a final answer arrives, but keep running groups expanded.
   useEffect(() => {
-    if (thread?.isRunning) {
-      setCommentaryExpanded(true)
-      return
-    }
+    if (thread?.isRunning) return
     const hasFinalAnswer = thread?.messages.some((message) => message.role === 'assistant')
-    if (hasFinalAnswer) setCommentaryExpanded(false)
+    if (!hasFinalAnswer) return
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev)
+      for (const key of next) {
+        if (!key.startsWith('working')) next.delete(key)
+      }
+      return next
+    })
   }, [thread?.isRunning, thread?.messages])
+
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const end = messagesEndRef.current
+    if (!container || !end) return
+    if (!shouldScrollToBottomRef.current) return
+    end.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning])
+
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const threshold = 80
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    shouldScrollToBottomRef.current = distanceFromBottom <= threshold
+  }, [])
 
   const rememberSelection = () => {
     const textarea = textareaRef.current
@@ -889,12 +912,19 @@ export function ChatWindow({ id }: { id: string }) {
 
     const renderWorkingGroup = (key = 'working') => {
       renderedRunningGroup = true
+      const expanded = expandedGroupIds.has(key) || isRunning
       nodes.push(
         <ReasoningGroup
           key={key}
           messages={[]}
-          expanded={commentaryExpanded}
-          onToggle={() => setCommentaryExpanded((value) => !value)}
+          expanded={expanded}
+          onToggle={() =>
+            setExpandedGroupIds((prev) => {
+              const next = new Set(prev)
+              if (next.has(key)) next.delete(key)
+              else next.add(key)
+              return next
+            })}
           isRunning={isRunning}
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
@@ -910,12 +940,20 @@ export function ChatWindow({ id }: { id: string }) {
       if (groupIsRunning) renderedRunningGroup = true
       reasoningBuffer = []
       reasoningBufferStartIndex = -1
+      const key = `reasoning-${group[0].id}`
+      const expanded = expandedGroupIds.has(key) || groupIsRunning
       nodes.push(
         <ReasoningGroup
-          key={`reasoning-${group[0].id}`}
+          key={key}
           messages={group}
-          expanded={commentaryExpanded}
-          onToggle={() => setCommentaryExpanded((value) => !value)}
+          expanded={expanded}
+          onToggle={() =>
+            setExpandedGroupIds((prev) => {
+              const next = new Set(prev)
+              if (next.has(key)) next.delete(key)
+              else next.add(key)
+              return next
+            })}
           isRunning={groupIsRunning}
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
@@ -980,7 +1018,11 @@ export function ChatWindow({ id }: { id: string }) {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
       <div className="relative flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto px-6 pb-36 pt-8">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-6 pb-36 pt-8"
+        >
           <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-5">
             {!thread && (
               <div className="text-xs text-[var(--app-text-muted)]">Starting Codex thread...</div>
