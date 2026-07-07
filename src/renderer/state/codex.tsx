@@ -167,12 +167,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       if (idx === -1) return prev
       const next = [...prev]
       const thread = { ...next[idx] }
-      thread.messages = thread.messages.map((message) => message.id === itemId ? { ...message, pending: false } : message)
+      const finalText = streamingBuffersRef.current[itemId] ?? ''
+      thread.messages = thread.messages.map((m) => {
+        if (m.id !== itemId) return m
+        return { ...m, content: finalText || m.content, pending: false }
+      })
       next[idx] = thread
       return next
     })
   }, [])
-
   useEffect(() => {
     return window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
@@ -203,9 +206,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           case 'agent_message_completed':
             if (e.text) {
               thread.currentActivity = 'Writing'
-              const role = e.phase === 'final_answer' ? 'assistant' : 'reasoning'
               streamingBuffersRef.current[e.itemId] = e.text
-              queueMicrotask(() => streamMessageText(threadId, e.itemId, e.text, role))
             }
             queueMicrotask(() => finalizeStreamingMessage(threadId, e.itemId))
             break
