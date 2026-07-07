@@ -63,6 +63,12 @@ export function RightRail() {
   const [activeDiffFile, setActiveDiffFile] = useState<GitFileStatus | null>(null)
   const { isLoading: diffLoading } = useGitRawContent(activeDiffFile?.path ?? null, 'WORKING')
 
+  useEffect(() => {
+    setSelectedFile(null)
+    setActiveDiffFile(null)
+    setActiveTab('files')
+  }, [activeRepo?.id])
+
   const handleSelectFile = (file: GitFileStatus) => {
     setSelectedFile(file)
     setActiveDiffFile(file)
