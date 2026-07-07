@@ -16,7 +16,7 @@ import { AttachmentChips } from './chat/AttachmentChips'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
-import { formatCodexText, ReasoningGroup, TranscriptMessage } from './chat/Transcript'
+import { formatInlineCodexText, ReasoningGroup, TranscriptMessage } from './chat/Transcript'
 import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
@@ -106,12 +106,12 @@ function skillTextElements(text: string, skills: CodexSkillInfo[]): TextInputEle
 
 function renderSkillText(text: string, skills: CodexSkillInfo[]): ReactNode[] {
   const selectedSkills = selectedSkillsFromInput(text, skills)
-  if (selectedSkills.length === 0) return formatCodexText(text)
+  if (selectedSkills.length === 0) return formatInlineCodexText(text)
 
   const pattern = new RegExp(`(${selectedSkills.map((skill) => escapeRegExp(inlineSkillText(skill))).join('|')})`, 'g')
   return text.split(pattern).map((part, index) => {
     const skill = selectedSkills.find((item) => inlineSkillText(item) === part)
-    if (!skill) return <span key={index}>{formatCodexText(part)}</span>
+    if (!skill) return <span key={index}>{formatInlineCodexText(part)}</span>
     return (
       <span key={index} className="inline text-[#ff8f8f] underline decoration-[#ff8f8f]/70 underline-offset-2">
         {inlineSkillText(skill)}
