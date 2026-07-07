@@ -987,9 +987,9 @@ export function ChatWindow({ id }: { id: string }) {
       if (message.role === 'compact') {
         const isPending = message.pending ?? false
         const [muted, bright] = isPending
-          ? ['Compacting', 'context']
+          ? ['Compacting', '…']
           : message.content === 'Context compacted'
-            ? ['Context', 'compacted']
+            ? ['', 'compacted']
             : ['', message.content]
         nodes.push(
           <div key={message.id} className="flex items-center gap-3 text-xs">
