@@ -68,7 +68,12 @@ export function Workspace() {
                 e.stopPropagation()
                 if (win.type === 'chat') closeThreadWindow(win.id)
                 if (win.type === 'terminal') {
-                  window.cranberri.terminal.kill(`terminal-${win.id}`)
+                  const termId = `terminal-${win.id}`
+                  if (window.confirm(`Close terminal ${termId}? Any running process in it will be terminated.`)) {
+                    window.cranberri.terminal.kill(termId)
+                  } else {
+                    return
+                  }
                 }
                 closeWindow(win.id)
               }}

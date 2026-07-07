@@ -500,6 +500,8 @@ function ProcessesPanel({ repoPath }: { repoPath: string | null }) {
 
   const handleTerminate = async (processInfo: AgentProcessInfo) => {
     if (!repoPath || terminatingId) return
+    const command = processInfo.command || processInfo.id
+    if (!window.confirm(`Terminate process "${command}" (pid ${processInfo.pid})?`)) return
     setTerminatingId(processInfo.id)
     setError(null)
     setProcesses((items) => items.filter((item) => item.id !== processInfo.id))
