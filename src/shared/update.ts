@@ -52,7 +52,7 @@ export const updateInfoSchema = z.object({
   blockedMessage: z.string().nullable(),
   phase: updatePhaseSchema.nullable(),
   phaseMessage: z.string().nullable(),
-  failedPhase: updatePhaseSchema.nullable(),
+  failedPhase: z.union([updatePhaseSchema, z.literal('upToDate')]).nullable(),
   failureMessage: z.string().nullable(),
   logPath: z.string().nullable(),
 })
@@ -69,7 +69,7 @@ export type UpdateProgress = z.infer<typeof updateProgressSchema>
 
 export const installResultSchema = z.object({
   success: z.boolean(),
-  phase: updatePhaseSchema.nullable(),
+  phase: z.union([updatePhaseSchema, z.literal('upToDate')]).nullable(),
   message: z.string().nullable(),
   logPath: z.string().nullable(),
 })

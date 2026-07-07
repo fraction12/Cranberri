@@ -220,7 +220,29 @@ async function installUpdate(): Promise<InstallResult> {
   setStatus({ status: 'building', phase: 'preparing', phaseMessage: 'Preparing hidden staging area', logPath })
 
   try {
-    await stageSource(sourceRepo.path, currentStatus.latestCommit!, stagingDir)
+    emitProgress({ phase: 'preparing', message: 'Refreshing latest origin/main', percent: 2 })
+    const refreshed = await checkCommitsBehind(sourceRepo, buildInfo.commit)
+    const targetCommit = refreshed.latestCommit || currentStatus.latestCommit!
+    if (refreshed.commitsBehind === 0) {
+      setStatus({
+        status: 'upToDate',
+        currentCommit: buildInfo.commit,
+        latestCommit: targetCommit,
+        commitsBehind: 0,
+        sourceRepoPath: sourceRepo.path,
+        sourceRepoDirty: sourceRepo.isDirty,
+        blockedReason: null,
+        blockedMessage: null,
+        phase: null,
+        phaseMessage: null,
+        failedPhase: null,
+        failureMessage: null,
+        logPath,
+      })
+      return { success: true, phase: 'upToDate' as const, message: 'Already up to date after refresh.', logPath }
+    }
+
+    await stageSource(sourceRepo.path, targetCommit, stagingDir)
     emitProgress({ phase: 'dependencies', message: 'Installing dependencies', percent: 15 })
     await runLogged(['npm', 'install'], path.join(stagingDir, 'source'), logPath)
     emitProgress({ phase: 'building', message: 'Building application', percent: 40 })

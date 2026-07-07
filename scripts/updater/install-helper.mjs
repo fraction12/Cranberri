@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-func-assign */
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -89,6 +90,20 @@ async function main() {
     }
   }
 
+  // Write a helper log next to the result manifest for debugging.
+  const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
+  const originalLog = log
+  const fileLog = (message) => {
+    originalLog(message)
+    try {
+      fs.appendFileSync(helperLogPath, `${new Date().toISOString()} ${message}\n`)
+    } catch {
+      // ignore
+    }
+  }
+  log = fileLog
+  log(`Helper starting. manifest=${manifestPath} parentPid=${parentPid}`)
+
   await waitForParent(parentPid)
 
   // Allow a small settle window after the parent exits.
@@ -110,12 +125,24 @@ async function main() {
       throw new Error(`Relaunch target missing after replacement: ${relaunchTarget}`)
     }
 
+    log(`Staged app present at ${stagedAppPath}`)
+
     writeResult(resultManifestPath, true, 'relaunching', 'Update installed successfully', manifest)
     await relaunch(relaunchTarget)
     log('Relaunch initiated. Helper exiting.')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log(`Install failed: ${message}`)
+    // Try to restore backup if replacement failed and backup exists.
+    try {
+      if (fs.existsSync(backupAppPath) && !fs.existsSync(currentAppPath)) {
+        log('Restoring backup app')
+        await cpR(backupAppPath, currentAppPath)
+      }
+    } catch (restoreError) {
+      const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError)
+      log(`Restore failed: ${restoreMessage}`)
+    }
     writeResult(resultManifestPath, false, 'replacing', message, manifest)
     process.exit(1)
   }
