@@ -54,7 +54,7 @@ async function relaunch(appPath) {
     throw new Error(`Executable not found at ${executable}`)
   }
   log(`Relaunching ${appPath}`)
-  const child = spawn('open', ['-n', '-a', appPath], {
+  const child = spawn('open', ['-n', appPath], {
     detached: true,
     stdio: 'ignore',
   })
