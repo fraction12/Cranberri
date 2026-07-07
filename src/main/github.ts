@@ -3,10 +3,11 @@ import { execFile } from 'node:child_process'
 import type { GitHubPanelData, GitHubPanelItem, GitHubPanelKind } from '@/shared/git'
 import { getRegisteredRepoPaths } from './repos'
 import { validateRepoPath } from './repoSecurity'
+import { withGuiToolPath } from './guiToolPath'
 
 function execGh(repoPath: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd: repoPath, timeout: 20_000, maxBuffer: 2_000_000 }, (error, stdout, stderr) => {
+    execFile('gh', args, { cwd: repoPath, timeout: 20_000, maxBuffer: 2_000_000, env: withGuiToolPath() }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr.trim() || error.message))
         return

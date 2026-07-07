@@ -1,11 +1,10 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RepoRail } from './components/RepoRail'
 import { Workspace } from './components/Workspace'
 import { RightRail } from './components/RightRail'
 import { Header } from './components/Header'
 import { AppStateProvider } from './state/appState'
-
-const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
+import { SettingsDialog } from './components/SettingsDialog'
 
 const LEFT_RAIL_MIN_WIDTH = 256
 const RIGHT_RAIL_MIN_WIDTH = 320
@@ -146,9 +145,7 @@ export function App() {
         </div>
       </div>
       {settingsOpen && (
-        <Suspense fallback={null}>
-          <SettingsDialog open onClose={() => setSettingsOpen(false)} />
-        </Suspense>
+        <SettingsDialog open onClose={() => setSettingsOpen(false)} />
       )}
     </div>
     </AppStateProvider>

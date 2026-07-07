@@ -71,7 +71,8 @@ body.rail-resizing * {
 }
 
 .header-drag button,
-.header-drag input {
+.header-drag input,
+.no-drag {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
