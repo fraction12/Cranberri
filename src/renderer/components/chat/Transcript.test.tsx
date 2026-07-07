@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { formatCodexText, formatInlineCodexText } from './Transcript'
+import { formatCodexText } from './MarkdownContent'
+import { formatInlineCodexText } from './mention-pill'
 
 describe('Transcript markdown rendering', () => {
   it('renders assistant markdown while hiding Codex app directives', () => {

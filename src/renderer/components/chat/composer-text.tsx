@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { formatInlineCodexText, MentionPill } from './Transcript'
+import { formatInlineCodexText, MentionPill } from './mention-pill'
 import type { CodexSkillInfo, CodexUserInput } from '@/shared/codex'
 
 const SKILL_INLINE_ICON = '📦'
