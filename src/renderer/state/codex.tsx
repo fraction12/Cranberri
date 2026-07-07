@@ -189,7 +189,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const e = event as CodexEvent
       logRendererTelemetry('codex:event:received', e)
       if (e.type === 'log') {
-        console.log(`[codex ${e.level}]`, e.text)
+        if (window.location.protocol === 'http:') console.debug(`[codex ${e.level}]`, e.text)
         return
       }
       const threadId = (e as { threadId?: string }).threadId

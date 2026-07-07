@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
   Check,
@@ -17,15 +17,14 @@ import {
   inlineSkillText,
   inputHasSkill,
   renderComposerText,
-  renderSkillText,
   selectedSkillsFromInput,
   skillTextElements,
 } from './chat/composer-text'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
-import { ReasoningGroup, TranscriptMessage } from './chat/Transcript'
-import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
+import { TranscriptList } from './chat/TranscriptList'
+import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
   const beforeCursor = input.slice(0, cursor)
@@ -331,120 +330,14 @@ export function ChatWindow({ id }: { id: string }) {
     })
   }
 
-  const renderTranscript = () => {
-    const nodes: ReactNode[] = []
-    let reasoningBuffer: CodexMessage[] = []
-    let reasoningBufferStartIndex = -1
-    let renderedRunningGroup = false
-    const messages = thread?.messages ?? []
-    const lastUserIndex = isRunning ? messages.map((message) => message.role).lastIndexOf('user') : -1
-
-    const renderWorkingGroup = (key = 'working') => {
-      renderedRunningGroup = true
-      const expanded = expandedGroupIds.has(key) || isRunning
-      nodes.push(
-        <ReasoningGroup
-          key={key}
-          messages={[]}
-          expanded={expanded}
-          onToggle={() =>
-            setExpandedGroupIds((prev) => {
-              const next = new Set(prev)
-              if (next.has(key)) next.delete(key)
-              else next.add(key)
-              return next
-            })}
-          isRunning={isRunning}
-          activity={thread?.currentActivity}
-          durationMs={thread?.lastRunDurationMs}
-          runStartedAt={thread?.runStartedAt}
-          renderSkillText={renderSkillText}
-        />,
-      )
-    }
-
-    const flushReasoning = () => {
-      if (reasoningBuffer.length === 0) return
-      const group = reasoningBuffer
-      const groupIsRunning = isRunning && reasoningBufferStartIndex > lastUserIndex
-      if (groupIsRunning) renderedRunningGroup = true
-      reasoningBuffer = []
-      reasoningBufferStartIndex = -1
-      const key = `reasoning-${group[0].id}`
-      const expanded = expandedGroupIds.has(key) || groupIsRunning
-      nodes.push(
-        <ReasoningGroup
-          key={key}
-          messages={group}
-          expanded={expanded}
-          onToggle={() =>
-            setExpandedGroupIds((prev) => {
-              const next = new Set(prev)
-              if (next.has(key)) next.delete(key)
-              else next.add(key)
-              return next
-            })}
-          isRunning={groupIsRunning}
-          activity={thread?.currentActivity}
-          durationMs={thread?.lastRunDurationMs}
-          runStartedAt={thread?.runStartedAt}
-          renderSkillText={renderSkillText}
-        />,
-      )
-    }
-
-    const hasRunningReasoning = lastUserIndex !== -1 && messages
-      .slice(lastUserIndex + 1)
-      .some((message) => message.role === 'reasoning' || message.role === 'system')
-
-    messages.forEach((message, index) => {
-      if (message.role === 'reasoning' || message.role === 'system') {
-        if (reasoningBuffer.length === 0) reasoningBufferStartIndex = index
-        reasoningBuffer.push(message)
-        return
-      }
-      flushReasoning()
-      if (index === lastUserIndex && !renderedRunningGroup && !hasRunningReasoning) {
-        nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
-        renderWorkingGroup(`working-after-${message.id}`)
-        return
-      }
-      if (message.role === 'compact') {
-        const isPending = message.pending ?? false
-        const [muted, bright] = isPending
-          ? ['Compacting', '…']
-          : message.content === 'Context compacted'
-            ? ['', 'compacted']
-            : ['', message.content]
-        nodes.push(
-          <div key={message.id} className="flex items-center gap-3 text-xs">
-            <div className="h-px flex-1 bg-[var(--app-border)]" />
-            <div className="flex items-center gap-2 text-[var(--app-text-muted)]">
-              {isPending && (
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--app-text-muted)]" />
-                </span>
-              )}
-              {!isPending && <span className="h-2 w-2 rounded-full bg-[var(--app-text-muted)]" />}
-              {muted && <span>{muted}</span>}
-              <span className="text-[var(--app-text)]">{bright}</span>
-            </div>
-            <div className="h-px flex-1 bg-[var(--app-border)]" />
-          </div>,
-        )
-        return
-      }
-      nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
+  const toggleTranscriptGroup = useCallback((key: string) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
     })
-    flushReasoning()
-
-    if (isRunning && !renderedRunningGroup) {
-      renderWorkingGroup()
-    }
-
-    return nodes
-  }
+  }, [])
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
@@ -463,7 +356,12 @@ export function ChatWindow({ id }: { id: string }) {
                 Ask Codex to inspect, edit, or explain this repo.
               </div>
             )}
-            {renderTranscript()}
+            <TranscriptList
+              thread={thread}
+              skills={skills}
+              expandedGroupIds={expandedGroupIds}
+              onToggleGroup={toggleTranscriptGroup}
+            />
             {thread?.pendingApprovals.map((approval) => (
               <div
                 key={approval.id}

@@ -39,7 +39,9 @@ function resolveCwd(cwd: string): string {
 function startSession(cwd: string, cols = 100, rows = 30): TerminalSession {
   const shell = defaultShell()
   const resolvedCwd = resolveCwd(cwd)
-  console.log('[terminal] spawning', shell, 'in', resolvedCwd, `${cols}x${rows}`)
+  if (process.env.ELECTRON_VITE_DEV_SERVER_URL || process.env.CRANBERRI_DEBUG_TERMINAL) {
+    console.debug('[terminal] spawning', shell, 'in', resolvedCwd, `${cols}x${rows}`)
+  }
   const session = pty.spawn(shell, [], {
     name: 'xterm-256color',
     cols,

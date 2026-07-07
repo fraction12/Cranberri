@@ -28,6 +28,20 @@ function closeRailMenus() {
   window.dispatchEvent(new CustomEvent(CLOSE_RAIL_MENUS_EVENT))
 }
 
+function useCloseRailMenu(isOpen: boolean, onClose: () => void): void {
+  useEffect(() => {
+    if (!isOpen) return
+    window.addEventListener('click', onClose)
+    window.addEventListener('keydown', onClose)
+    window.addEventListener(CLOSE_RAIL_MENUS_EVENT, onClose)
+    return () => {
+      window.removeEventListener('click', onClose)
+      window.removeEventListener('keydown', onClose)
+      window.removeEventListener(CLOSE_RAIL_MENUS_EVENT, onClose)
+    }
+  }, [isOpen, onClose])
+}
+
 function openSession(session: CodexSessionSummary, repoPath: string, archived = false) {
   closeRailMenus()
   window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', { detail: { session, repoPath, archived } }))
@@ -53,19 +67,8 @@ function SessionRow({
   onRename: (session: CodexSessionSummary) => void
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', close)
-    window.addEventListener(CLOSE_RAIL_MENUS_EVENT, close)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', close)
-      window.removeEventListener(CLOSE_RAIL_MENUS_EVENT, close)
-    }
-  }, [menu])
+  const closeMenu = useCallback(() => setMenu(null), [])
+  useCloseRailMenu(Boolean(menu), closeMenu)
 
   return (
     <>
@@ -397,19 +400,8 @@ export function RepoRail() {
   const { state: appState, updateAppState } = useAppState()
   const expandedRepoIds = appState.expandedRepoIds
   const [repoMenu, setRepoMenu] = useState<{ repoId: string; x: number; y: number } | null>(null)
-
-  useEffect(() => {
-    if (!repoMenu) return
-    const close = () => setRepoMenu(null)
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', close)
-    window.addEventListener(CLOSE_RAIL_MENUS_EVENT, close)
-    return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', close)
-      window.removeEventListener(CLOSE_RAIL_MENUS_EVENT, close)
-    }
-  }, [repoMenu])
+  const closeRepoMenu = useCallback(() => setRepoMenu(null), [])
+  useCloseRailMenu(Boolean(repoMenu), closeRepoMenu)
 
   const toggleRepoSessions = (repoId: string) => {
     updateAppState((current) => ({
