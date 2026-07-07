@@ -31,6 +31,9 @@ const settingsSchema = z.object({
     appearance: z.object({
       theme: themeSchema,
     }),
+    updater: z.object({
+      sourceRepoPath: z.string().optional(),
+    }).optional(),
   }),
 })
 
@@ -78,7 +81,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
   return data
 }
 
-function readSettings(): AppSettings {
+export function readSettings(): AppSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFilePath(), 'utf8')) as Record<string, unknown>
     const parsed = settingsSchema.safeParse(raw)
@@ -89,7 +92,7 @@ function readSettings(): AppSettings {
   }
 }
 
-function writeSettings(settings: AppSettings): void {
+export function writeSettings(settings: AppSettings): void {
   const payload: SettingsFile = { version: APP_SETTINGS_VERSION, data: settings }
   fs.mkdirSync(path.dirname(settingsFilePath()), { recursive: true })
   fs.writeFileSync(settingsFilePath(), JSON.stringify(payload, null, 2))

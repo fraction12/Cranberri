@@ -19,6 +19,9 @@ export interface AppSettings {
   appearance: {
     theme: 'dark' | 'light'
   }
+  updater?: {
+    sourceRepoPath?: string
+  }
 }
 
 export const APP_SETTINGS_VERSION = 1

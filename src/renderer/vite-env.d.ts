@@ -16,7 +16,17 @@ declare global {
   interface Window {
     cranberri: {
       getVersion: () => Promise<string>
+      getBuildInfo: () => Promise<import('@/shared/buildInfo').BuildInfo>
       openExternal: (url: string) => Promise<void>
+      update: {
+        check: () => Promise<import('@/shared/update').UpdateInfo>
+        status: () => Promise<import('@/shared/update').UpdateInfo>
+        install: () => Promise<import('@/shared/update').InstallResult>
+        onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => (() => void)
+        setSourceRepo: (repoPath: string) => Promise<{ ok: boolean }>
+        pendingResult: () => Promise<import('@/shared/update').InstallResult | null>
+        clearResult: () => Promise<{ ok: boolean }>
+      }
       health: {
         read: () => Promise<CranberriHealthReport>
         doctor: () => Promise<CranberriHealthReport>

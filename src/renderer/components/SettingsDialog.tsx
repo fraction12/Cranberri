@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
-import { X, Command, Keyboard, Monitor, Bot, FileJson } from 'lucide-react'
+import { X, Command, Keyboard, Monitor, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen } from 'lucide-react'
 import { useSettings } from '../state/settings'
+import { useUpdate } from '../state/update'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES, type CodexConnectionStatus } from '@/shared/codex'
+import type { UpdateInfo } from '@/shared/update'
 
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
 }
 
-type TabValue = 'general' | 'shortcuts' | 'about'
+type TabValue = 'general' | 'shortcuts' | 'about' | 'updates'
 
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const { settings, loading, updateSection } = useSettings()
+  const update = useUpdate()
   const [activeTab, setActiveTab] = useState<TabValue>('general')
   const [version, setVersion] = useState('…')
   const [codexStatus, setCodexStatus] = useState<CodexConnectionStatus | null>(null)
@@ -50,6 +53,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       <div className="flex h-[540px] w-full max-w-[640px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex w-44 flex-col border-r border-app-border bg-app-bg p-2">
           <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="updates" icon={Download} label="Updates" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="shortcuts" icon={Keyboard} label="Shortcuts" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="about" icon={FileJson} label="About" onClick={setActiveTab} />
         </div>
@@ -167,6 +171,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   </Section>
                 )}
 
+                {activeTab === 'updates' && (
+                  <UpdatesSection update={update} />
+                )}
+
                 {activeTab === 'about' && (
                   <Section title="About Cranberri" icon={FileJson}>
                     <div className="space-y-2 text-sm">
@@ -242,6 +250,132 @@ function ShortcutRow({ keys, description }: { keys: string[]; description: strin
           <kbd key={key} className="rounded bg-app-surface-2 px-1.5 py-0.5 text-xs text-app-text-muted">{key}</kbd>
         ))}
       </div>
+    </div>
+  )
+}
+
+function UpdatesSection({ update }: { update: ReturnType<typeof useUpdate> }) {
+  const status = update.status
+  const progress = update.progress
+  const pendingResult = update.pendingResult
+  const checking = update.checking
+  const installing = update.installing
+
+  const commit = (hash?: string | null) => (hash ? hash.slice(0, 7) : 'unknown')
+
+  return (
+    <Section title="Source-built updates" icon={PackageOpen}>
+      <div className="space-y-3">
+        <StatusRow icon={status?.status === 'upToDate' ? CheckCircle2 : status?.status === 'updateAvailable' ? Download : status?.status === 'failed' ? AlertCircle : RotateCw} label="Status">
+          <span className={status?.status === 'updateAvailable' ? 'text-app-accent' : status?.status === 'failed' ? 'text-app-danger' : ''}>
+            {formatUpdateStatus(status)}
+          </span>
+        </StatusRow>
+
+        {status?.currentCommit && (
+          <StatusRow label="Running commit">{commit(status.currentCommit)}</StatusRow>
+        )}
+        {status?.latestCommit && (
+          <StatusRow label="Latest origin/main">{commit(status.latestCommit)}</StatusRow>
+        )}
+        {status?.commitsBehind !== undefined && status.commitsBehind !== null && (
+          <StatusRow label="Commits behind">{status.commitsBehind}</StatusRow>
+        )}
+
+        {status?.blockedReason && (
+          <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs text-app-text-muted">
+            {status.blockedMessage}
+          </div>
+        )}
+
+        {status?.failureMessage && (
+          <div className="rounded-lg border border-app-danger/30 bg-app-danger/10 p-3 text-xs text-app-text-muted">
+            <div className="font-medium text-app-danger">Update failed</div>
+            <div className="mt-1">{status.failureMessage}</div>
+            {status.logPath && (
+              <div className="mt-1 font-mono text-[10px] opacity-80">{status.logPath}</div>
+            )}
+          </div>
+        )}
+
+        {pendingResult && !status?.failureMessage && (
+          <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs text-app-text-muted">
+            <div className="font-medium text-app-text">Install result</div>
+            <div className="mt-1">{pendingResult.message ?? (pendingResult.success ? 'Success' : 'Failed')}</div>
+            <button
+              type="button"
+              onClick={() => void update.clearResult()}
+              className="mt-2 rounded bg-app-surface-2 px-2 py-1 text-[11px] hover:bg-app-surface-2/80"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {progress && status?.status !== 'upToDate' && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-app-text-muted">
+              <span>{progress.message}</span>
+              {progress.percent !== null && <span>{progress.percent}%</span>}
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-app-surface-2">
+              <div
+                className="h-full rounded-full bg-app-accent transition-all"
+                style={{ width: `${progress.percent ?? 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => void update.check()}
+            disabled={checking || installing}
+            className="rounded-lg bg-app-surface-2 px-3 py-2 text-xs font-medium hover:bg-app-surface-2/80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {checking ? 'Checking…' : 'Check for updates'}
+          </button>
+          {status?.status === 'updateAvailable' && (
+            <button
+              type="button"
+              onClick={() => void update.install()}
+              disabled={checking || installing}
+              className="rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {installing ? 'Building…' : 'Build & install update'}
+            </button>
+          )}
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function formatUpdateStatus(status: UpdateInfo | null): string {
+  if (!status) return 'Unknown'
+  switch (status.status) {
+    case 'unknown': return 'Unknown'
+    case 'checking': return 'Checking for updates…'
+    case 'upToDate': return `Up to date (${status.currentCommit?.slice(0, 7) ?? 'unknown'})`
+    case 'updateAvailable': return `${status.commitsBehind ?? 'Some'} commit${status.commitsBehind === 1 ? '' : 's'} behind`
+    case 'building': return 'Building update…'
+    case 'readyToInstall': return 'Update ready to install'
+    case 'installing': return 'Installing and relaunching…'
+    case 'blocked': return status.blockedMessage || 'Update blocked'
+    case 'failed': return status.failureMessage || 'Update failed'
+    default: return 'Unknown'
+  }
+}
+
+function StatusRow({ label, children, icon: Icon }: { label: string; children?: React.ReactNode; icon?: React.ElementType }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center gap-2 text-app-text-muted">
+        {Icon && <Icon className="h-3.5 w-3.5" />}
+        <span>{label}</span>
+      </div>
+      <div className="font-medium">{children}</div>
     </div>
   )
 }

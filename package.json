@@ -7,7 +7,11 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "npm run typecheck && npm run lint && electron-vite build",
+    "build": "npm run typecheck && npm run lint && npm run build:metadata && npm run copy:updater-helper && electron-vite build",
+    "copy:updater-helper": "node -e \"const fs=require('fs'), path=require('path'); fs.mkdirSync('out/updater',{recursive:true}); fs.copyFileSync('scripts/updater/install-helper.mjs','out/updater/install-helper.mjs'); console.log('copied updater helper');\"",
+    "build:metadata": "node scripts/build-metadata.mjs",
+    "package": "npm run build:metadata -- --packaged && npm run build && electron-builder",
+    "package:dir": "npm run build:metadata -- --packaged && npm run build && electron-builder --dir",
     "preview": "electron-vite preview",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",

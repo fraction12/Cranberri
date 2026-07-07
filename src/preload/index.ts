@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
+  getBuildInfo: () => ipcRenderer.invoke('app:build-info'),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
   health: {
     read: () => ipcRenderer.invoke('health:read'),
@@ -78,6 +79,19 @@ const api = {
   processes: {
     list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
     terminate: (repoPath: string, processId: string) => ipcRenderer.invoke('processes:terminate', repoPath, processId),
+  },
+  update: {
+    check: () => ipcRenderer.invoke('updater:check') as Promise<import('@/shared/update').UpdateInfo>,
+    status: () => ipcRenderer.invoke('updater:status') as Promise<import('@/shared/update').UpdateInfo>,
+    install: () => ipcRenderer.invoke('updater:install') as Promise<import('@/shared/update').InstallResult>,
+    onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/update').UpdateEvent) => cb(payload)
+      ipcRenderer.on('updater:event', handler)
+      return () => ipcRenderer.removeListener('updater:event', handler)
+    },
+    setSourceRepo: (repoPath: string) => ipcRenderer.invoke('updater:set-source-repo', repoPath) as Promise<{ ok: boolean }>,
+    pendingResult: () => ipcRenderer.invoke('updater:pending-result') as Promise<import('@/shared/update').InstallResult | null>,
+    clearResult: () => ipcRenderer.invoke('updater:clear-result') as Promise<{ ok: boolean }>,
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

@@ -10,6 +10,8 @@ import { initProcessesIpc } from './processes'
 import { initHealthIpc } from './health'
 import { initAppStateIpc } from './appState'
 import { initTelemetryIpc } from './telemetry'
+import { initUpdaterIpc } from './updater'
+import { buildInfo } from '@/shared/buildInfo'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -57,6 +59,7 @@ app.whenReady().then(() => {
   initHealthIpc()
   initAppStateIpc()
   initTelemetryIpc()
+  initUpdaterIpc()
   createWindow()
 
   app.on('activate', () => {
@@ -76,3 +79,4 @@ app.on('before-quit', () => {
 
 ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.handle('app:open-external', async (_, url: string) => shell.openExternal(url))
+ipcMain.handle('app:build-info', () => buildInfo)
