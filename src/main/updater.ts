@@ -108,10 +108,11 @@ async function checkCommitsBehind(sourceRepo: SourceRepo, currentCommit: string)
 type UpdateBlockedReasonLiteral = 'developmentMode' | 'noSourceRepo' | 'missingOrigin' | 'sourceNotGitHub' | 'gitFetchFailed' | 'comparisonUnknown' | 'dirtySourceRepo'
 
 async function performCheck(): Promise<UpdateInfo> {
+  let sourceRepo: SourceRepo | null = null
   if (!buildInfo.packaged) {
     return blocked('developmentMode', 'Updates install packaged app builds. Development builds update through git.')
   }
-  const sourceRepo = await resolveSourceRepo()
+  sourceRepo = await resolveSourceRepo()
   if (!sourceRepo) {
     return blocked('noSourceRepo', 'No Cranberri source repo is configured. Add one in Settings.')
   }
