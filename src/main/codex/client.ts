@@ -141,19 +141,31 @@ export class CodexClient extends EventEmitter {
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     })
 
-    this.process.stdout?.on('data', (data: Buffer) => this.onData(data))
-    this.process.stderr?.on('data', (data: Buffer) => {
-      const text = data.toString('utf8').trim()
-      if (text) this.emit('event', { type: 'log', level: 'stderr', text } as CodexEvent)
-    })
+    return new Promise<void>((resolve, reject) => {
+      this.process?.on('spawn', () => {
+        resolve()
+      })
 
-    this.process.on('exit', (code) => {
-      this.emitRunEnd('', `Codex app-server exited with code ${code ?? 'unknown'}`)
-      this.process = null
-      this.startPromise = null
-    })
+      this.process?.on('error', (err) => {
+        this.process = null
+        this.startPromise = null
+        reject(err)
+      })
 
-    await this.call('initialize', { clientInfo: { name: 'cranberri', version: '0.1.0' } })
+      this.process?.stdout?.on('data', (data: Buffer) => this.onData(data))
+      this.process?.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString('utf8').trim()
+        if (text) this.emit('event', { type: 'log', level: 'stderr', text } as CodexEvent)
+      })
+
+      this.process?.on('exit', (code) => {
+        this.emitRunEnd('', `Codex app-server exited with code ${code ?? 'unknown'}`)
+        this.process = null
+        this.startPromise = null
+      })
+    }).then(async () => {
+      await this.call('initialize', { clientInfo: { name: 'cranberri', version: '0.1.0' } })
+    })
   }
 
   stop(): void {
