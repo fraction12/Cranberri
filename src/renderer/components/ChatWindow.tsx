@@ -684,6 +684,7 @@ export function ChatWindow({ id }: { id: string }) {
     createThread,
     sendMessage,
     compactThread,
+    approve,
     getThread,
     getThreadForWindow,
   } = useCodex()
@@ -719,9 +720,9 @@ export function ChatWindow({ id }: { id: string }) {
 
   useEffect(() => {
     if (!threadId) {
-      createThread(id).catch((err) => console.error('Failed to create Codex thread:', err))
+      createThread(id, undefined, turnSettings).catch((err) => console.error('Failed to create Codex thread:', err))
     }
-  }, [id, threadId, createThread])
+  }, [id, threadId, createThread, turnSettings])
 
   useEffect(() => {
     if (thread?.title) {
@@ -992,17 +993,17 @@ export function ChatWindow({ id }: { id: string }) {
             {renderTranscript()}
             {thread?.pendingApprovals.map((approval) => (
               <div key={approval.id} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-xs text-[var(--app-text)]">
-                <div className="mb-1 font-medium">Approval needed: {approval.tool}</div>
+                <div className="mb-1 font-medium">Approval needed</div>
                 <div className="mb-3 text-[var(--app-text)]">{approval.description}</div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => threadId && sendMessage(threadId, 'yes')}
+                    onClick={() => threadId && approve(threadId, approval.id, 'approve')}
                     className="flex items-center gap-1 rounded-md bg-[var(--app-text)] px-2 py-1 text-xs text-[var(--app-bg)]"
                   >
                     <Check className="h-3 w-3" /> Approve
                   </button>
                   <button
-                    onClick={() => threadId && sendMessage(threadId, 'no')}
+                    onClick={() => threadId && approve(threadId, approval.id, 'deny')}
                     className="flex items-center gap-1 rounded-md bg-[var(--app-surface-2)] px-2 py-1 text-xs text-[var(--app-text)]"
                   >
                     <X className="h-3 w-3" /> Deny

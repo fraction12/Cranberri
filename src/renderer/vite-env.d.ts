@@ -46,10 +46,10 @@ declare global {
       }
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>
-        createThread: (cwd: string) => Promise<{ threadId: string }>
+        createThread: (cwd: string, settings?: CodexTurnSettings) => Promise<{ threadId: string }>
         sendMessage: (cwd: string, threadId: string, input: import('@/shared/codex').CodexUserInput[], settings?: CodexTurnSettings) => Promise<{ ok: boolean }>
         compactThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
-        approve: (cwd: string, threadId: string, approvalId: string) => Promise<{ ok: boolean }>
+        approve: (cwd: string, threadId: string, event: unknown) => Promise<{ ok: boolean }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         plugins: () => Promise<{ plugins: CodexPluginInfo[] }>

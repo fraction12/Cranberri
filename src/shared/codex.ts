@@ -180,8 +180,10 @@ export interface ToolCall {
 
 export interface PendingApproval {
   id: string
-  tool: string
-  args: Record<string, unknown>
+  reviewId: string
+  targetItemId?: string | null
+  action: unknown
+  review: unknown
   description: string
 }
 
@@ -201,10 +203,11 @@ export interface CodexThread {
 
 export type CodexEvent =
   | { type: 'thread_name_updated'; threadId: string; title: string }
-  | { type: 'agent_message_delta'; threadId: string; itemId: string; delta: string }
+  | { type: 'agent_message_delta'; threadId: string; itemId: string; delta: string; phase?: 'commentary' | 'final_answer' | string }
   | { type: 'agent_message_completed'; threadId: string; itemId: string; text: string; phase?: 'commentary' | 'final_answer' | string }
   | { type: 'tool_call'; threadId: string; tool: ToolCall }
   | { type: 'approval_request'; threadId: string; approval: PendingApproval }
+  | { type: 'approval_completed'; threadId: string; reviewId: string; action: 'approved' | 'denied' | 'timedOut' | 'aborted' }
   | { type: 'run_start'; threadId: string }
   | { type: 'run_end'; threadId: string; error?: string }
   | { type: 'context_usage'; threadId: string; usedTokens: number; contextWindow: number }

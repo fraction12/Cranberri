@@ -336,9 +336,9 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { started: true }
   })
 
-  ipcMain.handle('codex:create-thread', async (_, cwd: string) => {
+  ipcMain.handle('codex:create-thread', async (_, cwd: string, settings?: CodexTurnSettings) => {
     const c = await getCodexClient()
-    const thread = await c.createThread(cwd)
+    const thread = await c.createThread(cwd, settings)
     return { threadId: thread.id }
   })
 
@@ -399,17 +399,17 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { ok: true }
   })
 
-  ipcMain.handle('codex:approve', async (_, cwd: string, threadId: string, approvalId: string) => {
+  ipcMain.handle('codex:approve', async (_, cwd: string, threadId: string, event: unknown) => {
     const c = await getCodexClient()
     c.setCwd(cwd)
-    await c.approve(approvalId, threadId)
+    await c.approve(event, threadId)
     return { ok: true }
   })
 
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
     const c = await getCodexClient()
     c.setCwd(cwd)
-    await c.abort(threadId)
+    await c.interrupt(threadId)
     return { ok: true }
   })
 

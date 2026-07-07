@@ -32,10 +32,10 @@ const api = {
   },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
-    createThread: (cwd: string) => ipcRenderer.invoke('codex:create-thread', cwd),
+    createThread: (cwd: string, settings?: unknown) => ipcRenderer.invoke('codex:create-thread', cwd, settings),
     sendMessage: (cwd: string, threadId: string, input: import('@/shared/codex').CodexUserInput[], settings?: unknown) => ipcRenderer.invoke('codex:send-message', cwd, threadId, input, settings),
     compactThread: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:compact-thread', cwd, threadId),
-    approve: (cwd: string, threadId: string, approvalId: string) => ipcRenderer.invoke('codex:approve', cwd, threadId, approvalId),
+    approve: (cwd: string, threadId: string, event: unknown) => ipcRenderer.invoke('codex:approve', cwd, threadId, event),
     interrupt: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:interrupt', cwd, threadId),
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
     plugins: () => ipcRenderer.invoke('codex:plugins'),

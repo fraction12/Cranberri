@@ -66,18 +66,40 @@ function normalizeThread(thread: SdkThread, archived: boolean): CodexSessionThre
   }
 }
 
-function getApprovalSettings(mode: CodexTurnSettings['approvalMode']): Record<string, unknown> {
+function getTurnApprovalSettings(mode: CodexTurnSettings['approvalMode']): { approvalPolicy?: string; sandboxPolicy?: { type: string } } {
   switch (mode) {
     case 'ask':
-      return { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' }
+      return { approvalPolicy: 'on-request', sandboxPolicy: { type: 'workspaceWrite' } }
     case 'approve':
-      return { approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' }
+      return { approvalPolicy: 'on-failure', sandboxPolicy: { type: 'workspaceWrite' } }
     case 'full':
-      return { approvalPolicy: 'never', sandboxMode: 'danger-full-access' }
+      return { approvalPolicy: 'never', sandboxPolicy: { type: 'dangerFullAccess' } }
     case 'custom':
     default:
       return {}
   }
+}
+
+function getThreadApprovalSettings(mode: CodexTurnSettings['approvalMode']): { approvalPolicy?: string; sandbox?: { type: string } } {
+  switch (mode) {
+    case 'ask':
+      return { approvalPolicy: 'on-request', sandbox: { type: 'workspaceWrite' } }
+    case 'approve':
+      return { approvalPolicy: 'on-failure', sandbox: { type: 'workspaceWrite' } }
+    case 'full':
+      return { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } }
+    case 'custom':
+    default:
+      return {}
+  }
+}
+
+function speedToServiceTier(speed: CodexTurnSettings['speed']): string | undefined {
+  // serviceTier is the app-server knob closest to a speed preference.
+  // 'flex' is the OpenAI flex tier (slower/cheaper); everything else uses the default tier.
+  if (speed === 'fast') return undefined
+  if (speed === 'standard') return 'flex'
+  return undefined
 }
 
 export class CodexClient extends EventEmitter {
@@ -88,6 +110,7 @@ export class CodexClient extends EventEmitter {
   private cwd: string
   private startPromise: Promise<void> | null = null
   private activeRunThreads = new Set<string>()
+  private currentTurnIdByThread = new Map<string, string>()
 
   constructor(cwd: string) {
     super()
@@ -138,9 +161,10 @@ export class CodexClient extends EventEmitter {
     this.startPromise = null
   }
 
-  async createThread(cwd?: string): Promise<Thread> {
+  async createThread(cwd?: string, settings?: CodexTurnSettings): Promise<Thread> {
     if (cwd) this.cwd = cwd
-    const res = await this.call('thread/start', { cwd: this.cwd })
+    const approvalSettings = getThreadApprovalSettings(settings?.approvalMode)
+    const res = await this.call('thread/start', { cwd: this.cwd, ...approvalSettings })
     const thread = (res.result as { thread: Thread } | undefined)?.thread
     if (!thread?.id) {
       throw new Error('thread/start did not return a thread id')
@@ -152,15 +176,18 @@ export class CodexClient extends EventEmitter {
   }
 
   async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
-    const approvalSettings = getApprovalSettings(settings?.approvalMode)
-    await this.call('turn/start', {
+    const approvalSettings = getTurnApprovalSettings(settings?.approvalMode)
+    const serviceTier = speedToServiceTier(settings?.speed)
+    const res = await this.call('turn/start', {
       threadId,
       input,
       model: settings?.model ?? null,
       effort: settings?.effort ?? null,
+      ...(serviceTier !== undefined ? { serviceTier } : {}),
       ...approvalSettings,
     })
-    this.emitRunStart(threadId)
+    const turnId = (res.result as { turn?: { id?: string } } | undefined)?.turn?.id
+    if (turnId) this.currentTurnIdByThread.set(threadId, turnId)
   }
 
   async compactThread(threadId: string): Promise<void> {
@@ -235,7 +262,7 @@ export class CodexClient extends EventEmitter {
 
   async resumeThread(threadId: string, cwd?: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
     if (cwd) this.cwd = cwd
-    const approvalSettings = getApprovalSettings(settings?.approvalMode)
+    const approvalSettings = getTurnApprovalSettings(settings?.approvalMode)
     const res = await this.call('thread/resume', {
       threadId,
       cwd: this.cwd,
@@ -281,12 +308,21 @@ export class CodexClient extends EventEmitter {
     return res.result as { outcome: string }
   }
 
-  async approve(approvalId: string, threadId: string): Promise<void> {
-    await this.call('thread/approve', { threadId, approvalId })
+  async approve(event: unknown, threadId: string): Promise<void> {
+    await this.call('thread/approveGuardianDeniedAction', { threadId, event })
   }
 
+  async interrupt(threadId: string): Promise<void> {
+    const turnId = this.currentTurnIdByThread.get(threadId)
+    if (!turnId) {
+      console.warn(`[codex] turn/interrupt called for thread ${threadId} without a known turnId`)
+    }
+    await this.call('turn/interrupt', { threadId, turnId: turnId ?? null })
+  }
+
+  /** @deprecated use interrupt() */
   async abort(threadId: string): Promise<void> {
-    await this.call('thread/abort', { threadId })
+    await this.interrupt(threadId)
   }
 
   private onData(data: Buffer): void {
@@ -344,9 +380,18 @@ export class CodexClient extends EventEmitter {
         const status = params.status as { type?: string; activeFlags?: string[] } | undefined
         if (status?.type === 'active') {
           this.emitRunStart(threadId)
+          if (status.activeFlags?.includes('waitingOnApproval')) {
+            this.emit('event', { type: 'approval_request', threadId, approval: { id: crypto.randomUUID(), reviewId: '', action: {}, review: {}, description: 'Waiting on approval' } } as CodexEvent)
+          }
         } else if (status?.type === 'idle') {
           this.emitRunEnd(threadId)
         }
+        break
+      }
+      case 'turn/started': {
+        const turnId = (params as { turn?: { id?: string } }).turn?.id
+        if (turnId) this.currentTurnIdByThread.set(threadId, turnId)
+        this.emitRunStart(threadId)
         break
       }
       case 'agent_message': {
@@ -425,7 +470,8 @@ export class CodexClient extends EventEmitter {
       case 'item/agentMessage/delta': {
         const itemId = (params as { itemId?: string }).itemId
         const delta = (params as { delta?: string }).delta ?? ''
-        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta } as CodexEvent)
+        const phase = (params as { item?: { phase?: string } }).item?.phase
+        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase } as CodexEvent)
         break
       }
       case 'item/reasoning/textDelta': {
@@ -446,11 +492,66 @@ export class CodexClient extends EventEmitter {
         }
         break
       }
+      case 'item/guardianApprovalReview/started': {
+        const payload = params as {
+          reviewId?: string
+          targetItemId?: string | null
+          action?: unknown
+          review?: unknown
+        }
+        const action = payload.action ?? {}
+        const review = payload.review ?? {}
+        const description = this.describeGuardianAction(action)
+        this.emit('event', {
+          type: 'approval_request',
+          threadId,
+          approval: {
+            id: payload.reviewId ?? crypto.randomUUID(),
+            reviewId: payload.reviewId ?? crypto.randomUUID(),
+            targetItemId: payload.targetItemId,
+            action,
+            review,
+            description,
+          },
+        } as CodexEvent)
+        break
+      }
+      case 'item/guardianApprovalReview/completed': {
+        const payload = params as {
+          reviewId?: string
+          action?: { type?: string }
+          review?: { status?: string }
+        }
+        const status = payload.review?.status ?? 'approved'
+        this.emit('event', { type: 'approval_completed', threadId, reviewId: payload.reviewId ?? '', action: status as 'approved' | 'denied' | 'timedOut' | 'aborted' } as CodexEvent)
+        break
+      }
       case 'serverRequest/resolved':
         this.emitRunEnd(threadId)
         break
       default:
         break
+    }
+  }
+
+  private describeGuardianAction(action: unknown): string {
+    if (!action || typeof action !== 'object') return 'Unknown action'
+    const a = action as Record<string, unknown>
+    switch (a.type) {
+      case 'command':
+        return `Run command: ${String(a.command ?? '')}`
+      case 'execve':
+        return `Execute: ${String(a.program ?? '')} ${Array.isArray(a.argv) ? a.argv.join(' ') : ''}`
+      case 'applyPatch':
+        return `Apply patch to ${Array.isArray(a.files) ? (a.files as string[]).join(', ') : 'files'}`
+      case 'networkAccess':
+        return `Network access: ${String(a.protocol ?? '')} ${String(a.host ?? '')}:${String(a.port ?? '')}`
+      case 'mcpToolCall':
+        return `Tool call: ${String(a.toolName ?? '')}`
+      case 'requestPermissions':
+        return 'Request additional permissions'
+      default:
+        return String(a.type ?? 'Unknown action')
     }
   }
 
