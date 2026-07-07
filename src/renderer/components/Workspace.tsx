@@ -66,7 +66,7 @@ export function Workspace() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                closeThreadWindow(win.id)
+                if (win.type === 'chat') closeThreadWindow(win.id)
                 if (win.type === 'terminal') {
                   window.cranberri.terminal.kill(`terminal-${win.id}`)
                 }
