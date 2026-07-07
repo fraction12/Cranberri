@@ -644,21 +644,145 @@ function ChangeList({
     )
   }
 
+  const tree = buildChangeTree(status)
+
   return (
-    <ul className="divide-y divide-app-border">
-      {status.map((file) => (
-        <li
-          key={file.path}
-          onClick={() => onSelectFile(file)}
-          className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-app-surface-2/50 ${
-            selectedFile?.path === file.path ? 'bg-app-surface-2' : ''
-          }`}
-        >
-          <span className="text-sm truncate flex-1 pr-2" title={file.path}>{file.path}</span>
-          <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${statusColor(file.status)}`}>{file.status}</span>
-        </li>
+    <ul className="p-2 text-sm">
+      {tree.map((node) => (
+        <ChangeTreeNode
+          key={node.path}
+          node={node}
+          selectedPath={selectedFile?.path ?? null}
+          onSelectFile={onSelectFile}
+        />
       ))}
     </ul>
+  )
+}
+
+interface ChangeTreeNodeData {
+  name: string
+  path: string
+  children: ChangeTreeNodeData[]
+  file: GitFileStatus | null
+  statuses: Set<GitFileStatus['status']>
+  childrenByName: Map<string, ChangeTreeNodeData>
+}
+
+function buildChangeTree(files: GitFileStatus[]): ChangeTreeNodeData[] {
+  const root = new Map<string, ChangeTreeNodeData>()
+
+  const getNode = (siblings: Map<string, ChangeTreeNodeData>, name: string, path: string) => {
+    let node = siblings.get(name)
+    if (!node) {
+      node = { name, path, children: [], file: null, statuses: new Set(), childrenByName: new Map() }
+      siblings.set(name, node)
+    }
+    return node
+  }
+
+  for (const file of files) {
+    const parts = file.path.split('/').filter(Boolean)
+    let siblings = root
+
+    for (let index = 0; index < parts.length; index += 1) {
+      const name = parts[index]
+      const path = parts.slice(0, index + 1).join('/')
+      const current = getNode(siblings, name, path)
+      current.statuses.add(file.status)
+
+      if (index === parts.length - 1) {
+        current.file = file
+      } else {
+        siblings = current.childrenByName
+      }
+    }
+  }
+
+  const sortNodes = (nodes: ChangeTreeNodeData[]): ChangeTreeNodeData[] => nodes
+    .map((node) => ({ ...node, children: sortNodes([...node.childrenByName.values()]) }))
+    .sort((a, b) => {
+      if (Boolean(a.file) === Boolean(b.file)) return a.name.localeCompare(b.name)
+      return a.file ? 1 : -1
+    })
+
+  return sortNodes([...root.values()])
+}
+
+function countChangedFiles(node: ChangeTreeNodeData): number {
+  if (node.file) return 1
+  return node.children.reduce((total, child) => total + countChangedFiles(child), 0)
+}
+
+function statusRank(statuses: Set<GitFileStatus['status']>): GitFileStatus['status'] {
+  const order: GitFileStatus['status'][] = ['conflict', 'deleted', 'renamed', 'modified', 'added', 'untracked', 'staged', 'tracked']
+  return order.find((status) => statuses.has(status)) ?? 'tracked'
+}
+
+function ChangeTreeNode({
+  node,
+  selectedPath,
+  onSelectFile,
+  depth = 0,
+}: {
+  node: ChangeTreeNodeData
+  selectedPath: string | null
+  onSelectFile: (file: GitFileStatus) => void
+  depth?: number
+}) {
+  const [expanded, setExpanded] = useState(depth < 2 || node.children.length <= 4)
+
+  if (node.file) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => onSelectFile(node.file!)}
+          className={`group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left transition hover:bg-app-surface-2/70 ${
+            selectedPath === node.path ? 'bg-app-surface-2' : ''
+          }`}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
+          title={node.path}
+        >
+          <FileText className="h-3.5 w-3.5 shrink-0 text-app-text-muted group-hover:text-app-text" />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-app-text">{node.name}</span>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${statusColor(node.file.status)}`}>{node.file.status}</span>
+        </button>
+      </li>
+    )
+  }
+
+  const badgeStatus = statusRank(node.statuses)
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="group flex w-full items-center gap-1.5 rounded-md py-1.5 pr-2 text-left text-app-text-muted transition hover:bg-app-surface-2/60 hover:text-app-text"
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
+        title={node.path}
+      >
+        <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <Folder className="h-3.5 w-3.5 shrink-0 text-app-accent/80" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-text">{node.name}</span>
+        <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-app-text-muted">{countChangedFiles(node)}</span>
+        <span className={`h-1.5 w-1.5 rounded-full ${statusColor(badgeStatus).split(' ')[1]}`} />
+      </button>
+      {expanded && node.children.length > 0 && (
+        <ul>
+          {node.children.map((child) => (
+            <ChangeTreeNode
+              key={child.path}
+              node={child}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+              depth={depth + 1}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
   )
 }
 
