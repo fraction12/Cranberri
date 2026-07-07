@@ -290,10 +290,17 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             // Prefer the itemId-keyed agent_message_completed path above.
             const existing = [...thread.messages]
               .reverse()
-              .find((message) => message.role !== 'user' && (message.content === e.text || e.text.startsWith(message.content) || message.content.startsWith(e.text)))
-            const itemId = existing?.id ?? crypto.randomUUID()
+              .find((message) => message.role === 'assistant' && (message.content === e.text || e.text.startsWith(message.content) || message.content.startsWith(e.text)))
+            if (existing) {
+              thread.messages = thread.messages.map((message) =>
+                message.id === existing.id ? { ...message, content: e.text, pending: false } : message
+              )
+            } else {
+              thread.messages = [...thread.messages, { id: crypto.randomUUID(), role: 'assistant', content: e.text, timestamp: Date.now() }]
+            }
+            thread.isRunning = false
+            thread.currentActivity = undefined
             thread.lastRunDurationMs = thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined
-            queueMicrotask(() => streamMessageText(threadId, itemId, e.text, 'assistant'))
             break
           }
         }
