@@ -281,11 +281,18 @@ async function installUpdate(): Promise<InstallResult> {
     const helperPath = appPath.endsWith('app.asar')
       ? path.join(appPath.replace(/app\.asar$/, 'app.asar.unpacked'), 'out', 'updater', 'install-helper.mjs')
       : path.join(__dirname, '../updater/install-helper.mjs')
-    spawn(process.execPath, [helperPath, manifestPath, String(process.pid)], {
+    const nodeBinary = await findNodeBinary()
+    if (!nodeBinary) {
+      throw new Error('Cannot find node binary to run install helper')
+    }
+    const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
+    const helperOut = fs.openSync(helperLogPath, 'a')
+    spawn(nodeBinary, [helperPath, manifestPath, String(process.pid)], {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', helperOut, helperOut],
       env: { ...process.env, CRANBERRI_UPDATER: '1' },
     }).unref()
+    fs.closeSync(helperOut)
 
     app.quit()
     return { success: true, phase: 'relaunching', message: 'Quitting to install update', logPath }
@@ -294,6 +301,28 @@ async function installUpdate(): Promise<InstallResult> {
     setStatus({ status: 'failed', failedPhase: currentStatus.phase, failureMessage: message, logPath })
     return { success: false, phase: currentStatus.phase, message, logPath }
   }
+}
+
+async function findNodeBinary(): Promise<string | null> {
+  const candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']
+  for (const candidate of candidates) {
+    try {
+      await fs.promises.access(candidate)
+      return candidate
+    } catch {
+      // continue
+    }
+  }
+  return new Promise((resolve) => {
+    const proc = spawn('which', ['node'], { timeout: 5000 })
+    let stdout = ''
+    proc.stdout?.on('data', (data) => { stdout += data.toString() })
+    proc.on('error', () => resolve(null))
+    proc.on('exit', (code) => {
+      const found = stdout.trim().split('\n')[0]
+      resolve(code === 0 && found ? found : null)
+    })
+  })
 }
 
 async function stageSource(repoPath: string, commit: string, stagingDir: string): Promise<void> {
