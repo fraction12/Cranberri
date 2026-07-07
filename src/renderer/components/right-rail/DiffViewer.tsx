@@ -1,6 +1,8 @@
-import ReactDiffViewer from 'react-diff-viewer-continued'
+import { Suspense, lazy } from 'react'
 import { useGitDiffForFile, useGitRawContent } from '../../state/git'
 import type { GitFileStatus } from '@/shared/git'
+
+const ReactDiffViewer = lazy(() => import('react-diff-viewer-continued'))
 
 interface DiffViewerProps {
   filePath: string
@@ -21,16 +23,18 @@ export function DiffViewer({ filePath, status, wrapContent }: DiffViewerProps) {
 
   return (
     <div className={`cranberri-diff-viewer h-full overflow-auto text-xs ${wrapContent ? 'wrap-diff-content' : ''}`}>
-      <ReactDiffViewer
-        oldValue={oldContent ?? ''}
-        newValue={newContent ?? ''}
-        splitView={false}
-        showDiffOnly={false}
-        hideLineNumbers
-        hideSummary
-        disableWordDiff
-        styles={getDiffStyles(wrapContent)}
-      />
+      <Suspense fallback={<div className="p-3 text-sm text-app-text-muted">Loading diff...</div>}>
+        <ReactDiffViewer
+          oldValue={oldContent ?? ''}
+          newValue={newContent ?? ''}
+          splitView={false}
+          showDiffOnly={false}
+          hideLineNumbers
+          hideSummary
+          disableWordDiff
+          styles={getDiffStyles(wrapContent)}
+        />
+      </Suspense>
     </div>
   )
 }
