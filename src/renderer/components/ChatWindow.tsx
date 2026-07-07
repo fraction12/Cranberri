@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import {
   ArrowUp,
   Check,
-  Goal,
   Loader2,
   Mic,
   Package,
@@ -13,7 +12,9 @@ import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
+import { AttachmentChips } from './chat/AttachmentChips'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
+import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { formatCodexText, ReasoningGroup, TranscriptMessage } from './chat/Transcript'
 import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
@@ -30,6 +31,37 @@ function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; star
 }
 
 const SKILL_INLINE_ICON = '📦'
+const GOAL_PROMPT = [
+  'Create and run this as a Codex goal.',
+  'Keep working until the goal is complete, and report progress only when you need a decision or finish.',
+].join(' ')
+const PLAN_MODE_PROMPT = [
+  'Plan mode: do not edit files yet.',
+  'Inspect the repo, produce a concise implementation plan, risks, and verification steps, then wait for approval.',
+].join(' ')
+const COMPOSER_SCRIM_CLASS = [
+  'pointer-events-none absolute inset-x-0 bottom-0 z-[900] bg-gradient-to-t',
+  'from-[var(--app-bg)] via-[var(--app-bg)]/95 to-transparent px-6 pb-4 pt-16',
+].join(' ')
+const COMPOSER_CARD_CLASS = [
+  'pointer-events-auto relative mx-auto w-full max-w-[760px] rounded-3xl border',
+  'border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30',
+].join(' ')
+const TEXTAREA_CLASS = [
+  'relative min-h-[24px] w-full resize-none bg-transparent px-0 text-[13px] leading-5',
+  'text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]',
+].join(' ')
+const SKILL_MENU_CLASS = [
+  'absolute inset-x-0 bottom-full mb-4 max-h-[420px] rounded-3xl border',
+  'border-[var(--app-border)] bg-[var(--app-surface)] p-5 shadow-2xl shadow-black/40',
+].join(' ')
+const COMPOSER_GHOST_TEXT_CLASS =
+  'pointer-events-none absolute inset-x-1 top-0 whitespace-pre-wrap break-words text-[var(--app-text)]'
+const SEND_BUTTON_CLASS = [
+  'flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)]',
+  'text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40',
+].join(' ')
+type TextInputElements = NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']>
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -52,11 +84,11 @@ function selectedSkillsFromInput(input: string, skills: CodexSkillInfo[]): Codex
   return skills.filter((skill) => inputHasSkill(input, skill))
 }
 
-function skillTextElements(text: string, skills: CodexSkillInfo[]): NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']> {
+function skillTextElements(text: string, skills: CodexSkillInfo[]): TextInputElements {
   const encoder = new TextEncoder()
   return skills.flatMap((skill) => {
     const token = inlineSkillText(skill)
-    const elements: NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']> = []
+    const elements: TextInputElements = []
     let offset = text.indexOf(token)
     while (offset !== -1) {
       elements.push({
@@ -202,9 +234,14 @@ export function ChatWindow({ id }: { id: string }) {
 
   const buildMessage = (text: string): { displayText: string; input: CodexUserInput[] } => {
     const inputParts: CodexUserInput[] = []
-    if (goalMode) inputParts.push({ type: 'text', text: 'Create and run this as a Codex goal. Keep working until the goal is complete, and report progress only when you need a decision or finish.' })
-    if (planMode) inputParts.push({ type: 'text', text: 'Plan mode: do not edit files yet. Inspect the repo, produce a concise implementation plan, risks, and verification steps, then wait for approval.' })
-    if (attachments.length > 0) inputParts.push({ type: 'text', text: `Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}` })
+    if (goalMode) inputParts.push({ type: 'text', text: GOAL_PROMPT })
+    if (planMode) inputParts.push({ type: 'text', text: PLAN_MODE_PROMPT })
+    if (attachments.length > 0) {
+      inputParts.push({
+        type: 'text',
+        text: `Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}`,
+      })
+    }
 
     const inlineSkills = selectedSkillsFromInput(text, skills)
     const textElements = skillTextElements(text, inlineSkills)
@@ -245,7 +282,15 @@ export function ChatWindow({ id }: { id: string }) {
 
   const isRunning = thread?.isRunning ?? false
   const telemetryKey = thread
-    ? `${thread.id}:${thread.isRunning}:${thread.currentActivity ?? ''}:${thread.messages.length}:${thread.messages.at(-1)?.id ?? ''}:${thread.messages.at(-1)?.role ?? ''}:${thread.messages.at(-1)?.content.length ?? 0}`
+    ? [
+        thread.id,
+        thread.isRunning,
+        thread.currentActivity ?? '',
+        thread.messages.length,
+        thread.messages.at(-1)?.id ?? '',
+        thread.messages.at(-1)?.role ?? '',
+        thread.messages.at(-1)?.content.length ?? 0,
+      ].join(':')
     : 'no-thread'
   const telemetrySnapshot = thread
     ? {
@@ -271,7 +316,9 @@ export function ChatWindow({ id }: { id: string }) {
   useEffect(() => {
     const snapshot = telemetrySnapshotRef.current
     if (!snapshot) return
-    window.cranberri.telemetry.log('renderer', 'chat-window:snapshot', snapshot).catch((err) => console.warn('Failed to write chat telemetry:', err))
+    window.cranberri.telemetry
+      .log('renderer', 'chat-window:snapshot', snapshot)
+      .catch((err) => console.warn('Failed to write chat telemetry:', err))
   }, [telemetryKey])
 
   const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
@@ -455,7 +502,10 @@ export function ChatWindow({ id }: { id: string }) {
             )}
             {renderTranscript()}
             {thread?.pendingApprovals.map((approval) => (
-              <div key={approval.id} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-xs text-[var(--app-text)]">
+              <div
+                key={approval.id}
+                className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-xs text-[var(--app-text)]"
+              >
                 <div className="mb-1 font-medium">Approval needed</div>
                 <div className="mb-3 text-[var(--app-text)]">{approval.description}</div>
                 <div className="flex gap-2">
@@ -478,7 +528,7 @@ export function ChatWindow({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[900] bg-gradient-to-t from-[var(--app-bg)] via-[var(--app-bg)]/95 to-transparent px-6 pb-4 pt-16">
+        <div className={COMPOSER_SCRIM_CLASS}>
           <div
             ref={composerRef}
             data-chat-composer="true"
@@ -490,25 +540,14 @@ export function ChatWindow({ id }: { id: string }) {
               if (nextTarget && composerRef.current?.contains(nextTarget)) return
               composerHadFocusRef.current = false
             }}
-            className="pointer-events-auto relative mx-auto w-full max-w-[760px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30"
+            className={COMPOSER_CARD_CLASS}
           >
-            {attachments.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5 px-1">
-                {attachments.map((filePath) => (
-                  <button
-                    key={filePath}
-                    type="button"
-                    onClick={() => setAttachments((current) => current.filter((item) => item !== filePath))}
-                    className="rounded-full bg-[var(--app-surface-2)] px-2 py-0.5 text-[11px] text-[var(--app-text)] hover:bg-[var(--app-border)]"
-                    title="Click to remove"
-                  >
-                    {filePath.split('/').pop() || filePath} ×
-                  </button>
-                ))}
-              </div>
-            )}
+            <AttachmentChips
+              attachments={attachments}
+              onRemove={(filePath) => setAttachments((current) => current.filter((item) => item !== filePath))}
+            />
             {showSkills && (
-              <div className="absolute inset-x-0 bottom-full mb-4 max-h-[420px] rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 shadow-2xl shadow-black/40">
+              <div className={SKILL_MENU_CLASS}>
                 <div className="mb-4 text-[13px] text-[var(--app-text-muted)]">Skills</div>
                 <div className="max-h-[340px] space-y-1 overflow-y-auto pr-1">
                   {compactCommand.map((command, index) => (
@@ -517,7 +556,9 @@ export function ChatWindow({ id }: { id: string }) {
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={insertCompactCommand}
-                      className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${index === skillIndex ? 'bg-[var(--app-surface-2)]' : ''}`}
+                      className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${
+                        index === skillIndex ? 'bg-[var(--app-surface-2)]' : ''
+                      }`}
                     >
                       <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
                       <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
@@ -530,6 +571,12 @@ export function ChatWindow({ id }: { id: string }) {
                   {matchingSkills.map((skill, index) => (
                     (() => {
                       const selected = inputHasSkill(input, skill)
+                      const active = index + compactCommand.length === skillIndex
+                      const sourceLabel = skill.source === 'plugin'
+                        ? (skill.pluginName ?? 'Plugin')
+                        : skill.source === 'personal'
+                          ? 'Personal'
+                          : 'System'
                       return (
                         <button
                           key={skill.id}
@@ -537,17 +584,29 @@ export function ChatWindow({ id }: { id: string }) {
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => { if (!selected) insertSkill(skill) }}
                           disabled={selected}
-                          className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${index + compactCommand.length === skillIndex ? 'bg-[var(--app-surface-2)]' : ''} ${selected ? 'cursor-default opacity-55' : ''}`}
+                          className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${
+                            active ? 'bg-[var(--app-surface-2)]' : ''
+                          } ${selected ? 'cursor-default opacity-55' : ''}`}
                         >
-                          <Package className={`h-4 w-4 shrink-0 ${selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)] opacity-80'}`} />
+                          <Package
+                            className={`h-4 w-4 shrink-0 ${
+                              selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)] opacity-80'
+                            }`}
+                          />
                           <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
-                            <span className={selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)]'}>{skillToken(skill, skillTrigger?.char ?? '/')}</span>
-                            {skill.description && <span className="ml-3 text-[var(--app-text-muted)]">{skill.description}</span>}
+                            <span className={selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)]'}>
+                              {skillToken(skill, skillTrigger?.char ?? '/')}
+                            </span>
+                            {skill.description && (
+                              <span className="ml-3 text-[var(--app-text-muted)]">{skill.description}</span>
+                            )}
                           </span>
                           {selected ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[13px] text-[#ff8f8f]"><Check className="h-3.5 w-3.5" /> Selected</span>
+                            <span className="inline-flex shrink-0 items-center gap-1 text-[13px] text-[#ff8f8f]">
+                              <Check className="h-3.5 w-3.5" /> Selected
+                            </span>
                           ) : (
-                            <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">{skill.source === 'plugin' ? (skill.pluginName ?? 'Plugin') : skill.source === 'personal' ? 'Personal' : 'System'}</span>
+                            <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">{sourceLabel}</span>
                           )}
                         </button>
                       )
@@ -557,7 +616,7 @@ export function ChatWindow({ id }: { id: string }) {
               </div>
             )}
             <div className="relative min-h-[44px] px-1 text-[13px] leading-5">
-              <div className="pointer-events-none absolute inset-x-1 top-0 whitespace-pre-wrap break-words text-[var(--app-text)]">
+              <div className={COMPOSER_GHOST_TEXT_CLASS}>
                 {input ? renderComposerText(input, skills) : null}
               </div>
               <textarea
@@ -575,7 +634,11 @@ export function ChatWindow({ id }: { id: string }) {
                   const cursor = e.currentTarget.selectionStart
                   const beforeCursor = input.slice(0, cursor)
                   const match = beforeCursor.match(/(^|\s)(\S(?:.*\S)?)\s?$/)
-                  const matchedSkill = match ? skills.find((skill) => match[2] === inlineSkillText(skill) || match[2].endsWith(inlineSkillText(skill))) : undefined
+                  const matchedSkill = match
+                    ? skills.find((skill) => (
+                        match[2] === inlineSkillText(skill) || match[2].endsWith(inlineSkillText(skill))
+                      ))
+                    : undefined
                   if (match && matchedSkill) {
                     e.preventDefault()
                     const end = beforeCursor.endsWith(' ') ? cursor - 1 : cursor
@@ -619,10 +682,16 @@ export function ChatWindow({ id }: { id: string }) {
                   handleSend()
                 }
               }}
-              placeholder={isRunning ? 'Keep typing while Codex works...' : goalMode ? 'Describe your goal, define measurable outcomes for best results' : 'Ask for follow-up changes'}
+              placeholder={
+                isRunning
+                  ? 'Keep typing while Codex works...'
+                  : goalMode
+                    ? 'Describe your goal, define measurable outcomes for best results'
+                    : 'Ask for follow-up changes'
+              }
               rows={2}
               spellCheck={false}
-              className="relative min-h-[24px] w-full resize-none bg-transparent px-0 text-[13px] leading-5 text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]"
+              className={TEXTAREA_CLASS}
             />
             </div>
             <div className="flex items-center justify-between pt-2 text-[var(--app-text-muted)]">
@@ -638,19 +707,7 @@ export function ChatWindow({ id }: { id: string }) {
                   onChange={(approvalMode) => setTurnSettings((current) => ({ ...current, approvalMode }))}
                 />
                 {goalMode && (
-                  <>
-                    <div className="h-4 w-px bg-[var(--app-border)]" />
-                    <button
-                      type="button"
-                      onClick={() => setGoalMode(false)}
-                      className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]"
-                      title="Remove goal"
-                    >
-                      <Goal className="h-3.5 w-3.5" />
-                      <span>Goal</span>
-                      <X className="hidden h-3 w-3 text-[var(--app-text-muted)] group-hover:block" />
-                    </button>
-                  </>
+                  <GoalModePill onRemove={() => setGoalMode(false)} />
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -661,7 +718,7 @@ export function ChatWindow({ id }: { id: string }) {
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={handleSend}
                   disabled={isRunning || !input.trim()}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)] text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40"
+                  className={SEND_BUTTON_CLASS}
                   aria-label="Send message"
                 >
                   {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
