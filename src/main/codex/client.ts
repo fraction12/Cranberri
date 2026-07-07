@@ -111,6 +111,7 @@ export class CodexClient extends EventEmitter {
   private startPromise: Promise<void> | null = null
   private activeRunThreads = new Set<string>()
   private currentTurnIdByThread = new Map<string, string>()
+  private pendingApprovalsByThread = new Map<string, boolean>()
 
   constructor(cwd: string) {
     super()
@@ -380,8 +381,13 @@ export class CodexClient extends EventEmitter {
         const status = params.status as { type?: string; activeFlags?: string[] } | undefined
         if (status?.type === 'active') {
           this.emitRunStart(threadId)
-          if (status.activeFlags?.includes('waitingOnApproval')) {
-            this.emit('event', { type: 'approval_request', threadId, approval: { id: crypto.randomUUID(), reviewId: '', action: {}, review: {}, description: 'Waiting on approval' } } as CodexEvent)
+          if (status?.activeFlags?.includes('waitingOnApproval')) {
+            // Only emit a placeholder if we don't already have a real guardian approval pending.
+            // This avoids creating an actionable approval card with an empty event.
+            const hasRealApproval = this.pendingApprovalsByThread.get(threadId) ?? false
+            if (!hasRealApproval) {
+              this.emit('event', { type: 'approval_request', threadId, approval: { id: crypto.randomUUID(), reviewId: '', action: {}, review: {}, description: 'Waiting on approval' } } as CodexEvent)
+            }
           }
         } else if (status?.type === 'idle') {
           this.emitRunEnd(threadId)
@@ -475,6 +481,9 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/reasoning/textDelta': {
+        const itemId = (params as { itemId?: string }).itemId
+        const delta = (params as { delta?: string }).delta ?? ''
+        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase: 'commentary' } as CodexEvent)
         break
       }
       case 'item/commandExecution/outputDelta': {
@@ -502,12 +511,14 @@ export class CodexClient extends EventEmitter {
         const action = payload.action ?? {}
         const review = payload.review ?? {}
         const description = this.describeGuardianAction(action)
+        const reviewId = payload.reviewId ?? crypto.randomUUID()
+        this.pendingApprovalsByThread.set(threadId, true)
         this.emit('event', {
           type: 'approval_request',
           threadId,
           approval: {
-            id: payload.reviewId ?? crypto.randomUUID(),
-            reviewId: payload.reviewId ?? crypto.randomUUID(),
+            id: reviewId,
+            reviewId,
             targetItemId: payload.targetItemId,
             action,
             review,
@@ -522,6 +533,7 @@ export class CodexClient extends EventEmitter {
           action?: { type?: string }
           review?: { status?: string }
         }
+        this.pendingApprovalsByThread.delete(threadId)
         const status = payload.review?.status ?? 'approved'
         this.emit('event', { type: 'approval_completed', threadId, reviewId: payload.reviewId ?? '', action: status as 'approved' | 'denied' | 'timedOut' | 'aborted' } as CodexEvent)
         break

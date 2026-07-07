@@ -751,7 +751,8 @@ export function ChatWindow({ id }: { id: string }) {
     const end = messagesEndRef.current
     if (!container || !end) return
     if (!shouldScrollToBottomRef.current) return
-    end.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const behavior = thread?.isRunning ? 'auto' : 'smooth'
+    end.scrollIntoView({ behavior, block: 'end' })
   }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning])
 
   const handleScroll = useCallback(() => {
