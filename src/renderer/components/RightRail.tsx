@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { Activity, Check, CircleDot, ExternalLink, FileDiff, FileText, GitBranch, Github, GitPullRequest, PlayCircle, Ticket, ChevronLeft, Folder, ChevronRight, Menu, UploadCloud, X } from 'lucide-react'
+import { Activity, CircleDot, ExternalLink, FileDiff, FileText, GitBranch, Github, GitPullRequest, PlayCircle, Ticket, ChevronLeft, Folder, ChevronRight, Menu, UploadCloud, X } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
 import { useRepos } from '../state/repos'
+import { CommitDialog, type CommitState } from './right-rail/CommitDialog'
+import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
 import type { GitFileStatus, FileTreeNode, GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
 import type { AgentProcessInfo } from '@/shared/processes'
 
@@ -51,7 +52,7 @@ export function RightRail() {
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
   const [diffMenuOpen, setDiffMenuOpen] = useState(false)
   const [diffMenuPosition, setDiffMenuPosition] = useState<{ top: number; left: number } | null>(null)
-  const [commitState, setCommitState] = useState<{ status: 'idle' | 'committing' | 'success' | 'error'; message: string | null }>({ status: 'idle', message: null })
+  const [commitState, setCommitState] = useState<CommitState>({ status: 'idle', message: null })
   const [commitDialogOpen, setCommitDialogOpen] = useState(false)
   const [commitTitle, setCommitTitle] = useState('')
   const [commitSummary, setCommitSummary] = useState('')
@@ -130,85 +131,19 @@ export function RightRail() {
     }
   }, [diffMenuOpen])
 
-  const diffMenu = diffMenuOpen && diffMenuPosition ? createPortal(
-    <div
-      data-diff-menu="true"
-      className="fixed z-[1400] w-44 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-2xl shadow-black/50"
-      style={{ top: diffMenuPosition.top, left: diffMenuPosition.left }}
-    >
-      <button
-        type="button"
-        onClick={() => setWrapDiffContent((value) => !value)}
-        className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2"
-      >
-        <span>Wrap diff content</span>
-        {wrapDiffContent && <Check className="h-3.5 w-3.5 text-app-accent" />}
-      </button>
-    </div>,
-    document.body,
-  ) : null
-
-  const commitDialog = commitDialogOpen ? createPortal(
-    <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-md rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl shadow-black/60">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium text-app-text">Commit changes</div>
-            <div className="mt-1 text-[11px] text-app-text-muted">Stages all current changes and commits them.</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setCommitDialogOpen(false)}
-            className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-            title="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <label className="block text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-          Title
-          <input
-            autoFocus
-            value={commitTitle}
-            onChange={(event) => setCommitTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void handleCommit()
-            }}
-            className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted"
-            placeholder="fix(git): commit from changes panel"
-          />
-        </label>
-        <label className="mt-3 block text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
-          Summary
-          <textarea
-            value={commitSummary}
-            onChange={(event) => setCommitSummary(event.target.value)}
-            className="mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted"
-            placeholder="Optional body explaining what changed."
-          />
-        </label>
-        {commitState.message && (
-          <div className={`mt-3 text-xs ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>{commitState.message}</div>
-        )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={() => setCommitDialogOpen(false)} className="rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs text-app-text-muted hover:text-app-text">Cancel</button>
-          <button
-            type="button"
-            onClick={() => void handleCommit()}
-            disabled={!commitTitle.trim() || commitState.status === 'committing'}
-            className="rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {commitState.status === 'committing' ? 'Committing…' : 'Commit'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  ) : null
-
   return (
     <div className="flex flex-col h-full bg-app-surface">
-      {commitDialog}
+      {commitDialogOpen && (
+        <CommitDialog
+          title={commitTitle}
+          summary={commitSummary}
+          commitState={commitState}
+          onClose={() => setCommitDialogOpen(false)}
+          onTitleChange={setCommitTitle}
+          onSummaryChange={setCommitSummary}
+          onCommit={() => void handleCommit()}
+        />
+      )}
       <div className="flex h-9 border-b border-app-border shrink-0">
         <TabButton active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={<FileText className="w-4 h-4" />} label="Files" />
         <TabButton active={activeTab === 'diff'} onClick={() => setActiveTab('diff')} icon={<FileDiff className="w-4 h-4" />} label="Diff" />
@@ -285,7 +220,13 @@ export function RightRail() {
                   >
                     <Menu className="w-4 h-4" />
                   </button>
-                  {diffMenu}
+                  {diffMenuOpen && diffMenuPosition && (
+                    <DiffOptionsMenu
+                      position={diffMenuPosition}
+                      wrapContent={wrapDiffContent}
+                      onToggleWrapContent={() => setWrapDiffContent((value) => !value)}
+                    />
+                  )}
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">
                   {diffLoading ? (
