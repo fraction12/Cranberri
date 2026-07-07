@@ -11,6 +11,7 @@ asar: true
 asarUnpack:
   - out/updater/install-helper.mjs
 mac:
+  icon: buildResources/icon.icns
   category: public.app-category.developer-tools
   target:
     - dmg
