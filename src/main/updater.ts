@@ -39,6 +39,7 @@ interface SourceRepo {
   owner: string
   repo: string
   isDirty: boolean
+  containsCommit: boolean
 }
 
 async function resolveSourceRepo(): Promise<SourceRepo | null> {
@@ -53,6 +54,7 @@ async function resolveSourceRepo(): Promise<SourceRepo | null> {
     if (!candidatePaths.includes(repoPath)) candidatePaths.push(repoPath)
   }
 
+  const repos: SourceRepo[] = []
   for (const repoPath of candidatePaths) {
     try {
       const git = simpleGit(repoPath)
@@ -63,15 +65,30 @@ async function resolveSourceRepo(): Promise<SourceRepo | null> {
       if (!match) continue
       const [, owner, repo] = match
       const status = await git.status()
-      return { path: repoPath, remoteUrl, owner, repo, isDirty: status.files.length > 0 }
+      const containsCommit = await commitExistsInRepo(git, buildInfo.commit)
+      repos.push({ path: repoPath, remoteUrl, owner, repo, isDirty: status.files.length > 0, containsCommit })
     } catch {
       continue
     }
   }
-  return null
+
+  // Prefer a repo that actually contains the running commit; otherwise return the first valid one.
+  return repos.find((r) => r.containsCommit) ?? repos[0] ?? null
+}
+
+async function commitExistsInRepo(git: ReturnType<typeof simpleGit>, commit: string): Promise<boolean> {
+  try {
+    const result = await git.raw(['cat-file', '-t', commit])
+    return result.trim() === 'commit'
+  } catch {
+    return false
+  }
 }
 
 async function checkCommitsBehind(sourceRepo: SourceRepo, currentCommit: string): Promise<{ latestCommit: string; commitsBehind: number | null; comparisonUnknown: boolean }> {
+  if (!sourceRepo.containsCommit) {
+    return { latestCommit: '', commitsBehind: null, comparisonUnknown: true }
+  }
   const git = simpleGit(sourceRepo.path)
   await git.fetch(['origin', 'main'])
   const latestCommit = (await git.raw(['rev-parse', 'origin/main'])).trim()
@@ -100,6 +117,9 @@ async function performCheck(): Promise<UpdateInfo> {
   }
   if (!sourceRepo.remoteUrl.includes('github.com')) {
     return blocked('sourceNotGitHub', 'The configured source repo origin is not GitHub.')
+  }
+  if (!sourceRepo.containsCommit) {
+    return blocked('comparisonUnknown', `Running commit ${buildInfo.commit.slice(0, 7)} is not in the source repo at ${sourceRepo.path}.`, null)
   }
 
   try {
