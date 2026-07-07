@@ -145,9 +145,11 @@ export function App() {
           <RightRail />
         </div>
       </div>
-      <Suspense fallback={null}>
-        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </Suspense>
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog open onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
     </AppStateProvider>
   )
