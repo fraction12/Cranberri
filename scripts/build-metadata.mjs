@@ -38,7 +38,7 @@ const buildInfo = {
   packaged: isPackaged,
 }
 
-const outputPath = path.join(sharedDir, 'buildInfo.json')
+const outputPath = path.join(sharedDir, 'buildInfo.generated.json')
 fs.mkdirSync(sharedDir, { recursive: true })
 fs.writeFileSync(outputPath, JSON.stringify(buildInfo, null, 2) + '\n')
 console.log(`Wrote build metadata to ${outputPath}:`, buildInfo)

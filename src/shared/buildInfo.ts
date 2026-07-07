@@ -1,5 +1,5 @@
 import z from 'zod'
-import buildInfoJson from './buildInfo.json'
+import buildInfoJson from './buildInfo.generated.json'
 
 const buildInfoSchema = z.object({
   commit: z.string(),

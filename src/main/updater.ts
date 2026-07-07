@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import simpleGit from 'simple-git'
 import { buildInfo } from '@/shared/buildInfo'
 import { readSettings, writeSettings } from './settings'
+import { getRegisteredRepoPaths } from './repos'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
 
@@ -49,7 +50,6 @@ async function resolveSourceRepo(): Promise<SourceRepo | null> {
     candidatePaths.push(settings.updater.sourceRepoPath)
   }
   // Fallback: discover from registered repos if they match the Cranberri origin.
-  const { getRegisteredRepoPaths } = await import('./repos')
   for (const repoPath of getRegisteredRepoPaths()) {
     if (!candidatePaths.includes(repoPath)) candidatePaths.push(repoPath)
   }
