@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { useWorkspace } from '../state/workspace'
 import { useCodex } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
-import { TerminalWindow } from './TerminalWindow'
 import { Plus, MessageSquare, Terminal, X } from 'lucide-react'
+
+const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
 export function Workspace() {
   const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, closeWindow, setActiveWindow } = useWorkspace()
@@ -113,7 +114,13 @@ export function Workspace() {
             key={win.id}
             className={`absolute inset-0 ${activeWindowId === win.id ? 'block' : 'hidden'}`}
           >
-            {win.type === 'chat' ? <ChatWindow id={win.id} /> : <TerminalWindow id={win.id} repoPath={activeRepoPath} />}
+            {win.type === 'chat' ? (
+              <ChatWindow id={win.id} />
+            ) : (
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-app-text-muted">Loading terminal...</div>}>
+                <TerminalWindow id={win.id} repoPath={activeRepoPath} />
+              </Suspense>
+            )}
           </div>
         ))}
       </div>

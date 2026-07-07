@@ -5,7 +5,7 @@ import { useRepos } from '../state/repos'
 import { ChangeList } from './right-rail/ChangeList'
 import { CommitDialog, type CommitState } from './right-rail/CommitDialog'
 import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
-import { DiffStats, DiffViewer } from './right-rail/DiffViewer'
+import { DiffStats, DiffViewer, preloadDiffRenderer } from './right-rail/DiffViewer'
 import { FileTree } from './right-rail/FileTree'
 import {
   BottomPanelContent,
@@ -58,6 +58,7 @@ export function RightRail() {
   }, [activeRepo?.id])
 
   const handleSelectFile = (file: GitFileStatus) => {
+    preloadDiffRenderer()
     setSelectedFile(file)
     setActiveDiffFile(file)
     setActiveTab('diff')

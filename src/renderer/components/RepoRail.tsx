@@ -78,13 +78,12 @@ function SessionRow({
           setMenu({ x: event.clientX, y: event.clientY })
         }}
         className={`group/session w-full rounded px-2 py-1.5 text-left ${active ? 'bg-app-surface-2 text-app-text' : 'hover:bg-app-surface-2/60'}`}
-        title={session.preview || sessionTitle(session)}
+        title={sessionTitle(session)}
       >
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-xs text-app-text">{sessionTitle(session)}</span>
           <span className="shrink-0 text-[10px] text-app-text-muted">{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
         </div>
-        {session.preview && <div className="mt-0.5 truncate text-[11px] text-app-text-muted">{session.preview}</div>}
       </button>
       {menu && (
         <div
