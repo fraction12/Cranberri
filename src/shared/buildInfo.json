@@ -1,8 +1,8 @@
 {
-  "commit": "608b2006aa84e5866bcf3c4d9b5c89312da3ebae",
-  "branch": "main",
-  "commitTime": "2026-07-06T22:12:46-04:00",
-  "buildTime": "2026-07-07T02:25:13.286Z",
+  "commit": "dev",
+  "branch": "dev",
+  "commitTime": "",
+  "buildTime": "",
   "version": "0.1.0",
   "packaged": false
 }
