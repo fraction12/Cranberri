@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Activity, FileDiff, FileText, Github, Ticket, ChevronLeft, Menu } from 'lucide-react'
+import { ChevronLeft, FileDiff, Menu } from 'lucide-react'
 import { useGitStatus, useGitFiles, useGitRawContent } from '../state/git'
 import { useRepos } from '../state/repos'
 import { ChangeList } from './right-rail/ChangeList'
@@ -7,8 +7,13 @@ import { CommitDialog, type CommitState } from './right-rail/CommitDialog'
 import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
 import { DiffStats, DiffViewer } from './right-rail/DiffViewer'
 import { FileTree } from './right-rail/FileTree'
-import { GitHubPanel } from './right-rail/GitHubPanel'
-import { ProcessesPanel } from './right-rail/ProcessesPanel'
+import {
+  BottomPanelContent,
+  BottomPanelNav,
+  RightRailTabs,
+  type BottomPanelKind,
+  type RightRailTab,
+} from './right-rail/RailShell'
 import type { GitFileStatus } from '@/shared/git'
 
 const DIFF_MENU_WIDTH = 176
@@ -28,8 +33,8 @@ function getDiffMenuPosition(button: HTMLButtonElement | null) {
 
 export function RightRail() {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
-  const [activeTab, setActiveTab] = useState<'files' | 'diff'>('files')
-  const [bottomPanel, setBottomPanel] = useState<'issue' | 'processes' | 'github' | null>(null)
+  const [activeTab, setActiveTab] = useState<RightRailTab>('files')
+  const [bottomPanel, setBottomPanel] = useState<BottomPanelKind | null>(null)
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
   const [diffMenuOpen, setDiffMenuOpen] = useState(false)
@@ -126,10 +131,7 @@ export function RightRail() {
           onCommit={() => void handleCommit()}
         />
       )}
-      <div className="flex h-9 border-b border-app-border shrink-0">
-        <TabButton active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={<FileText className="w-4 h-4" />} label="Files" />
-        <TabButton active={activeTab === 'diff'} onClick={() => setActiveTab('diff')} icon={<FileDiff className="w-4 h-4" />} label="Diff" />
-      </div>
+      <RightRailTabs activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <div className={`${bottomPanel ? 'basis-1/2' : 'flex-1'} min-h-0 overflow-hidden relative`}>
         {activeTab === 'files' && (
@@ -228,78 +230,8 @@ export function RightRail() {
         )}
 
       </div>
-      {bottomPanel && (
-        <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
-          <div className="flex h-8 shrink-0 items-center border-b border-app-border bg-app-surface-2 px-3">
-            <div className="flex items-center gap-2 text-xs font-medium text-app-text">
-              {bottomPanel === 'issue' && <Ticket className="h-3.5 w-3.5 text-app-text-muted" />}
-              {bottomPanel === 'processes' && <Activity className="h-3.5 w-3.5 text-app-text-muted" />}
-              {bottomPanel === 'github' && <Github className="h-3.5 w-3.5 text-app-text-muted" />}
-              <span>{bottomPanel === 'issue' ? 'Issue' : bottomPanel === 'processes' ? 'Processes' : 'GitHub'}</span>
-            </div>
-          </div>
-          {bottomPanel === 'issue' ? (
-            <div className="p-3 text-sm text-app-text-muted">
-              No Linear issue linked.
-            </div>
-          ) : bottomPanel === 'processes' ? (
-            <ProcessesPanel repoPath={activeRepo?.path ?? null} />
-          ) : (
-            <GitHubPanel repoPath={activeRepo?.path ?? null} />
-          )}
-        </div>
-      )}
-      <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border px-3 text-[11px] text-app-text-muted">
-        <button
-          type="button"
-          onClick={() => setBottomPanel((panel) => panel === 'issue' ? null : 'issue')}
-          className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${bottomPanel === 'issue' ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'}`}
-          title="Issue"
-        >
-          <Ticket className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setBottomPanel((panel) => panel === 'processes' ? null : 'processes')}
-          className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${bottomPanel === 'processes' ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'}`}
-          title="Repo processes"
-        >
-          <Activity className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setBottomPanel((panel) => panel === 'github' ? null : 'github')}
-          className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${bottomPanel === 'github' ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'}`}
-          title="GitHub"
-        >
-          <Github className="h-4 w-4" />
-        </button>
-      </div>
+      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} />}
+      <BottomPanelNav bottomPanel={bottomPanel} onTogglePanel={(panel) => setBottomPanel((current) => current === panel ? null : panel)} />
     </div>
-  )
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 text-xs hover:text-app-text data-[state=active]:text-app-text data-[state=active]:bg-app-surface-2 ${
-        active ? 'text-app-text bg-app-surface-2' : 'text-app-text-muted'
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }
