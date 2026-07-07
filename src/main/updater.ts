@@ -303,18 +303,14 @@ async function installUpdate(): Promise<InstallResult> {
   }
 }
 
-async function findNodeBinary(): Promise<string | null> {
-  const candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']
-  for (const candidate of candidates) {
-    try {
-      await fs.promises.access(candidate)
-      return candidate
-    } catch {
-      // continue
-    }
-  }
-  return new Promise((resolve) => {
-    const proc = spawn('which', ['node'], { timeout: 5000 })
+const toolCache = new Map<string, string | null>()
+
+async function findExecutable(name: string, candidates: string[]): Promise<string | null> {
+  const cached = toolCache.get(name)
+  if (cached !== undefined) return cached
+
+  const fromPath = await new Promise<string | null>((resolve) => {
+    const proc = spawn('which', [name], { timeout: 5000 })
     let stdout = ''
     proc.stdout?.on('data', (data) => { stdout += data.toString() })
     proc.on('error', () => resolve(null))
@@ -323,6 +319,45 @@ async function findNodeBinary(): Promise<string | null> {
       resolve(code === 0 && found ? found : null)
     })
   })
+
+  const result = fromPath ?? candidates.find((candidate) => fs.existsSync(candidate)) ?? null
+  toolCache.set(name, result)
+  return result
+}
+
+async function findNodeBinary(): Promise<string | null> {
+  return findExecutable('node', ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'])
+}
+
+const RESOLVABLE_TOOLS: Record<string, string[]> = {
+  npm: ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'],
+  git: ['/opt/homebrew/bin/git', '/usr/local/bin/git', '/usr/bin/git'],
+  node: ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'],
+}
+
+async function resolveCommand(command: string[]): Promise<string[]> {
+  const name = command[0]
+  if (!name || path.isAbsolute(name) || !RESOLVABLE_TOOLS[name]) return command
+  const resolved = await findExecutable(name, RESOLVABLE_TOOLS[name])
+  return resolved ? [resolved, ...command.slice(1)] : command
+}
+
+async function makeBuildEnv(): Promise<NodeJS.ProcessEnv> {
+  const nodePath = await findNodeBinary()
+  const basePath = process.env.PATH ?? ''
+  const separator = process.platform === 'win32' ? ';' : ':'
+  const extraPaths: string[] = []
+  if (nodePath) extraPaths.push(path.dirname(nodePath))
+  const npmPath = await findExecutable('npm', RESOLVABLE_TOOLS.npm)
+  if (npmPath && !extraPaths.includes(path.dirname(npmPath))) {
+    extraPaths.push(path.dirname(npmPath))
+  }
+  return {
+    ...process.env,
+    PATH: [...extraPaths, basePath].join(separator),
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+  }
 }
 
 async function stageSource(repoPath: string, commit: string, stagingDir: string): Promise<void> {
@@ -335,10 +370,12 @@ async function stageSource(repoPath: string, commit: string, stagingDir: string)
 }
 
 async function runLogged(command: string[], cwd: string, logPath: string): Promise<void> {
+  const resolved = await resolveCommand(command)
+  const env = await makeBuildEnv()
   return new Promise((resolve, reject) => {
     const log = fs.createWriteStream(logPath, { flags: 'a' })
-    log.write(`\n$ ${command.join(' ')}\n`)
-    const proc = spawn(command[0], command.slice(1), { cwd, env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' } })
+    log.write(`\n$ ${command.join(' ')} (resolved: ${resolved.join(' ')})\n`)
+    const proc = spawn(resolved[0], resolved.slice(1), { cwd, env })
     proc.stdout?.on('data', (data: Buffer) => log.write(data))
     proc.stderr?.on('data', (data: Buffer) => log.write(data))
     proc.on('error', (error) => {
