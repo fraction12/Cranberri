@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, protocol } from 'electron'
+import fs from 'node:fs'
 import path from 'node:path'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
@@ -13,10 +14,58 @@ import { initTelemetryIpc } from './telemetry'
 import { initUpdaterIpc } from './updater'
 import { buildInfo } from '@/shared/buildInfo'
 
+const APP_SCHEME = 'cranberri'
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { secure: true, standard: true, supportFetchAPI: true, allowServiceWorkers: true, corsEnabled: true } },
+])
+
 let mainWindow: BrowserWindow | null = null
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
+}
+
+function resolveRendererFile(urlPath: string): string {
+  // Map cranberri://host/path to app.asar/out/renderer/path
+  let relativePath = urlPath.replace(/^\/+/, '')
+  if (!relativePath || relativePath.endsWith('/')) relativePath += 'index.html'
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app.asar', 'out', 'renderer', relativePath)
+  }
+  return path.join(__dirname, '../renderer', relativePath)
+}
+
+function registerAppProtocol(): void {
+  protocol.handle(APP_SCHEME, async (request) => {
+    const url = new URL(request.url)
+    const filePath = resolveRendererFile(url.pathname)
+    try {
+      const data = await fs.promises.readFile(filePath)
+      const ext = path.extname(filePath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.mjs': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.woff2': 'font/woff2',
+        '.woff': 'font/woff',
+        '.ttf': 'font/ttf',
+        '.otf': 'font/otf',
+      }
+      return new Response(data, { headers: { 'Content-Type': mimeTypes[ext] ?? 'application/octet-stream' } })
+    } catch (error) {
+      console.error('[protocol] failed to serve', filePath, error)
+      return new Response('Not found', { status: 404 })
+    }
+  })
 }
 
 function createWindow(): void {
@@ -40,7 +89,7 @@ function createWindow(): void {
     const devUrl = process.env.ELECTRON_VITE_DEV_SERVER_URL ?? 'http://localhost:5173'
     win.loadURL(devUrl)
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'))
+    win.loadURL(`${APP_SCHEME}://renderer/index.html`)
   }
 
   win.on('closed', () => {
@@ -49,6 +98,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (app.isPackaged) {
+    registerAppProtocol()
+  }
   initRepoIpc()
   initGitIpc()
   initGitHubIpc()
