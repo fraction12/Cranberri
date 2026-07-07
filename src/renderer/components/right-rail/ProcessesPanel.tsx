@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { createCloseProcessTerminalEvent, createOpenProcessTerminalEvent } from '../process-terminal-events'
 import type { AgentProcessInfo } from '@/shared/processes'
 
 interface ProcessesPanelProps {
@@ -26,6 +27,9 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
     setProcesses((items) => items.filter((item) => item.id !== processInfo.id))
     try {
       await window.cranberri.processes.terminate(repoPath, processInfo.id)
+      if (processInfo.kind === 'terminal' && processInfo.terminalWindowId) {
+        window.dispatchEvent(createCloseProcessTerminalEvent(processInfo))
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to close process')
       const result = await window.cranberri.processes.list(repoPath)
@@ -42,22 +46,24 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
     }
 
     let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      setError(null)
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setLoading(true)
       try {
         const result = await window.cranberri.processes.list(repoPath)
-        if (!cancelled) setProcesses(result.processes)
+        if (!cancelled) {
+          setProcesses(result.processes)
+          setError(null)
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load processes')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && showLoading) setLoading(false)
       }
     }
 
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
+    load(true).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
     const interval = window.setInterval(() => {
-      load().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
+      load(false).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load processes'))
     }, 3000)
 
     return () => {
@@ -106,9 +112,7 @@ function ProcessRow({
   onTerminate: (processInfo: AgentProcessInfo) => void
 }) {
   const openTerminal = () => {
-    window.dispatchEvent(new CustomEvent('cranberri:open-process-terminal', {
-      detail: { process: processInfo },
-    }))
+    window.dispatchEvent(createOpenProcessTerminalEvent(processInfo))
   }
 
   return (

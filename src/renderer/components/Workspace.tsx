@@ -4,6 +4,12 @@ import { useCodex } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
 import { Plus, MessageSquare, Terminal, X } from 'lucide-react'
+import {
+  CLOSE_PROCESS_TERMINAL_EVENT,
+  OPEN_PROCESS_TERMINAL_EVENT,
+  closeableTerminalWorkspaceWindowIdFromEvent,
+  openableTerminalWorkspaceWindowId,
+} from './process-terminal-events'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -35,7 +41,7 @@ export function Workspace() {
   useEffect(() => {
     const onOpenProcessTerminal = (event: Event) => {
       const processInfo = (event as CustomEvent).detail?.process
-      const terminalWindowId = processInfo?.terminalWindowId
+      const terminalWindowId = openableTerminalWorkspaceWindowId(processInfo)
       if (terminalWindowId) {
         openTerminal(terminalWindowId, 'Terminal')
         return
@@ -44,9 +50,18 @@ export function Workspace() {
         openTerminal(undefined, `Terminal · pid ${processInfo.pid ?? 'unknown'}`)
       }
     }
-    window.addEventListener('cranberri:open-process-terminal', onOpenProcessTerminal)
-    return () => window.removeEventListener('cranberri:open-process-terminal', onOpenProcessTerminal)
+    window.addEventListener(OPEN_PROCESS_TERMINAL_EVENT, onOpenProcessTerminal)
+    return () => window.removeEventListener(OPEN_PROCESS_TERMINAL_EVENT, onOpenProcessTerminal)
   }, [openTerminal])
+
+  useEffect(() => {
+    const onCloseProcessTerminal = (event: Event) => {
+      const terminalWindowId = closeableTerminalWorkspaceWindowIdFromEvent(event)
+      if (terminalWindowId) closeWindow(terminalWindowId)
+    }
+    window.addEventListener(CLOSE_PROCESS_TERMINAL_EVENT, onCloseProcessTerminal)
+    return () => window.removeEventListener(CLOSE_PROCESS_TERMINAL_EVENT, onCloseProcessTerminal)
+  }, [closeWindow])
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
