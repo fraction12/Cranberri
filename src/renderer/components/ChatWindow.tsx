@@ -2,8 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import {
   ArrowUp,
   Check,
-  ChevronDown,
-  Copy,
   Goal,
   Loader2,
   Mic,
@@ -17,6 +15,7 @@ import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { ModelSelector } from './chat/ModelSelector'
+import { formatCodexText, ReasoningGroup, TranscriptMessage } from './chat/Transcript'
 import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
@@ -91,126 +90,6 @@ function renderSkillText(text: string, skills: CodexSkillInfo[]): ReactNode[] {
 
 function renderComposerText(input: string, skills: CodexSkillInfo[]): ReactNode[] {
   return renderSkillText(input, skills)
-}
-
-function formatCodexText(text: string) {
-  const parts = text.split(/(`[^`]+`)/g)
-  return parts.map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return (
-        <code
-          key={index}
-          className="rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 font-mono text-[0.9em] text-[var(--app-text)]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      )
-    }
-    return <span key={index}>{part}</span>
-  })
-}
-
-function MessageActions({ text }: { text: string }) {
-  return (
-    <div className="mt-4 flex items-center gap-3 text-[var(--app-text-muted)]">
-      <button
-        type="button"
-        onClick={() => navigator.clipboard.writeText(text).catch((error) => console.error('Failed to copy response:', error))}
-        className="rounded p-0.5 hover:text-[var(--app-text)]"
-        aria-label="Copy response"
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
-}
-
-function ReasoningGroup({
-  messages,
-  expanded,
-  onToggle,
-  isRunning,
-  activity,
-  durationMs,
-  runStartedAt,
-}: {
-  messages: CodexMessage[]
-  expanded: boolean
-  onToggle: () => void
-  isRunning: boolean
-  activity?: string
-  durationMs?: number
-  runStartedAt?: number
-}) {
-  const [elapsedMs, setElapsedMs] = useState(0)
-  const displayedDurationMs = isRunning ? elapsedMs : (durationMs ?? 0)
-
-  useEffect(() => {
-    if (!isRunning) return undefined
-    const start = runStartedAt ?? Date.now()
-    setElapsedMs(Date.now() - start)
-    const id = window.setInterval(() => setElapsedMs(Date.now() - start), 1000)
-    return () => window.clearInterval(id)
-  }, [isRunning, runStartedAt])
-
-  if (messages.length === 0 && !isRunning) return null
-
-  const seconds = Math.max(1, Math.round(displayedDurationMs / 1000))
-
-  return (
-    <div className="max-w-full text-[var(--app-text-muted)]">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="mb-2 flex items-center gap-2 text-xs hover:text-[var(--app-text)]"
-      >
-        {isRunning ? (
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--app-text-muted)]" />
-          </span>
-        ) : (
-          <span className="h-2.5 w-2.5 rounded-full bg-[var(--app-text-muted)]" />
-        )}
-        <span>{isRunning ? `${activity ?? 'Working'} · ${seconds}s` : `Worked${durationMs ? ` for ${seconds}s` : ''}`}</span>
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
-      {expanded && (
-        <div className="space-y-5 border-l border-[var(--app-border)] pl-4">
-          {messages.map((message) => (
-            <TranscriptMessage key={message.id} msg={message} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TranscriptMessage({ msg, skills = [] }: { msg: CodexMessage; skills?: CodexSkillInfo[] }) {
-  if (msg.role === 'system' || msg.role === 'reasoning') {
-    return (
-      <div className="max-w-full text-[13px] leading-5 text-[var(--app-text-muted)]">
-        <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
-      </div>
-    )
-  }
-
-  if (msg.role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5 text-[13px] leading-5 text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
-          <div className="whitespace-pre-wrap">{renderSkillText(msg.content, skills)}</div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <article className="max-w-full text-[13px] leading-5 text-[var(--app-text)]">
-      <div className="whitespace-pre-wrap">{formatCodexText(msg.content)}</div>
-      <MessageActions text={msg.content} />
-    </article>
-  )
 }
 
 export function ChatWindow({ id }: { id: string }) {
@@ -469,6 +348,7 @@ export function ChatWindow({ id }: { id: string }) {
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
           runStartedAt={thread?.runStartedAt}
+          renderSkillText={renderSkillText}
         />,
       )
     }
@@ -498,6 +378,7 @@ export function ChatWindow({ id }: { id: string }) {
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
           runStartedAt={thread?.runStartedAt}
+          renderSkillText={renderSkillText}
         />,
       )
     }
@@ -514,7 +395,7 @@ export function ChatWindow({ id }: { id: string }) {
       }
       flushReasoning()
       if (index === lastUserIndex && !renderedRunningGroup && !hasRunningReasoning) {
-        nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} />)
+        nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
         renderWorkingGroup(`working-after-${message.id}`)
         return
       }
@@ -544,7 +425,7 @@ export function ChatWindow({ id }: { id: string }) {
         )
         return
       }
-      nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} />)
+      nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
     })
     flushReasoning()
 
