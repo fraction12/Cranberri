@@ -30,7 +30,7 @@ export const CODEX_APPROVAL_MODES: Array<{
 }> = [
   { value: 'ask', label: 'Ask for approval', description: 'Always ask to edit external files and use the internet' },
   { value: 'approve', label: 'Approve for me', description: 'Only ask for actions detected as potentially unsafe' },
-  { value: 'full', label: 'Full access', description: 'Unrestricted access to the internet and any file on your computer' },
+  { value: 'full', label: 'Full access', description: 'Unrestricted access to the internet and all files on your computer' },
   { value: 'custom', label: 'Custom (config.toml)', description: 'Uses permissions defined in config.toml' },
 ]
 
