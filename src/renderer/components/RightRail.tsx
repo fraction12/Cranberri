@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { Activity, CircleDot, ExternalLink, FileDiff, FileText, GitBranch, Github, GitPullRequest, PlayCircle, Ticket, ChevronLeft, Folder, ChevronRight, Menu, UploadCloud, X } from 'lucide-react'
+import { Activity, FileDiff, FileText, Github, Ticket, ChevronLeft, Folder, ChevronRight, Menu, X } from 'lucide-react'
 import { useGitStatus, useGitDiffForFile, useGitFiles, useGitRawContent } from '../state/git'
 import { useRepos } from '../state/repos'
 import { CommitDialog, type CommitState } from './right-rail/CommitDialog'
 import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
-import type { GitFileStatus, FileTreeNode, GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
+import { GitHubPanel } from './right-rail/GitHubPanel'
+import type { GitFileStatus, FileTreeNode } from '@/shared/git'
 import type { AgentProcessInfo } from '@/shared/processes'
 
 function statusColor(status: GitFileStatus['status']) {
@@ -292,142 +293,6 @@ export function RightRail() {
         >
           <Github className="h-4 w-4" />
         </button>
-      </div>
-    </div>
-  )
-}
-
-function GitHubPanel({ repoPath }: { repoPath: string | null }) {
-  const [summary, setSummary] = useState<GitHubRepoSummary | null>(null)
-  const [activeKind, setActiveKind] = useState<GitHubPanelKind>('repo')
-  const [data, setData] = useState<GitHubPanelData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
-
-  useEffect(() => {
-    if (!repoPath) {
-      setSummary(null)
-      setData(null)
-      return
-    }
-    let cancelled = false
-    window.cranberri.git.githubSummary(repoPath)
-      .then((result) => {
-        if (!cancelled) setSummary(result)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load GitHub repo')
-      })
-    return () => { cancelled = true }
-  }, [repoPath])
-
-  useEffect(() => {
-    if (!repoPath || !summary?.isGitHub) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    window.cranberri.github.panelData(repoPath, activeKind)
-      .then((result) => {
-        if (!cancelled) setData(result)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load GitHub data')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [activeKind, reloadKey, repoPath, summary?.isGitHub])
-
-  if (!repoPath) return <div className="p-3 text-sm text-app-text-muted">Select a repo for GitHub actions.</div>
-  if (!summary) return <div className="p-3 text-xs text-app-text-muted">Reading GitHub remote…</div>
-  if (!summary.isGitHub || !summary.webUrl) {
-    return (
-      <div className="p-3 text-sm text-app-text-muted">
-        No GitHub remote detected for this repo.
-        {summary.remoteUrl && <div className="mt-2 truncate font-mono text-[11px]" title={summary.remoteUrl}>{summary.remoteUrl}</div>}
-      </div>
-    )
-  }
-
-  const kinds: Array<{ kind: GitHubPanelKind; label: string; icon: React.ReactNode }> = [
-    { kind: 'repo', label: 'Repo', icon: <Github className="h-3.5 w-3.5" /> },
-    { kind: 'pulls', label: 'PRs', icon: <GitPullRequest className="h-3.5 w-3.5" /> },
-    { kind: 'issues', label: 'Issues', icon: <CircleDot className="h-3.5 w-3.5" /> },
-    { kind: 'actions', label: 'CI', icon: <PlayCircle className="h-3.5 w-3.5" /> },
-    { kind: 'branches', label: 'Branches', icon: <GitBranch className="h-3.5 w-3.5" /> },
-    { kind: 'commits', label: 'Commits', icon: <FileText className="h-3.5 w-3.5" /> },
-    { kind: 'releases', label: 'Releases', icon: <UploadCloud className="h-3.5 w-3.5" /> },
-  ]
-
-  const open = (url?: string) => {
-    if (url) void window.cranberri.openExternal(url)
-  }
-
-  return (
-    <div className="h-[calc(100%-2rem)] overflow-y-auto p-3 text-xs">
-      <div className="rounded-lg bg-app-surface p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="truncate font-medium text-app-text">{summary.owner}/{summary.repo}</div>
-            <div className="mt-1 truncate font-mono text-[10px] text-app-text-muted" title={summary.remoteUrl ?? undefined}>{summary.remoteUrl}</div>
-          </div>
-          <button type="button" onClick={() => open(summary.webUrl ?? undefined)} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" title="Open repo on GitHub">
-            <ExternalLink className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-app-text-muted">
-          <div className="rounded bg-app-bg p-2"><div>Branch</div><div className="truncate font-mono text-app-text" title={summary.branch ?? undefined}>{summary.branch ?? 'unknown'}</div></div>
-          <div className="rounded bg-app-bg p-2"><div>Ahead</div><div className="font-mono text-app-text">{summary.ahead}</div></div>
-          <div className="rounded bg-app-bg p-2"><div>Behind</div><div className="font-mono text-app-text">{summary.behind}</div></div>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-1">
-        {kinds.map((item) => (
-          <button
-            key={item.kind}
-            type="button"
-            onClick={() => setActiveKind(item.kind)}
-            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${activeKind === item.kind ? 'bg-app-surface-2 text-app-text' : 'bg-app-surface/70 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text'}`}
-          >
-            {item.icon}
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-3 rounded-lg bg-app-surface/70 p-2">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-app-text-muted">{activeKind}</span>
-          <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="text-[10px] text-app-text-muted hover:text-app-text">Refresh</button>
-        </div>
-        {loading && <div className="p-2 text-xs text-app-text-muted">Loading GitHub data via gh…</div>}
-        {error && <div className="p-2 text-xs text-app-danger">{error}</div>}
-        {!loading && !error && data?.items.length === 0 && <div className="p-2 text-xs text-app-text-muted">No {activeKind} found.</div>}
-        <div className="space-y-1">
-          {data?.items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => open(item.url)}
-              disabled={!item.url}
-              className="w-full rounded-md bg-app-bg p-2 text-left transition hover:bg-app-surface-2 disabled:cursor-default disabled:hover:bg-app-bg"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-app-text" title={item.title}>{item.title}</span>
-                {item.state && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-app-text-muted">{item.state}</span>}
-              </div>
-              {item.subtitle && <div className="mt-1 truncate text-[10px] text-app-text-muted" title={item.subtitle}>{item.subtitle}</div>}
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-app-text-muted">
-                {item.author && <span>@{item.author}</span>}
-                {item.createdAt && <span>{new Date(item.createdAt).toLocaleString()}</span>}
-                {item.meta && Object.entries(item.meta).map(([key, value]) => value !== null && value !== undefined ? <span key={key}>{key}: {String(value)}</span> : null)}
-              </div>
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   )
