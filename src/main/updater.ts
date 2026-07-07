@@ -277,17 +277,10 @@ async function installUpdate(): Promise<InstallResult> {
 async function stageSource(repoPath: string, commit: string, stagingDir: string): Promise<void> {
   const sourceDir = path.join(stagingDir, 'source')
   fs.rmSync(sourceDir, { recursive: true, force: true })
-  fs.mkdirSync(sourceDir, { recursive: true })
-  emitProgress({ phase: 'fetching', message: `Fetching ${commit.slice(0, 7)}`, percent: 5 })
-  const git = simpleGit(repoPath)
-  const archive = await git.raw(['archive', '--format=tar', `--prefix=source/`, commit])
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn('tar', ['-x', '-C', stagingDir], { cwd: stagingDir })
-    proc.stdin?.write(archive)
-    proc.stdin?.end()
-    proc.on('error', reject)
-    proc.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)))
-  })
+  fs.mkdirSync(stagingDir, { recursive: true })
+  emitProgress({ phase: 'fetching', message: `Cloning source at ${commit.slice(0, 7)}`, percent: 5 })
+  await runLogged(['git', 'clone', '--shared', '--no-checkout', repoPath, sourceDir], stagingDir, path.join(stagingDir, 'clone.log'))
+  await runLogged(['git', 'checkout', commit], sourceDir, path.join(stagingDir, 'clone.log'))
 }
 
 async function runLogged(command: string[], cwd: string, logPath: string): Promise<void> {
