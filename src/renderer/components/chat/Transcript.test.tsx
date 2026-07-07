@@ -35,4 +35,40 @@ describe('Transcript markdown rendering', () => {
     expect(html).toContain('<code')
     expect(html).toContain('main')
   })
+
+  it('renders plugin and skill links as inline mention pills', () => {
+    const html = renderToStaticMarkup(
+      <>
+        {formatInlineCodexText(
+          'Use [@Computer](plugin://computer-use@openai-bundled) and [$compound-engineering:ce-plan](/Users/example/SKILL.md)',
+        )}
+      </>,
+    )
+
+    expect(html).toContain('@Computer')
+    expect(html).toContain('$compound-engineering:ce-plan')
+    expect(html).toContain('data-mention-kind="plugin"')
+    expect(html).toContain('data-mention-kind="skill"')
+    expect(html).not.toContain('plugin://computer-use@openai-bundled')
+    expect(html).not.toContain('/Users/example/SKILL.md')
+  })
+
+  it('leaves ordinary markdown links literal in inline mode', () => {
+    const html = renderToStaticMarkup(<>{formatInlineCodexText('Read [docs](https://example.com/docs) first')}</>)
+
+    expect(html).toContain('[docs](https://example.com/docs)')
+  })
+
+  it('renders assistant plugin mentions without breaking normal links', () => {
+    const html = renderToStaticMarkup(
+      <>
+        {formatCodexText('Use [@Computer](plugin://computer-use@openai-bundled), then open [#2](https://github.com/fraction12/Cranberri/pull/2).')}
+      </>,
+    )
+
+    expect(html).toContain('@Computer')
+    expect(html).toContain('data-mention-kind="plugin"')
+    expect(html).not.toContain('plugin://computer-use@openai-bundled')
+    expect(html).toContain('href="https://github.com/fraction12/Cranberri/pull/2"')
+  })
 })
