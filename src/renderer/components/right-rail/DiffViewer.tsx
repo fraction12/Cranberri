@@ -2,7 +2,12 @@ import { Suspense, lazy } from 'react'
 import { useGitDiffForFile, useGitRawContent } from '../../state/git'
 import type { GitFileStatus } from '@/shared/git'
 
-const ReactDiffViewer = lazy(() => import('react-diff-viewer-continued'))
+const loadReactDiffViewer = () => import('react-diff-viewer-continued')
+const ReactDiffViewer = lazy(loadReactDiffViewer)
+
+export function preloadDiffRenderer() {
+  void loadReactDiffViewer()
+}
 
 interface DiffViewerProps {
   filePath: string

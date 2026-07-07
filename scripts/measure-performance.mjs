@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
@@ -60,6 +60,7 @@ function rendererMetrics() {
 }
 
 const test = run('npm', ['test'])
+rmSync('out/renderer', { recursive: true, force: true })
 const build = run('npm', ['run', 'build'])
 const metrics = {
   build_passed: build.code === 0 ? 1 : 0,
