@@ -730,10 +730,6 @@ export function ChatWindow({ id }: { id: string }) {
   }, [id, thread?.title, renameWindow])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [thread?.messages.length])
-
-  useEffect(() => {
     if (thread?.isRunning) {
       setCommentaryExpanded(true)
       return
@@ -885,10 +881,13 @@ export function ChatWindow({ id }: { id: string }) {
   const renderTranscript = () => {
     const nodes: React.ReactNode[] = []
     let reasoningBuffer: CodexMessage[] = []
-    let renderedReasoningGroup = false
+    let reasoningBufferStartIndex = -1
+    let renderedRunningGroup = false
+    const messages = thread?.messages ?? []
+    const lastUserIndex = isRunning ? messages.map((message) => message.role).lastIndexOf('user') : -1
 
     const renderWorkingGroup = (key = 'working') => {
-      renderedReasoningGroup = true
+      renderedRunningGroup = true
       nodes.push(
         <ReasoningGroup
           key={key}
@@ -905,16 +904,18 @@ export function ChatWindow({ id }: { id: string }) {
 
     const flushReasoning = () => {
       if (reasoningBuffer.length === 0) return
-      renderedReasoningGroup = true
       const group = reasoningBuffer
+      const groupIsRunning = isRunning && reasoningBufferStartIndex > lastUserIndex
+      if (groupIsRunning) renderedRunningGroup = true
       reasoningBuffer = []
+      reasoningBufferStartIndex = -1
       nodes.push(
         <ReasoningGroup
           key={`reasoning-${group[0].id}`}
           messages={group}
           expanded={commentaryExpanded}
           onToggle={() => setCommentaryExpanded((value) => !value)}
-          isRunning={isRunning}
+          isRunning={groupIsRunning}
           activity={thread?.currentActivity}
           durationMs={thread?.lastRunDurationMs}
           runStartedAt={thread?.runStartedAt}
@@ -922,19 +923,18 @@ export function ChatWindow({ id }: { id: string }) {
       )
     }
 
-    const messages = thread?.messages ?? []
-    const lastUserIndex = isRunning ? messages.map((message) => message.role).lastIndexOf('user') : -1
     const hasRunningReasoning = lastUserIndex !== -1 && messages
       .slice(lastUserIndex + 1)
       .some((message) => message.role === 'reasoning' || message.role === 'system')
 
     messages.forEach((message, index) => {
       if (message.role === 'reasoning' || message.role === 'system') {
+        if (reasoningBuffer.length === 0) reasoningBufferStartIndex = index
         reasoningBuffer.push(message)
         return
       }
       flushReasoning()
-      if (index === lastUserIndex && !renderedReasoningGroup && !hasRunningReasoning) {
+      if (index === lastUserIndex && !renderedRunningGroup && !hasRunningReasoning) {
         nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} />)
         renderWorkingGroup(`working-after-${message.id}`)
         return
@@ -969,7 +969,7 @@ export function ChatWindow({ id }: { id: string }) {
     })
     flushReasoning()
 
-    if (isRunning && !renderedReasoningGroup) {
+    if (isRunning && !renderedRunningGroup) {
       renderWorkingGroup()
     }
 
