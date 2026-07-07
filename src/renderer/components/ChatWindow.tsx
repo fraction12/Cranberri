@@ -13,10 +13,18 @@ import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
+import {
+  inlineSkillText,
+  inputHasSkill,
+  renderComposerText,
+  renderSkillText,
+  selectedSkillsFromInput,
+  skillTextElements,
+} from './chat/composer-text'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
-import { formatInlineCodexText, ReasoningGroup, TranscriptMessage } from './chat/Transcript'
+import { ReasoningGroup, TranscriptMessage } from './chat/Transcript'
 import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
@@ -30,7 +38,6 @@ function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; star
   }
 }
 
-const SKILL_INLINE_ICON = '📦'
 const GOAL_PROMPT = [
   'Create and run this as a Codex goal.',
   'Keep working until the goal is complete, and report progress only when you need a decision or finish.',
@@ -61,67 +68,9 @@ const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)]',
   'text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40',
 ].join(' ')
-type TextInputElements = NonNullable<Extract<CodexUserInput, { type: 'text' }>['text_elements']>
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function skillToken(skill: CodexSkillInfo, trigger: '/' | '$'): string {
   const name = skill.name.startsWith('/') ? skill.name.slice(1) : skill.name
   return `${trigger}${name}`
-}
-
-function inlineSkillText(skill: CodexSkillInfo): string {
-  return `${SKILL_INLINE_ICON} ${skill.displayName}`
-}
-
-function inputHasSkill(input: string, skill: CodexSkillInfo): boolean {
-  return new RegExp(`(^|\\s)${escapeRegExp(inlineSkillText(skill))}(?=\\s|$)`).test(input)
-}
-
-function selectedSkillsFromInput(input: string, skills: CodexSkillInfo[]): CodexSkillInfo[] {
-  return skills.filter((skill) => inputHasSkill(input, skill))
-}
-
-function skillTextElements(text: string, skills: CodexSkillInfo[]): TextInputElements {
-  const encoder = new TextEncoder()
-  return skills.flatMap((skill) => {
-    const token = inlineSkillText(skill)
-    const elements: TextInputElements = []
-    let offset = text.indexOf(token)
-    while (offset !== -1) {
-      elements.push({
-        byteRange: {
-          start: encoder.encode(text.slice(0, offset)).length,
-          end: encoder.encode(text.slice(0, offset + token.length)).length,
-        },
-        placeholder: token,
-      })
-      offset = text.indexOf(token, offset + token.length)
-    }
-    return elements
-  })
-}
-
-function renderSkillText(text: string, skills: CodexSkillInfo[]): ReactNode[] {
-  const selectedSkills = selectedSkillsFromInput(text, skills)
-  if (selectedSkills.length === 0) return formatInlineCodexText(text)
-
-  const pattern = new RegExp(`(${selectedSkills.map((skill) => escapeRegExp(inlineSkillText(skill))).join('|')})`, 'g')
-  return text.split(pattern).map((part, index) => {
-    const skill = selectedSkills.find((item) => inlineSkillText(item) === part)
-    if (!skill) return <span key={index}>{formatInlineCodexText(part)}</span>
-    return (
-      <span key={index} className="inline text-[#ff8f8f] underline decoration-[#ff8f8f]/70 underline-offset-2">
-        {inlineSkillText(skill)}
-      </span>
-    )
-  })
-}
-
-function renderComposerText(input: string, skills: CodexSkillInfo[]): ReactNode[] {
-  return renderSkillText(input, skills)
 }
 
 export function ChatWindow({ id }: { id: string }) {
@@ -369,7 +318,7 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const renderTranscript = () => {
-    const nodes: React.ReactNode[] = []
+    const nodes: ReactNode[] = []
     let reasoningBuffer: CodexMessage[] = []
     let reasoningBufferStartIndex = -1
     let renderedRunningGroup = false

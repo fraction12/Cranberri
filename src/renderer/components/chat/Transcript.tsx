@@ -24,7 +24,7 @@ const MENTION_PILL_CLASS = [
 const INLINE_TOKEN_PATTERN = /(`[^`]+`|\[[^\]\n]+\]\([^)\n]+\))/g
 const MARKDOWN_LINK_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/
 
-type MentionLink = {
+export type MentionLink = {
   kind: 'plugin' | 'skill'
   label: string
 }
@@ -67,7 +67,7 @@ function parseMarkdownLink(text: string): { label: string; href: string } | null
   return { label: match[1], href: match[2] }
 }
 
-function MentionPill({ mention }: { mention: MentionLink }) {
+export function MentionPill({ mention }: { mention: MentionLink }) {
   const Icon = mention.kind === 'plugin' ? Plug : Package
   return (
     <span className={MENTION_PILL_CLASS} data-mention-kind={mention.kind}>
