@@ -379,6 +379,25 @@ export function initUpdaterIpc(): void {
     return { ok: true }
   })
 
+  // Auto-check on startup in packaged builds, but don't block the window.
+  if (app.isPackaged) {
+    setStatus({ status: 'checking' })
+    performCheck()
+      .then((result) => {
+        setStatus(result)
+        if (result.status === 'updateAvailable' || result.status === 'blocked') {
+          const main = BrowserWindow.getAllWindows()[0]
+          if (main?.webContents) {
+            main.webContents.send('updater:auto-check-result', result)
+          }
+        }
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setStatus({ status: 'failed', failedPhase: 'preparing', failureMessage: message })
+      })
+  }
+
   const pending = readPendingResult()
   if (pending) {
     setStatus({ status: 'failed', failedPhase: pending.phase, failureMessage: pending.message ?? 'Update failed', logPath: pending.logPath })
