@@ -49,16 +49,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="flex h-[540px] w-full max-w-[640px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex w-44 flex-col border-r border-app-border bg-app-bg p-2">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+      <div className="flex h-[560px] w-full max-w-[720px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex w-44 shrink-0 flex-col border-r border-app-border bg-app-bg p-2">
           <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="updates" icon={Download} label="Updates" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="shortcuts" icon={Keyboard} label="Shortcuts" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="about" icon={FileJson} label="About" onClick={setActiveTab} />
         </div>
 
-        <div className="flex flex-1 flex-col min-h-0">
+        <div className="flex min-w-0 flex-1 flex-col min-h-0">
           <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
             <span className="text-sm font-semibold">Settings</span>
             <button type="button" onClick={onClose} className="rounded p-1 hover:bg-app-surface-2" aria-label="Close settings">
@@ -66,7 +66,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 min-w-0 overflow-y-auto p-5">
             {loading ? (
               <div className="text-sm text-app-text-muted">Loading settings...</div>
             ) : (

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
+import { makeCodexEnv } from './env'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
@@ -26,18 +27,6 @@ const CODEX_SKILLS_DIR = path.join(CODEX_HOME, 'skills')
 let client: CodexClient | null = null
 let clientStarting = false
 
-function run(command: string, args: string[], timeout = 15000): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  return new Promise((resolve) => {
-    execFile(command, args, { timeout, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      resolve({
-        stdout: stdout?.toString() ?? '',
-        stderr: stderr?.toString() ?? '',
-        code: error ? 1 : 0,
-      })
-    })
-  })
-}
-
 async function findCodexBinary(): Promise<string | null> {
   return findExecutable('codex', ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'])
 }
@@ -57,7 +46,7 @@ async function installCodexCli(): Promise<void> {
   const npmPath = await findExecutable('npm', ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'])
   if (!npmPath) throw new Error('Codex CLI was not found, and npm is not available to install it.')
 
-  const install = await run(npmPath, ['install', '-g', '@openai/codex'], 300000)
+  const install = await run(npmPath, ['install', '-g', '@openai/codex'], 300000, await makeCodexEnv())
   if (install.code !== 0) {
     const detail = (install.stderr || install.stdout).trim() || 'Failed to install Codex CLI.'
     throw new Error(detail)
@@ -74,13 +63,34 @@ async function getCodexConnectionStatus(): Promise<CodexConnectionStatus> {
     }
   }
 
-  const status = await run(cliPath, ['login', 'status'], 15000)
+  const status = await run(cliPath, ['login', 'status'], 15000, await makeCodexEnv())
   const detail = (status.stdout || status.stderr).trim() || 'Codex login status returned no output.'
   return {
     installed: true,
     authenticated: status.code === 0 && /logged in/i.test(detail),
     cliPath,
     detail,
+  }
+}
+
+function run(command: string, args: string[], timeout = 15000, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { timeout, maxBuffer: 1024 * 1024, env: env ?? process.env }, (error, stdout, stderr) => {
+      resolve({
+        stdout: stdout?.toString() ?? '',
+        stderr: stderr?.toString() ?? '',
+        code: error ? 1 : 0,
+      })
+    })
+  })
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -99,15 +109,6 @@ function titleizeSkillName(name: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath)
-    return true
-  } catch {
-    return false
-  }
 }
 
 async function readJson<T>(filePath: string): Promise<T | null> {

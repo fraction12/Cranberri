@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput } from '../../shared/codex'
+import { makeCodexEnv } from './env'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -138,7 +139,7 @@ export class CodexClient extends EventEmitter {
     this.process = spawn('codex', ['app-server', '--stdio'], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      env: await makeCodexEnv({ FORCE_COLOR: '0', NO_COLOR: '1' }),
     })
 
     return new Promise<void>((resolve, reject) => {
