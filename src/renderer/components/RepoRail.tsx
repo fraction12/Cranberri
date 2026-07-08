@@ -7,6 +7,7 @@ import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from 
 import { codexThreadSummary } from '../state/session-search'
 import { UsageMeter } from './UsageMeter'
 import { ConfirmDialog } from './ConfirmDialog'
+import { shouldAutoLoadRepoSessions } from './repo-sessions-state'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
 
@@ -201,6 +202,14 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
       setLoading(false)
     }
   }, [pinnedRecords, removePinnedIds, repoPath])
+
+  useEffect(() => {
+    if (!shouldAutoLoadRepoSessions({ isActiveRepo, loaded, loading, loadError })) return
+    const timer = window.setTimeout(() => {
+      refresh().catch((error) => console.error('Failed to load Codex sessions:', error))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [isActiveRepo, loaded, loadError, loading, refresh])
 
   useEffect(() => {
     const onSessionsChanged = (event: Event) => {
