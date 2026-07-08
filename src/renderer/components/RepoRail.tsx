@@ -138,6 +138,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
   const [recent, setRecent] = useState<CodexSessionSummary[]>([])
   const [archived, setArchived] = useState<CodexSessionSummary[]>([])
   const [showArchived, setShowArchived] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [renameTarget, setRenameTarget] = useState<CodexSessionSummary | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -189,17 +190,15 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
       if (missingPinnedIds.length) removePinnedIds(missingPinnedIds)
       setRecent([...recentResult.sessions, ...hydratedPinnedResults.map((result) => result.session).filter((session): session is CodexSessionSummary => Boolean(session))])
       setArchived(archivedResult.sessions)
+      setLoaded(true)
     } finally {
       setLoading(false)
     }
   }, [pinnedRecords, removePinnedIds, repoPath])
 
   useEffect(() => {
-    refresh().catch((error) => console.error('Failed to load Codex sessions:', error))
-  }, [refresh])
-
-  useEffect(() => {
     const onSessionsChanged = (event: Event) => {
+      if (!loaded) return
       const changedRepoPath = (event as CustomEvent).detail?.repoPath
       if (!changedRepoPath || changedRepoPath === repoPath) {
         refresh().catch((error) => console.error('Failed to refresh Codex sessions:', error))
@@ -207,7 +206,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     }
     window.addEventListener('cranberri:codex-sessions-changed', onSessionsChanged)
     return () => window.removeEventListener('cranberri:codex-sessions-changed', onSessionsChanged)
-  }, [refresh, repoPath])
+  }, [loaded, refresh, repoPath])
 
   const archive = async (session: CodexSessionSummary) => {
     setRecent((prev) => prev.filter((item) => item.id !== session.id))
@@ -279,7 +278,16 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
   return (
     <div className="ml-6 mt-1 flex min-h-0 flex-col pl-2">
       <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-        {recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
+        {!loaded && !loading && (
+          <button
+            type="button"
+            onClick={() => refresh().catch((error) => console.error('Failed to load Codex sessions:', error))}
+            className="w-full rounded px-2 py-1 text-left text-[11px] text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text"
+          >
+            Load sessions
+          </button>
+        )}
+        {loaded && recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
         {pinnedSessions.length > 0 && (
           <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">Pinned</div>
         )}

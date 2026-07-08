@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildRepoWatchEvent, closeRepoWatchSession, previewRepoFile, searchRepo, searchRepoFiles } from './search'
+import { buildRepoWatchEvent, closeRepoWatchSession, isRepoWatchPathIgnored, previewRepoFile, searchRepo, searchRepoFiles } from './search'
 
 const tempDirs: string[] = []
 
@@ -141,6 +141,20 @@ describe('buildRepoWatchEvent', () => {
   })
 })
 
+describe('isRepoWatchPathIgnored', () => {
+  it('ignores high-churn generated directories and metadata files', () => {
+    expect(isRepoWatchPathIgnored('node_modules/react/index.js')).toBe(true)
+    expect(isRepoWatchPathIgnored('dist/mac-arm64/Cranberri.app')).toBe(true)
+    expect(isRepoWatchPathIgnored('.git/index')).toBe(true)
+    expect(isRepoWatchPathIgnored('src/.DS_Store')).toBe(true)
+  })
+
+  it('keeps ordinary source files watchable', () => {
+    expect(isRepoWatchPathIgnored('src/main/search.ts')).toBe(false)
+    expect(isRepoWatchPathIgnored('docs/plans/search-watch.md')).toBe(false)
+  })
+})
+
 describe('closeRepoWatchSession', () => {
   it('starts watcher close without waiting for native filesystem teardown', () => {
     const close = vi.fn(() => new Promise<void>(() => {}))
@@ -174,5 +188,19 @@ describe('closeRepoWatchSession', () => {
     await Promise.resolve()
 
     expect(warn).toHaveBeenCalledWith('[search] failed to close repo watcher for /repo:', error)
+  })
+
+  it('supports native synchronous watcher close', () => {
+    const close = vi.fn()
+    const session = {
+      watcher: { close },
+      pending: [],
+      timer: null,
+      truncated: false,
+    }
+
+    closeRepoWatchSession('/repo', session)
+
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

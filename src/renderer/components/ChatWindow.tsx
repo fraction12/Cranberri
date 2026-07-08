@@ -168,12 +168,6 @@ export function ChatWindow({ id }: { id: string }) {
       .catch((err) => console.error('Failed to load Codex skills:', err))
   }, [])
 
-  useEffect(() => {
-    if (!threadId) {
-      createThread(id, undefined, turnSettings).catch((err) => console.error('Failed to create Codex thread:', err))
-    }
-  }, [id, threadId, createThread, turnSettings])
-
   useEffect(() => () => {
     speechRecognitionRef.current?.abort?.()
     speechRecognitionRef.current = null
@@ -363,7 +357,7 @@ export function ChatWindow({ id }: { id: string }) {
 
   const handleSend = async () => {
     const text = input.trim()
-    if ((!text && attachments.length === 0 && contextInputParts.length === 0) || !threadId) return
+    if (!text && attachments.length === 0 && contextInputParts.length === 0) return
     composerHadFocusRef.current = true
     setInput('')
     selectionRef.current = { start: 0, end: 0 }
@@ -372,10 +366,15 @@ export function ChatWindow({ id }: { id: string }) {
 
     try {
       if (text === '/compact') {
+        if (!threadId) return
         await compactThread(threadId)
       } else {
         const message = buildMessage(text)
-        await sendMessage(threadId, message.displayText, message.input, turnSettings)
+        if (threadId) {
+          await sendMessage(threadId, message.displayText, message.input, turnSettings)
+        } else {
+          await createThread(id, message.displayText, turnSettings)
+        }
       }
     } finally {
       requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
@@ -453,46 +452,6 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const isRunning = thread?.isRunning ?? false
-  const telemetryKey = thread
-    ? [
-        thread.id,
-        thread.isRunning,
-        thread.currentActivity ?? '',
-        thread.messages.length,
-        thread.messages.at(-1)?.id ?? '',
-        thread.messages.at(-1)?.role ?? '',
-        thread.messages.at(-1)?.content.length ?? 0,
-      ].join(':')
-    : 'no-thread'
-  const telemetrySnapshot = thread
-    ? {
-        windowId: id,
-        threadId: thread.id,
-        isRunning: thread.isRunning,
-        currentActivity: thread.currentActivity,
-        runStartedAt: thread.runStartedAt,
-        lastRunDurationMs: thread.lastRunDurationMs,
-        messageCount: thread.messages.length,
-        messages: thread.messages.slice(-12).map((message) => ({
-          id: message.id,
-          role: message.role,
-          length: message.content.length,
-          preview: message.content.slice(0, 80),
-          pending: message.pending,
-        })),
-      }
-    : null
-  const telemetrySnapshotRef = useRef(telemetrySnapshot)
-  telemetrySnapshotRef.current = telemetrySnapshot
-
-  useEffect(() => {
-    const snapshot = telemetrySnapshotRef.current
-    if (!snapshot) return
-    window.cranberri.telemetry
-      .log('renderer', 'chat-window:snapshot', snapshot)
-      .catch((err) => console.warn('Failed to write chat telemetry:', err))
-  }, [telemetryKey])
-
   const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }
 

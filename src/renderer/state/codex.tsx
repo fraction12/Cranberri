@@ -84,25 +84,6 @@ function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread
   }
 }
 
-function summarizeThread(thread: CodexThread): Record<string, unknown> {
-  return {
-    id: thread.id,
-    title: thread.title,
-    isRunning: thread.isRunning,
-    currentActivity: thread.currentActivity,
-    runStartedAt: thread.runStartedAt,
-    lastRunDurationMs: thread.lastRunDurationMs,
-    messageCount: thread.messages.length,
-    messages: thread.messages.slice(-12).map((message) => ({
-      id: message.id,
-      role: message.role,
-      length: message.content.length,
-      preview: message.content.slice(0, 80),
-      pending: message.pending,
-    })),
-  }
-}
-
 function logRendererTelemetry(type: string, payload: unknown): void {
   window.cranberri.telemetry.log('renderer', type, payload).catch((err) => {
     console.warn('Failed to write telemetry:', err)
@@ -114,44 +95,12 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const [threads, setThreads] = useState<CodexThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
-  const streamTimersRef = useRef<Record<string, number>>({})
   const streamingBuffersRef = useRef<Record<string, string>>({})
   const pendingThreadTitlesRef = useRef<Record<string, string>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
   const openThreadIds = [...new Set(Object.values(windowToThread))]
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
-
-  useEffect(() => {
-    if (!activeRepo) return
-    let running = true
-    window.cranberri.codex.start(activeRepo.path).catch((err) => {
-      if (running) console.error('Failed to set active Codex cwd:', err)
-    })
-    return () => {
-      running = false
-    }
-  }, [activeRepo])
-
-  const streamMessageText = useCallback((threadId: string, itemId: string, text: string, role: 'assistant' | 'reasoning') => {
-    if (streamTimersRef.current[itemId]) {
-      window.clearInterval(streamTimersRef.current[itemId])
-      delete streamTimersRef.current[itemId]
-    }
-
-    setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === threadId)
-      if (idx === -1) return prev
-      const next = [...prev]
-      const thread = { ...next[idx] }
-      const existing = thread.messages.find((message) => message.id === itemId)
-      thread.messages = existing
-        ? thread.messages.map((message) => message.id === itemId ? { ...message, role, content: text } : message)
-        : [...thread.messages, { id: itemId, role, content: text, timestamp: Date.now() }]
-      next[idx] = thread
-      return next
-    })
-  }, [])
 
   const updateStreamingMessage = useCallback((threadId: string, itemId: string, delta: string, role: 'assistant' | 'reasoning') => {
     streamingBuffersRef.current[itemId] = (streamingBuffersRef.current[itemId] ?? '') + delta
@@ -188,7 +137,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
-      logRendererTelemetry('codex:event:received', e)
       if (e.type === 'log') {
         if (window.location.protocol === 'http:') console.debug(`[codex ${e.level}]`, e.text)
         return
@@ -328,16 +276,10 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         }
 
         next[idx] = thread
-        logRendererTelemetry('thread:after-event', {
-          eventType: e.type,
-          thread: summarizeThread(thread),
-          openThreadIds: Object.values(windowToThread),
-          activeThreadId,
-        })
         return next
       })
     })
-  }, [streamMessageText, updateStreamingMessage, finalizeStreamingMessage, windowToThread, activeThreadId])
+  }, [updateStreamingMessage, finalizeStreamingMessage])
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 

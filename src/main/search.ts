@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ipcMain } from 'electron'
-import chokidar, { type FSWatcher } from 'chokidar'
+import chokidar from 'chokidar'
 import Fuse from 'fuse.js'
 import { rgPath } from '@vscode/ripgrep'
 import { getRegisteredRepoPaths } from './repos'
@@ -45,13 +45,20 @@ interface PendingWatchEvent {
 }
 
 interface RepoWatchSession {
-  watcher: Pick<FSWatcher, 'close'>
+  watcher: { close: () => Promise<void> | void }
   pending: PendingWatchEvent[]
   timer: NodeJS.Timeout | null
   truncated: boolean
 }
 
 const repoWatchers = new Map<string, RepoWatchSession>()
+
+export function isRepoWatchPathIgnored(filePath: string): boolean {
+  const normalizedPath = filePath.split(path.sep).join('/')
+  const segments = normalizedPath.split('/').filter(Boolean)
+  if (segments.some((segment) => segment === '.git' || segment === 'node_modules' || segment === '.cache' || segment === '.next' || segment === '.turbo' || segment === '.vite' || segment === 'build' || segment === 'coverage' || segment === 'dist' || segment === 'out' || segment === 'target')) return true
+  return path.posix.basename(normalizedPath) === '.DS_Store'
+}
 
 function runRg(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolve) => {
@@ -203,6 +210,7 @@ function queueRepoWatchEvent(repoPath: string, type: RepoWatchEventType, eventPa
   if (!session) return
   const relativePath = normalizeWatchPath(repoPath, eventPath)
   if (!relativePath) return
+  if (isRepoWatchPathIgnored(relativePath)) return
   if (session.pending.length >= WATCH_EVENT_LIMIT) {
     session.truncated = true
   } else {
@@ -225,7 +233,7 @@ export function closeRepoWatchSession(repoPath: string, session: RepoWatchSessio
   }
   session.pending = []
   session.truncated = false
-  void session.watcher.close().catch((error) => {
+  void Promise.resolve(session.watcher.close()).catch((error) => {
     warn(`[search] failed to close repo watcher for ${repoPath}:`, error)
   })
 }
@@ -241,21 +249,30 @@ async function startRepoWatch(repoPath: string, registeredRepoPaths: string[], e
   const safeRepoPath = validateRepoPath(repoPath, registeredRepoPaths)
   if (repoWatchers.has(safeRepoPath)) return { watching: true, repoPath: safeRepoPath }
 
-  const watcher = chokidar.watch(safeRepoPath, {
-    ignored: WATCH_IGNORED,
-    ignoreInitial: true,
-    persistent: true,
-    awaitWriteFinish: {
-      stabilityThreshold: 100,
-      pollInterval: 50,
-    },
-  })
+  const watcher = process.platform === 'darwin'
+    ? fs.watch(safeRepoPath, { persistent: true, recursive: true }, (eventType, filename) => {
+      if (!filename) return
+      const eventPath = path.join(safeRepoPath, filename.toString())
+      const type: RepoWatchEventType = eventType === 'rename' && !fs.existsSync(eventPath) ? 'unlink' : 'change'
+      queueRepoWatchEvent(safeRepoPath, type, eventPath, emit)
+    })
+    : chokidar.watch(safeRepoPath, {
+      ignored: WATCH_IGNORED,
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 50,
+      },
+    })
   const session: RepoWatchSession = { watcher, pending: [], timer: null, truncated: false }
   repoWatchers.set(safeRepoPath, session)
-  watcher.on('add', (filePath) => queueRepoWatchEvent(safeRepoPath, 'add', filePath, emit))
-  watcher.on('change', (filePath) => queueRepoWatchEvent(safeRepoPath, 'change', filePath, emit))
-  watcher.on('unlink', (filePath) => queueRepoWatchEvent(safeRepoPath, 'unlink', filePath, emit))
-  watcher.on('error', (error) => {
+  if (process.platform !== 'darwin') {
+    watcher.on('add', (filePath) => queueRepoWatchEvent(safeRepoPath, 'add', filePath, emit))
+    watcher.on('change', (filePath) => queueRepoWatchEvent(safeRepoPath, 'change', filePath, emit))
+    watcher.on('unlink', (filePath) => queueRepoWatchEvent(safeRepoPath, 'unlink', filePath, emit))
+  }
+  watcher.on('error', (error: unknown) => {
     emit({ repoPath: safeRepoPath, events: [], truncated: false, changedAt: Date.now() })
     console.warn('[search] repo watcher error:', error)
   })

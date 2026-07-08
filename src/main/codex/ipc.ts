@@ -10,6 +10,7 @@ import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexP
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
 import { normalizeToolRegistrySnapshot, recordToolEventsForCodexEvent } from '../tools'
+import { shouldForwardCodexEventToRenderer, shouldPersistCodexEventTelemetry } from './eventPolicy'
 
 interface PluginManifest {
   name?: string
@@ -55,6 +56,8 @@ type CodexClientLike = CodexClient | FakeCodexClient
 
 let client: CodexClientLike | null = null
 let clientStarting = false
+let clientEventHandlerAttached = false
+let codexEventBroadcast: ((event: CodexEvent) => void) | null = null
 
 async function findCodexBinary(): Promise<string | null> {
   return findExecutable('codex', ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'])
@@ -413,9 +416,16 @@ function shouldUseFakeCodexClient(): boolean {
   return process.env.CRANBERRI_FAKE_CODEX === '1'
 }
 
+function attachCodexClientEventHandler(c: CodexClientLike): void {
+  if (clientEventHandlerAttached) return
+  c.on('event', (event: CodexEvent) => codexEventBroadcast?.(event))
+  clientEventHandlerAttached = true
+}
+
 export async function getCodexClient(): Promise<CodexClientLike> {
   if (client) {
     await client.start()
+    attachCodexClientEventHandler(client)
     return client
   }
   if (clientStarting) {
@@ -423,6 +433,7 @@ export async function getCodexClient(): Promise<CodexClientLike> {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     if (!client) throw new Error('Codex client failed to start')
+    attachCodexClientEventHandler(client)
     return client
   }
 
@@ -433,6 +444,7 @@ export async function getCodexClient(): Promise<CodexClientLike> {
       : new CodexClient(process.cwd())
     await newClient.start()
     client = newClient
+    attachCodexClientEventHandler(newClient)
     return newClient
   } finally {
     clientStarting = false
@@ -440,19 +452,18 @@ export async function getCodexClient(): Promise<CodexClientLike> {
 }
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
-  const broadcast = (event: CodexEvent) => {
-    void logTelemetry('main', 'codex:event', event).catch(() => undefined)
+  codexEventBroadcast = (event: CodexEvent) => {
+    if (shouldPersistCodexEventTelemetry(event)) {
+      void logTelemetry('main', 'codex:event', event).catch(() => undefined)
+    }
     void recordToolEventsForCodexEvent(event).catch(() => undefined)
+    if (!shouldForwardCodexEventToRenderer(event)) return
     const win = mainWindowGetter()
     if (win && !win.isDestroyed()) {
       win.webContents.send('codex:event', event)
     }
   }
-
-  // forward all events from the single persistent client
-  getCodexClient().then((c) => {
-    c.on('event', (event: CodexEvent) => broadcast(event))
-  }).catch((err) => console.error('Failed to start persistent Codex client:', err))
+  if (client) attachCodexClientEventHandler(client)
 
   ipcMain.handle('codex:plugins', async () => ({ plugins: await listConfiguredPlugins() }))
   ipcMain.handle('codex:skills', async () => ({ skills: await listCodexSkills() }))
@@ -479,6 +490,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
     client?.stop()
     client = null
+    clientEventHandlerAttached = false
     return getCodexConnectionStatus()
   })
 
@@ -625,6 +637,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('codex:stop', async () => {
     client?.stop()
     client = null
+    clientEventHandlerAttached = false
     return { stopped: true }
   })
 }
@@ -632,4 +645,5 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 export function stopCodexClient(): void {
   client?.stop()
   client = null
+  clientEventHandlerAttached = false
 }
