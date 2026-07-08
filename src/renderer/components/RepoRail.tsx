@@ -204,12 +204,12 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
   }, [pinnedRecords, removePinnedIds, repoPath])
 
   useEffect(() => {
-    if (!shouldAutoLoadRepoSessions({ isActiveRepo, loaded, loading, loadError })) return
+    if (!shouldAutoLoadRepoSessions({ loaded, loading, loadError })) return
     const timer = window.setTimeout(() => {
       refresh().catch((error) => console.error('Failed to load Codex sessions:', error))
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [isActiveRepo, loaded, loadError, loading, refresh])
+  }, [loaded, loadError, loading, refresh])
 
   useEffect(() => {
     const onSessionsChanged = (event: Event) => {
