@@ -17,8 +17,15 @@ const WATCH_FLUSH_MS = 150
 const WATCH_IGNORED = [
   '**/.git/**',
   '**/node_modules/**',
+  '**/.cache/**',
+  '**/.next/**',
+  '**/.turbo/**',
+  '**/.vite/**',
+  '**/build/**',
+  '**/coverage/**',
   '**/dist/**',
   '**/out/**',
+  '**/target/**',
   '**/.DS_Store',
 ]
 
@@ -38,7 +45,7 @@ interface PendingWatchEvent {
 }
 
 interface RepoWatchSession {
-  watcher: FSWatcher
+  watcher: Pick<FSWatcher, 'close'>
   pending: PendingWatchEvent[]
   timer: NodeJS.Timeout | null
   truncated: boolean
@@ -211,12 +218,23 @@ function queueRepoWatchEvent(repoPath: string, type: RepoWatchEventType, eventPa
   }, WATCH_FLUSH_MS)
 }
 
-async function stopRepoWatch(repoPath: string): Promise<void> {
+export function closeRepoWatchSession(repoPath: string, session: RepoWatchSession, warn: (message: string, error: unknown) => void = console.warn): void {
+  if (session.timer) {
+    clearTimeout(session.timer)
+    session.timer = null
+  }
+  session.pending = []
+  session.truncated = false
+  void session.watcher.close().catch((error) => {
+    warn(`[search] failed to close repo watcher for ${repoPath}:`, error)
+  })
+}
+
+function stopRepoWatch(repoPath: string): void {
   const session = repoWatchers.get(repoPath)
   if (!session) return
-  if (session.timer) clearTimeout(session.timer)
   repoWatchers.delete(repoPath)
-  await session.watcher.close()
+  closeRepoWatchSession(repoPath, session)
 }
 
 async function startRepoWatch(repoPath: string, registeredRepoPaths: string[], emit: (event: RepoWatchEvent) => void): Promise<{ watching: boolean; repoPath: string }> {
@@ -333,7 +351,7 @@ export function initSearchIpc(): void {
   }))
   ipcMain.handle('search:watch:stop', async (_, repoPath: string) => {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
-    await stopRepoWatch(safeRepoPath)
+    stopRepoWatch(safeRepoPath)
     return { watching: false, repoPath: safeRepoPath }
   })
 }

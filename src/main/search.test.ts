@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { buildRepoWatchEvent, previewRepoFile, searchRepo, searchRepoFiles } from './search'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { buildRepoWatchEvent, closeRepoWatchSession, previewRepoFile, searchRepo, searchRepoFiles } from './search'
 
 const tempDirs: string[] = []
 
@@ -138,5 +138,41 @@ describe('buildRepoWatchEvent', () => {
 
     expect(event.events).toHaveLength(200)
     expect(event.truncated).toBe(true)
+  })
+})
+
+describe('closeRepoWatchSession', () => {
+  it('starts watcher close without waiting for native filesystem teardown', () => {
+    const close = vi.fn(() => new Promise<void>(() => {}))
+    const timer = setTimeout(() => {}, 1000)
+    const session = {
+      watcher: { close },
+      pending: [{ type: 'change' as const, path: 'src/app.ts' }],
+      timer,
+      truncated: true,
+    }
+
+    closeRepoWatchSession('/repo', session)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(session.timer).toBeNull()
+    expect(session.pending).toEqual([])
+    expect(session.truncated).toBe(false)
+  })
+
+  it('reports asynchronous watcher close failures', async () => {
+    const error = new Error('fsevents close failed')
+    const warn = vi.fn()
+
+    closeRepoWatchSession('/repo', {
+      watcher: { close: () => Promise.reject(error) },
+      pending: [],
+      timer: null,
+      truncated: false,
+    }, warn)
+
+    await Promise.resolve()
+
+    expect(warn).toHaveBeenCalledWith('[search] failed to close repo watcher for /repo:', error)
   })
 })

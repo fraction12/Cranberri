@@ -30,30 +30,32 @@ export function useFilePreview(filePath: string | null, maxBytes?: number) {
 export function useRepoWatchInvalidation(): void {
   const { activeRepo } = useRepos()
   const queryClient = useQueryClient()
+  const activeRepoId = activeRepo?.id ?? null
+  const activeRepoPath = activeRepo?.path ?? null
 
   useEffect(() => {
-    if (!activeRepo) return undefined
+    if (!activeRepoId || !activeRepoPath) return undefined
     let mounted = true
     const unsubscribe = window.cranberri.search.onRepoChanged((event) => {
       const parsed = repoWatchEventSchema.safeParse(event)
-      if (!parsed.success || parsed.data.repoPath !== activeRepo.path) return
-      void queryClient.invalidateQueries({ queryKey: ['repo-search', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['file-preview', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['git-status', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['git-files', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['git-diff', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['git-diff-file', activeRepo.id] })
-      void queryClient.invalidateQueries({ queryKey: ['git-raw-content', activeRepo.id] })
+      if (!parsed.success || parsed.data.repoPath !== activeRepoPath) return
+      void queryClient.invalidateQueries({ queryKey: ['repo-search', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['file-preview', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['git-status', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['git-files', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['git-diff', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['git-diff-file', activeRepoId] })
+      void queryClient.invalidateQueries({ queryKey: ['git-raw-content', activeRepoId] })
     })
 
-    window.cranberri.search.watchStart(activeRepo.path).catch((error) => {
+    window.cranberri.search.watchStart(activeRepoPath).catch((error) => {
       if (mounted) console.error('Failed to start repo watcher:', error)
     })
 
     return () => {
       mounted = false
       unsubscribe()
-      window.cranberri.search.watchStop(activeRepo.path).catch(() => undefined)
+      window.cranberri.search.watchStop(activeRepoPath).catch(() => undefined)
     }
-  }, [activeRepo, queryClient])
+  }, [activeRepoId, activeRepoPath, queryClient])
 }
