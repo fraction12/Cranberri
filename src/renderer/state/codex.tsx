@@ -116,6 +116,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
   const streamTimersRef = useRef<Record<string, number>>({})
   const streamingBuffersRef = useRef<Record<string, string>>({})
+  const pendingThreadTitlesRef = useRef<Record<string, string>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
   const openThreadIds = [...new Set(Object.values(windowToThread))]
@@ -203,6 +204,9 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
       setThreads((prev) => {
         const idx = prev.findIndex((t) => t.id === threadId)
+        if (idx === -1 && e.type === 'thread_name_updated') {
+          pendingThreadTitlesRef.current[threadId] = e.title
+        }
         if (idx === -1) return prev
         const next = [...prev]
         const thread = { ...next[idx] }
@@ -210,6 +214,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         switch (e.type) {
           case 'thread_name_updated':
             thread.title = e.title
+            delete pendingThreadTitlesRef.current[threadId]
             break
           case 'agent_message_completed':
             if (e.text) {
@@ -220,6 +225,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             break
           case 'tool_call':
             thread.currentActivity = `Calling ${e.tool.function}`
+            break
+          case 'tool_event':
+            thread.currentActivity = e.event.status === 'approval_requested'
+              ? 'Waiting for tool approval'
+              : e.event.status === 'failed'
+                ? `Tool failed: ${e.event.name}`
+                : e.event.status === 'completed'
+                  ? 'Working'
+                  : `Calling ${e.event.name}`
             break
           case 'approval_request':
             thread.currentActivity = 'Waiting for approval'
@@ -338,10 +352,12 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   const createThread = useCallback(async (windowId: string, initialContent?: string, settings?: CodexTurnSettings): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
-    const { threadId } = await window.cranberri.codex.createThread(activeRepo.path, settings)
+    const { threadId, title } = await window.cranberri.codex.createThread(activeRepo.path, settings)
+    const pendingTitle = pendingThreadTitlesRef.current[threadId]
+    delete pendingThreadTitlesRef.current[threadId]
     const thread: CodexThread = {
       id: threadId,
-      title: 'New thread',
+      title: pendingTitle ?? title ?? 'New thread',
       repoId: activeRepo.id,
       messages: initialContent
         ? [{

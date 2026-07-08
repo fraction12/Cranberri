@@ -114,6 +114,11 @@ export function initTerminalIpc(): void {
     return { buffer: existing?.buffer ?? '' }
   })
 
+  ipcMain.handle('terminal:clear', async (_, id: string) => {
+    const existing = sessions.get(id)
+    if (existing) existing.buffer = ''
+  })
+
   ipcMain.handle('terminal:write', async (_, id: string, data: string) => {
     sessions.get(id)?.session.write(data)
   })

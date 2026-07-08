@@ -1,3 +1,5 @@
+import type { ToolEventRecord } from './tools'
+
 export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning' | 'compact'
 
 export type CodexSpeed = 'standard' | 'fast'
@@ -50,6 +52,19 @@ export interface CodexPluginInfo {
   icon?: string
   enabled: boolean
   toolCount: number
+  installed?: boolean
+  marketplaceName?: string
+  version?: string
+  installPolicy?: string
+  authPolicy?: string
+  sourceLabel?: string
+}
+
+export interface CodexPluginActionResult {
+  ok: boolean
+  pluginId?: string
+  output?: unknown
+  message?: string
 }
 
 export interface CodexSkillInfo {
@@ -64,6 +79,8 @@ export interface CodexSkillInfo {
 
 export type CodexUserInput =
   | { type: 'text'; text: string; text_elements?: Array<{ byteRange: { start: number; end: number }; placeholder?: string | null }> }
+  | { type: 'image'; url: string; detail?: 'auto' | 'low' | 'high' }
+  | { type: 'localImage'; path: string; detail?: 'auto' | 'low' | 'high' }
   | { type: 'skill'; name: string; path: string }
 
 export interface CodexConnectionStatus {
@@ -206,6 +223,7 @@ export type CodexEvent =
   | { type: 'agent_message_delta'; threadId: string; itemId: string; delta: string; phase?: 'commentary' | 'final_answer' | string }
   | { type: 'agent_message_completed'; threadId: string; itemId: string; text: string; phase?: 'commentary' | 'final_answer' | string }
   | { type: 'tool_call'; threadId: string; tool: ToolCall }
+  | { type: 'tool_event'; threadId: string; event: ToolEventRecord }
   | { type: 'approval_request'; threadId: string; approval: PendingApproval }
   | { type: 'approval_completed'; threadId: string; reviewId: string; action: 'approved' | 'denied' | 'timedOut' | 'aborted' }
   | { type: 'run_start'; threadId: string }

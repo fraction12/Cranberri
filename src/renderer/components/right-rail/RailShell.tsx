@@ -1,9 +1,10 @@
-import { Activity, FileDiff, FileText, Github, Ticket } from 'lucide-react'
+import { Activity, FileDiff, FileText, Github, PlugZap, Ticket } from 'lucide-react'
 import { GitHubPanel } from './GitHubPanel'
 import { ProcessesPanel } from './ProcessesPanel'
+import { ToolsPanel } from './ToolsPanel'
 
 export type RightRailTab = 'files' | 'diff'
-export type BottomPanelKind = 'issue' | 'processes' | 'github'
+export type BottomPanelKind = 'issue' | 'processes' | 'github' | 'tools'
 
 interface RightRailTabsProps {
   activeTab: RightRailTab
@@ -47,7 +48,8 @@ export function BottomPanelContent({ bottomPanel, repoPath }: BottomPanelContent
           {bottomPanel === 'issue' && <Ticket className="h-3.5 w-3.5 text-app-text-muted" />}
           {bottomPanel === 'processes' && <Activity className="h-3.5 w-3.5 text-app-text-muted" />}
           {bottomPanel === 'github' && <Github className="h-3.5 w-3.5 text-app-text-muted" />}
-          <span>{bottomPanel === 'issue' ? 'Issue' : bottomPanel === 'processes' ? 'Processes' : 'GitHub'}</span>
+          {bottomPanel === 'tools' && <PlugZap className="h-3.5 w-3.5 text-app-text-muted" />}
+          <span>{bottomPanel === 'issue' ? 'Issue' : bottomPanel === 'processes' ? 'Processes' : bottomPanel === 'github' ? 'GitHub' : 'Tools'}</span>
         </div>
       </div>
       {bottomPanel === 'issue' ? (
@@ -56,8 +58,10 @@ export function BottomPanelContent({ bottomPanel, repoPath }: BottomPanelContent
         </div>
       ) : bottomPanel === 'processes' ? (
         <ProcessesPanel repoPath={repoPath} />
-      ) : (
+      ) : bottomPanel === 'github' ? (
         <GitHubPanel repoPath={repoPath} />
+      ) : (
+        <ToolsPanel />
       )}
     </div>
   )
@@ -83,6 +87,12 @@ export function BottomPanelNav({ bottomPanel, onTogglePanel }: BottomPanelNavPro
         onClick={() => onTogglePanel('github')}
         icon={<Github className="h-4 w-4" />}
         title="GitHub"
+      />
+      <PanelNavButton
+        active={bottomPanel === 'tools'}
+        onClick={() => onTogglePanel('tools')}
+        icon={<PlugZap className="h-4 w-4" />}
+        title="Tools"
       />
     </div>
   )

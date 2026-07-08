@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { X, Command, Keyboard, Monitor, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen } from 'lucide-react'
+import { X, Command, Keyboard, Monitor, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen, Activity, PlugZap } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
+import { DiagnosticsSection } from './DiagnosticsSection'
+import { CodexResourcesSection } from './CodexResourcesSection'
 import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES, type CodexConnectionStatus } from '@/shared/codex'
 import type { UpdateInfo } from '@/shared/update'
 import type { AppSettings } from '@/shared/settings'
@@ -9,14 +11,15 @@ import type { AppSettings } from '@/shared/settings'
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
+  initialTab?: SettingsTabValue
 }
 
-type TabValue = 'general' | 'shortcuts' | 'about' | 'updates'
+export type SettingsTabValue = 'general' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
 
-export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, initialTab = 'general' }: SettingsDialogProps) {
   const { settings, loading, updateSection } = useSettings()
   const update = useUpdate()
-  const [activeTab, setActiveTab] = useState<TabValue>('general')
+  const [activeTab, setActiveTab] = useState<SettingsTabValue>(initialTab)
   const [version, setVersion] = useState('…')
   const [codexStatus, setCodexStatus] = useState<CodexConnectionStatus | null>(null)
   const [connectingCodex, setConnectingCodex] = useState(false)
@@ -24,6 +27,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
   useEffect(() => {
     if (!open) return
+    setActiveTab(initialTab)
     window.cranberri.getVersion().then((v) => setVersion(v)).catch(() => setVersion('unknown'))
     window.cranberri.codex.getConnectionStatus()
       .then((status) => {
@@ -31,7 +35,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         setCodexError(null)
       })
       .catch((err) => setCodexError(err instanceof Error ? err.message : 'Failed to check Codex connection'))
-  }, [open])
+  }, [initialTab, open])
 
   const connectCodex = async () => {
     setConnectingCodex(true)
@@ -54,7 +58,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       <div className="flex h-[560px] w-full max-w-[720px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex w-44 shrink-0 flex-col border-r border-app-border bg-app-bg p-2">
           <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="apps" icon={PlugZap} label="Apps" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="updates" icon={Download} label="Updates" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="diagnostics" icon={Activity} label="Diagnostics" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="shortcuts" icon={Keyboard} label="Shortcuts" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="about" icon={FileJson} label="About" onClick={setActiveTab} />
         </div>
@@ -176,6 +182,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   <UpdatesSection update={update} settings={settings} updateSection={updateSection} />
                 )}
 
+                {activeTab === 'apps' && <CodexResourcesSection />}
+
+                {activeTab === 'diagnostics' && <DiagnosticsSection />}
+
                 {activeTab === 'about' && (
                   <Section title="About Cranberri" icon={FileJson}>
                     <div className="space-y-2 text-sm">
@@ -209,11 +219,11 @@ function SidebarButton({
   label,
   onClick,
 }: {
-  active: TabValue
-  value: TabValue
+  active: SettingsTabValue
+  value: SettingsTabValue
   icon: React.ElementType
   label: string
-  onClick: (value: TabValue) => void
+  onClick: (value: SettingsTabValue) => void
 }) {
   const isActive = active === value
   return (

@@ -18,6 +18,9 @@ declare global {
       getVersion: () => Promise<string>
       getBuildInfo: () => Promise<import('@/shared/buildInfo').BuildInfo>
       openExternal: (url: string) => Promise<void>
+      openPath: (path: string) => Promise<{ ok: true }>
+      revealPath: (path: string) => Promise<{ ok: true }>
+      exportTextFile: (params: import('@/shared/app').ExportTextFileParams) => Promise<import('@/shared/app').ExportTextFileResult>
       update: {
         check: () => Promise<import('@/shared/update').UpdateInfo>
         status: () => Promise<import('@/shared/update').UpdateInfo>
@@ -29,6 +32,10 @@ declare global {
       health: {
         read: () => Promise<CranberriHealthReport>
         doctor: () => Promise<CranberriHealthReport>
+        diagnostics: () => Promise<import('@/shared/health').CranberriDiagnosticsReport>
+      }
+      nativeHelpers: {
+        openSettings: (target: import('@/shared/nativeHelpers').NativeHelperSettingsTarget) => Promise<{ ok: true }>
       }
       appState: {
         read: () => Promise<CranberriAppState>
@@ -49,19 +56,30 @@ declare global {
         rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
         githubSummary: (repoPath: string) => Promise<GitHubRepoSummary>
         commit: (repoPath: string, title: string, summary: string) => Promise<GitCommitResult>
+        draftCommitMessage: (repoPath: string) => Promise<import('@/shared/git').GitCommitMessageDraft>
       }
       github: {
         panelData: (repoPath: string, kind: GitHubPanelKind) => Promise<GitHubPanelData>
       }
+      search: {
+        repo: (repoPath: string, options: import('@/shared/search').RepoSearchOptions) => Promise<import('@/shared/search').RepoSearchResult>
+        files: (repoPath: string, options: import('@/shared/search').RepoFileSearchOptions) => Promise<import('@/shared/search').RepoFileSearchResult>
+        previewFile: (repoPath: string, filePath: string, maxBytes?: number) => Promise<import('@/shared/search').FilePreviewResult>
+        watchStart: (repoPath: string) => Promise<{ watching: boolean; repoPath: string }>
+        watchStop: (repoPath: string) => Promise<{ watching: boolean; repoPath: string }>
+        onRepoChanged: (cb: (event: import('@/shared/search').RepoWatchEvent) => void) => () => void
+      }
       codex: {
         start: (cwd: string) => Promise<{ started: boolean }>
-        createThread: (cwd: string, settings?: CodexTurnSettings) => Promise<{ threadId: string }>
+        createThread: (cwd: string, settings?: CodexTurnSettings) => Promise<{ threadId: string; title?: string | null }>
         sendMessage: (cwd: string, threadId: string, input: import('@/shared/codex').CodexUserInput[], settings?: CodexTurnSettings) => Promise<{ ok: boolean }>
         compactThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         approve: (cwd: string, threadId: string, event: unknown) => Promise<{ ok: boolean }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         plugins: () => Promise<{ plugins: CodexPluginInfo[] }>
+        installPlugin: (pluginId: string) => Promise<import('@/shared/codex').CodexPluginActionResult>
+        upgradePluginMarketplaces: () => Promise<import('@/shared/codex').CodexPluginActionResult>
         skills: () => Promise<{ skills: CodexSkillInfo[] }>
         pickFiles: () => Promise<{ paths: string[] }>
         listThreads: (cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
@@ -74,12 +92,14 @@ declare global {
         getConnectionStatus: () => Promise<CodexConnectionStatus>
         connect: () => Promise<CodexConnectionStatus>
         getRateLimits: () => Promise<import('@/shared/codex').CodexRateLimitsReadResult>
+        getAccountUsage: () => Promise<import('@/shared/codex').CodexAccountUsageReadResult>
         consumeRateLimitResetCredit: () => Promise<{ outcome: string }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       terminal: {
         create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number; buffer?: string }>
         snapshot: (id: string) => Promise<{ buffer: string }>
+        clear: (id: string) => Promise<void>
         write: (id: string, data: string) => Promise<void>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         kill: (id: string) => Promise<void>
@@ -90,6 +110,25 @@ declare global {
         list: (repoPath: string) => Promise<{ processes: AgentProcessInfo[] }>
         terminate: (repoPath: string, processId: string) => Promise<{ process: AgentProcessInfo }>
       }
+      browser: {
+        attach: (params: import('@/shared/browser').BrowserAttachParams) => Promise<import('@/shared/browser').BrowserPageState>
+        bounds: (windowId: string, bounds: import('@/shared/browser').BrowserBounds) => Promise<import('@/shared/browser').BrowserPageState>
+        detach: (windowId: string) => Promise<{ ok: boolean }>
+        destroy: (windowId: string) => Promise<{ ok: boolean }>
+        navigate: (windowId: string, url: string) => Promise<import('@/shared/browser').BrowserPageState>
+        reload: (windowId: string) => Promise<import('@/shared/browser').BrowserPageState>
+        stop: (windowId: string) => Promise<import('@/shared/browser').BrowserPageState>
+        back: (windowId: string) => Promise<import('@/shared/browser').BrowserPageState>
+        forward: (windowId: string) => Promise<import('@/shared/browser').BrowserPageState>
+        state: (windowId: string) => Promise<import('@/shared/browser').BrowserPageState>
+        screenshot: (windowId: string) => Promise<import('@/shared/browser').BrowserScreenshot>
+        saveScreenshot: (windowId: string) => Promise<import('@/shared/browser').BrowserScreenshot>
+        snapshot: (windowId: string) => Promise<import('@/shared/browser').BrowserSnapshot>
+        inspectElement: (windowId: string, params?: import('@/shared/browser').BrowserInspectElementParams) => Promise<import('@/shared/browser').BrowserElementInspection>
+        startInspect: (windowId: string) => Promise<{ ok: true }>
+        stopInspect: (windowId: string) => Promise<{ ok: true }>
+        onEvent: (cb: (event: import('@/shared/browser').BrowserEvent) => void) => () => void
+      }
       settings: {
         get: () => Promise<{ settings: import('@/shared/settings').AppSettings }>
         set: (settings: import('@/shared/settings').AppSettings) => Promise<{ settings: import('@/shared/settings').AppSettings }>
@@ -97,8 +136,12 @@ declare global {
       telemetry: {
         log: (source: string, type: string, payload?: unknown) => Promise<{ ok: boolean }>
         read: (limit?: number) => Promise<{ path: string; lines: string[] }>
+        readEvents: (limit?: number) => Promise<{ events: import('@/shared/telemetry').TelemetryEventRecord[] }>
         clear: () => Promise<{ ok: boolean; path: string }>
         path: () => Promise<{ path: string }>
+      }
+      tools: {
+        registry: (threadId?: string | null, forceRefetch?: boolean) => Promise<import('@/shared/tools').ToolRegistrySnapshot>
       }
     }
   }

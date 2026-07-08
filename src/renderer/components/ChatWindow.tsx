@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { toast } from 'sonner'
 import {
   ArrowUp,
   Check,
+  Image,
   Loader2,
-  Mic,
   Package,
   X,
 } from 'lucide-react'
@@ -13,6 +14,16 @@ import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
+import { INSERT_CHAT_CONTEXT_EVENT, insertChatContextDetailFromEvent } from './chat/chat-context-events'
+import {
+  contextInputLabel,
+  imageInputFromClipboardFile,
+  isClipboardImageFile,
+  isLocalImagePath,
+  localAttachmentPathsFromTransferFiles,
+  pastedAttachmentInputsFromText,
+  visualInputPreview,
+} from './chat/composer-attachments'
 import {
   inlineSkillText,
   inputHasSkill,
@@ -24,6 +35,14 @@ import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { TranscriptList } from './chat/TranscriptList'
+import { VoiceDictationButton } from './chat/VoiceDictationButton'
+import {
+  appendDictationTranscript,
+  speechRecognitionConstructor,
+  transcriptFromSpeechRecognitionEvent,
+  voiceDictationErrorMessage,
+  type SpeechRecognitionLike,
+} from './chat/voice-dictation'
 import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
@@ -67,9 +86,36 @@ const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)]',
   'text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40',
 ].join(' ')
+
+interface ContextInputAttachment {
+  id: string
+  label: string
+  input: CodexUserInput
+}
+
 function skillToken(skill: CodexSkillInfo, trigger: '/' | '$'): string {
   const name = skill.name.startsWith('/') ? skill.name.slice(1) : skill.name
   return `${trigger}${name}`
+}
+
+function contextInputAttachment(input: CodexUserInput): ContextInputAttachment {
+  const id = `${input.type}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return { id, label: contextInputLabel(input), input }
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read pasted image'))
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Pasted image did not produce a data URL'))
+      }
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 export function ChatWindow({ id }: { id: string }) {
@@ -96,6 +142,8 @@ export function ChatWindow({ id }: { id: string }) {
   const [planMode, setPlanMode] = useState(false)
   const [goalMode, setGoalMode] = useState(false)
   const [attachments, setAttachments] = useState<string[]>([])
+  const [contextInputParts, setContextInputParts] = useState<ContextInputAttachment[]>([])
+  const [voiceListening, setVoiceListening] = useState(false)
   const [skills, setSkills] = useState<CodexSkillInfo[]>([])
   const [skillIndex, setSkillIndex] = useState(0)
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
@@ -106,6 +154,7 @@ export function ChatWindow({ id }: { id: string }) {
   const selectionRef = useRef({ start: 0, end: 0 })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottomRef = useRef(true)
+  const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
   const scrollTranscriptToBottom = useCallback(() => {
     const container = scrollContainerRef.current
@@ -124,6 +173,40 @@ export function ChatWindow({ id }: { id: string }) {
       createThread(id, undefined, turnSettings).catch((err) => console.error('Failed to create Codex thread:', err))
     }
   }, [id, threadId, createThread, turnSettings])
+
+  useEffect(() => () => {
+    speechRecognitionRef.current?.abort?.()
+    speechRecognitionRef.current = null
+  }, [])
+
+  useEffect(() => {
+    const onInsertChatContext = (event: Event) => {
+      const detail = insertChatContextDetailFromEvent(event)
+      if (!detail || detail.windowId !== id) return
+      let nextLength = 0
+      setInput((current) => {
+        const nextInput = current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text
+        nextLength = nextInput.length
+        return nextInput
+      })
+      const inputParts = detail.inputParts ?? []
+      if (inputParts.length) {
+        setContextInputParts((current) => [...current, ...inputParts.map(contextInputAttachment)])
+      }
+      const attachmentPaths = detail.attachmentPaths ?? []
+      if (attachmentPaths.length) {
+        setAttachments((current) => [...current, ...attachmentPaths.filter((filePath) => !current.includes(filePath))])
+      }
+      selectionRef.current = { start: nextLength, end: nextLength }
+      composerHadFocusRef.current = true
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus({ preventScroll: true })
+        textareaRef.current?.setSelectionRange(nextLength, nextLength)
+      })
+    }
+    window.addEventListener(INSERT_CHAT_CONTEXT_EVENT, onInsertChatContext)
+    return () => window.removeEventListener(INSERT_CHAT_CONTEXT_EVENT, onInsertChatContext)
+  }, [id])
 
   useEffect(() => {
     if (thread?.title) {
@@ -184,6 +267,67 @@ export function ChatWindow({ id }: { id: string }) {
     }
   }
 
+  const insertComposerText = (text: string) => {
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? input.length
+    const end = textarea?.selectionEnd ?? input.length
+    const nextInput = `${input.slice(0, start)}${text}${input.slice(end)}`
+    const cursor = start + text.length
+    setInput(nextInput)
+    selectionRef.current = { start: cursor, end: cursor }
+    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(cursor, cursor))
+  }
+
+  const addTransferInputs = (text: string, files: ArrayLike<File>): boolean => {
+    const parsed = pastedAttachmentInputsFromText(text)
+    const imageFiles = Array.from(files).filter(isClipboardImageFile)
+    const localAttachmentPaths = [
+      ...parsed.attachmentPaths,
+      ...localAttachmentPathsFromTransferFiles(files),
+    ]
+    if (parsed.inputParts.length === 0 && imageFiles.length === 0 && localAttachmentPaths.length === 0) return false
+    composerHadFocusRef.current = true
+    if (parsed.inputParts.length > 0) {
+      setContextInputParts((current) => [...current, ...parsed.inputParts.map(contextInputAttachment)])
+    }
+    if (localAttachmentPaths.length > 0) {
+      setAttachments((current) => [...current, ...localAttachmentPaths.filter((filePath) => !current.includes(filePath))])
+    }
+    if (parsed.remainingText) insertComposerText(parsed.remainingText)
+    if (imageFiles.length > 0) {
+      Promise.all(imageFiles.map((file) => imageInputFromClipboardFile(file, (clipboardFile) => fileToDataUrl(clipboardFile as File))))
+        .then((inputParts) => {
+          const visualInputs = inputParts.filter((inputPart): inputPart is CodexUserInput => inputPart !== null)
+          if (visualInputs.length > 0) {
+            setContextInputParts((current) => [...current, ...visualInputs.map(contextInputAttachment)])
+          }
+        })
+        .catch((err) => console.warn('Failed to read transferred image:', err))
+    }
+
+    return true
+  }
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (addTransferInputs(event.clipboardData.getData('text/plain'), event.clipboardData.files)) {
+      event.preventDefault()
+    }
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLTextAreaElement>) => {
+    if (Array.from(event.dataTransfer.items).some((item) => item.kind === 'file')) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  const handleDrop = (event: DragEvent<HTMLTextAreaElement>) => {
+    if (addTransferInputs(event.dataTransfer.getData('text/plain'), event.dataTransfer.files)) {
+      event.preventDefault()
+      textareaRef.current?.focus({ preventScroll: true })
+    }
+  }
+
   useLayoutEffect(() => {
     if (!composerHadFocusRef.current) return
     const textarea = textareaRef.current
@@ -203,23 +347,28 @@ export function ChatWindow({ id }: { id: string }) {
         type: 'text',
         text: `Attached local paths:\n${attachments.map((filePath) => `- ${filePath}`).join('\n')}`,
       })
+      inputParts.push(...attachments
+        .filter(isLocalImagePath)
+        .map((filePath) => ({ type: 'localImage' as const, path: filePath, detail: 'high' as const })))
     }
+    inputParts.push(...contextInputParts.map((attachment) => attachment.input))
 
     const inlineSkills = selectedSkillsFromInput(text, skills)
     const textElements = skillTextElements(text, inlineSkills)
-    inputParts.push({ type: 'text', text, ...(textElements.length > 0 ? { text_elements: textElements } : {}) })
+    if (text) inputParts.push({ type: 'text', text, ...(textElements.length > 0 ? { text_elements: textElements } : {}) })
     inputParts.push(...inlineSkills.map((skill) => ({ type: 'skill' as const, name: skill.name, path: skill.path })))
 
-    return { displayText: text, input: inputParts }
+    return { displayText: text || 'Attached context', input: inputParts }
   }
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || !threadId) return
+    if ((!text && attachments.length === 0 && contextInputParts.length === 0) || !threadId) return
     composerHadFocusRef.current = true
     setInput('')
     selectionRef.current = { start: 0, end: 0 }
     setAttachments([])
+    setContextInputParts([])
 
     try {
       if (text === '/compact') {
@@ -236,6 +385,67 @@ export function ChatWindow({ id }: { id: string }) {
   const attachFiles = async () => {
     const result = await window.cranberri.codex.pickFiles()
     if (result.paths.length > 0) setAttachments((current) => [...current, ...result.paths])
+  }
+
+  const appendVoiceTranscript = (transcript: string) => {
+    let nextLength = 0
+    composerHadFocusRef.current = true
+    setInput((current) => {
+      const nextInput = appendDictationTranscript(current, transcript)
+      nextLength = nextInput.length
+      return nextInput
+    })
+    selectionRef.current = { start: nextLength, end: nextLength }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(nextLength, nextLength)
+    })
+  }
+
+  const stopVoiceDictation = () => {
+    speechRecognitionRef.current?.stop()
+    speechRecognitionRef.current = null
+    setVoiceListening(false)
+  }
+
+  const toggleVoiceDictation = () => {
+    if (speechRecognitionRef.current) {
+      stopVoiceDictation()
+      return
+    }
+
+    const Recognition = speechRecognitionConstructor(window)
+    if (!Recognition) {
+      toast.error('Voice dictation is not available in this Electron build.')
+      return
+    }
+
+    const recognition = new Recognition()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = navigator.language || 'en-US'
+    recognition.onresult = (event) => {
+      const transcript = transcriptFromSpeechRecognitionEvent(event)
+      if (transcript) appendVoiceTranscript(transcript)
+    }
+    recognition.onerror = (event) => {
+      speechRecognitionRef.current = null
+      setVoiceListening(false)
+      toast.error(voiceDictationErrorMessage(event))
+    }
+    recognition.onend = () => {
+      speechRecognitionRef.current = null
+      setVoiceListening(false)
+    }
+
+    try {
+      recognition.start()
+      speechRecognitionRef.current = recognition
+      setVoiceListening(true)
+      toast.success('Listening')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to start voice dictation.')
+    }
   }
 
   const usePlugin = (plugin: CodexPluginInfo) => {
@@ -407,6 +617,10 @@ export function ChatWindow({ id }: { id: string }) {
               attachments={attachments}
               onRemove={(filePath) => setAttachments((current) => current.filter((item) => item !== filePath))}
             />
+            <ContextInputChips
+              attachments={contextInputParts}
+              onRemove={(attachmentId) => setContextInputParts((current) => current.filter((item) => item.id !== attachmentId))}
+            />
             {showSkills && (
               <div className={SKILL_MENU_CLASS}>
                 <div className="mb-4 text-[13px] text-[var(--app-text-muted)]">Skills</div>
@@ -487,6 +701,9 @@ export function ChatWindow({ id }: { id: string }) {
                 setInput(e.target.value)
                 requestAnimationFrame(rememberSelection)
               }}
+              onPaste={handlePaste}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
               onSelect={rememberSelection}
               onKeyUp={rememberSelection}
               onMouseUp={rememberSelection}
@@ -574,11 +791,11 @@ export function ChatWindow({ id }: { id: string }) {
               <div className="flex items-center gap-3">
                 <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
                 <ModelSelector settings={turnSettings} onChange={setTurnSettings} />
-                <Mic className="h-4 w-4" />
+                <VoiceDictationButton listening={voiceListening} onClick={toggleVoiceDictation} />
                 <button
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={handleSend}
-                  disabled={isRunning || !input.trim()}
+                  disabled={isRunning || (!input.trim() && attachments.length === 0 && contextInputParts.length === 0)}
                   className={SEND_BUTTON_CLASS}
                   aria-label="Send message"
                 >
@@ -589,6 +806,43 @@ export function ChatWindow({ id }: { id: string }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ContextInputChips({ attachments, onRemove }: { attachments: ContextInputAttachment[]; onRemove: (attachmentId: string) => void }) {
+  if (attachments.length === 0) return null
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5 px-1" data-composer-attachments="context">
+      {attachments.map((attachment) => {
+        const preview = visualInputPreview(attachment.input)
+        return (
+          <button
+            key={attachment.id}
+            type="button"
+            onClick={() => onRemove(attachment.id)}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-2)] px-1.5 py-1 text-[11px] text-[var(--app-text)] hover:bg-[var(--app-border)]"
+            title={`Remove ${attachment.label}`}
+            aria-label={`Remove context attachment ${attachment.label}`}
+          >
+            {preview ? (
+              <img
+                src={preview.src}
+                alt=""
+                className="h-8 w-10 rounded border border-[var(--app-border)] object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <span className="flex h-8 w-8 items-center justify-center rounded border border-[var(--app-border)] bg-[var(--app-surface)]">
+                <Image className="h-3.5 w-3.5 text-app-text-muted" />
+              </span>
+            )}
+            <span className="max-w-44 truncate">{attachment.label}</span>
+            <X className="h-3 w-3 shrink-0 text-[var(--app-text-muted)]" aria-hidden="true" />
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -4,7 +4,10 @@ import { Workspace } from './components/Workspace'
 import { RightRail } from './components/RightRail'
 import { Header } from './components/Header'
 import { AppStateProvider } from './state/appState'
-import { SettingsDialog } from './components/SettingsDialog'
+import { SettingsDialog, type SettingsTabValue } from './components/SettingsDialog'
+import { AppToaster } from './components/AppToaster'
+import { CommandPalette } from './components/CommandPalette'
+import { useRepoWatchInvalidation } from './state/search'
 
 const LEFT_RAIL_MIN_WIDTH = 256
 const RIGHT_RAIL_MIN_WIDTH = 320
@@ -14,12 +17,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
-export function App() {
+function AppShell() {
+  useRepoWatchInvalidation()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTabValue>('general')
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [leftRailWidth, setLeftRailWidth] = useState(LEFT_RAIL_MIN_WIDTH)
   const [rightRailWidth, setRightRailWidth] = useState(RIGHT_RAIL_MIN_WIDTH)
   const [centerMinWidth, setCenterMinWidth] = useState(0)
   const layoutRef = useRef<HTMLDivElement>(null)
+
+  const openSettings = useCallback((tab: SettingsTabValue = 'general') => {
+    setSettingsTab(tab)
+    setSettingsOpen(true)
+  }, [])
 
   const measureCenterLimit = useCallback(() => {
     const layoutWidth = layoutRef.current?.clientWidth ?? window.innerWidth
@@ -45,16 +56,23 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault()
-        setSettingsOpen(true)
+        openSettings()
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandPaletteOpen((open) => !open)
       }
       if (event.key === 'Escape' && settingsOpen) {
         setSettingsOpen(false)
+      }
+      if (event.key === 'Escape' && commandPaletteOpen) {
+        setCommandPaletteOpen(false)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [settingsOpen])
+  }, [commandPaletteOpen, openSettings, settingsOpen])
 
   useEffect(() => {
     measureCenterLimit()
@@ -108,9 +126,8 @@ export function App() {
   }
 
   return (
-    <AppStateProvider>
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-app-bg text-app-text">
-      <Header onOpenSettings={() => setSettingsOpen(true)} />
+      <Header onOpenSettings={() => openSettings()} onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
       <div ref={layoutRef} className="flex flex-1 min-h-0 w-full overflow-hidden">
         <div className="h-full shrink-0" style={{ width: leftRailWidth }}>
           <RepoRail />
@@ -145,9 +162,22 @@ export function App() {
         </div>
       </div>
       {settingsOpen && (
-        <SettingsDialog open onClose={() => setSettingsOpen(false)} />
+        <SettingsDialog open initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />
       )}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onOpenSettings={openSettings}
+      />
+      <AppToaster />
     </div>
+  )
+}
+
+export function App() {
+  return (
+    <AppStateProvider>
+      <AppShell />
     </AppStateProvider>
   )
 }

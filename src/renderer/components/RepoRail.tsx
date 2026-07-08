@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, Pin, PinOff, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
 import { useRepos } from '../state/repos'
 import { useCodex } from '../state/codex'
 import { useAppState } from '../state/appState'
+import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
+import { codexThreadSummary } from '../state/session-search'
 import { UsageMeter } from './UsageMeter'
+import { ConfirmDialog } from './ConfirmDialog'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
 
@@ -54,17 +57,21 @@ function SessionRow({
   onUnarchive,
   onDelete,
   onRename,
+  onTogglePinned,
   active,
+  pinned,
   repoPath,
 }: {
   session: CodexSessionSummary
   archived?: boolean
   active?: boolean
+  pinned?: boolean
   repoPath: string
   onArchive: (session: CodexSessionSummary) => void
   onUnarchive: (session: CodexSessionSummary) => void
   onDelete: (session: CodexSessionSummary) => void
   onRename: (session: CodexSessionSummary) => void
+  onTogglePinned: (session: CodexSessionSummary) => void
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
@@ -84,7 +91,10 @@ function SessionRow({
         title={sessionTitle(session)}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-xs text-app-text">{sessionTitle(session)}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
+            <span className="truncate text-xs text-app-text">{sessionTitle(session)}</span>
+          </span>
           <span className="shrink-0 text-[10px] text-app-text-muted">{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
         </div>
       </button>
@@ -96,6 +106,10 @@ function SessionRow({
         >
           <button className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2" onClick={() => { onRename(session); setMenu(null) }}>
             Rename…
+          </button>
+          <button className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2" onClick={() => { onTogglePinned(session); setMenu(null) }}>
+            {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+            {pinned ? 'Unpin' : 'Pin'}
           </button>
           {archived ? (
             <button className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2" onClick={() => { onUnarchive(session); setMenu(null) }}>
@@ -120,6 +134,7 @@ function SessionRow({
 
 function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRepo: boolean }) {
   const { openThreadIds, archiveSession, unarchiveSession, deleteSession, renameSession } = useCodex()
+  const { state: appState, updateAppState } = useAppState()
   const [recent, setRecent] = useState<CodexSessionSummary[]>([])
   const [archived, setArchived] = useState<CodexSessionSummary[]>([])
   const [showArchived, setShowArchived] = useState(false)
@@ -127,6 +142,21 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
   const [renameTarget, setRenameTarget] = useState<CodexSessionSummary | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [renaming, setRenaming] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<CodexSessionSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const pinnedRecords = useMemo(() => pinnedSessionRecords(appState, repoPath), [appState, repoPath])
+  const pinnedIds = useMemo(() => pinnedRecords.map((record) => record.id), [pinnedRecords])
+  const pinnedIdSet = new Set(pinnedIds)
+  const pinnedSessions = pinnedIds
+    .map((id) => recent.find((session) => session.id === id) ?? archived.find((session) => session.id === id))
+    .filter((session): session is CodexSessionSummary => Boolean(session))
+  const recentSessions = recent.filter((session) => !pinnedIdSet.has(session.id))
+  const archivedSessions = archived.filter((session) => !pinnedIdSet.has(session.id))
+
+  const removePinnedIds = useCallback((ids: string[]) => {
+    updateAppState((current) => removePinnedSessions(current, repoPath, ids))
+  }, [repoPath, updateAppState])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -135,12 +165,34 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
         window.cranberri.codex.listThreads(repoPath, { archived: false, limit: 8 }),
         window.cranberri.codex.listThreads(repoPath, { archived: true, limit: 8 }),
       ])
-      setRecent(recentResult.sessions)
+      const loadedIds = new Set([...recentResult.sessions, ...archivedResult.sessions].map((session) => session.id))
+      const hydratedPinnedResults = await Promise.all(pinnedRecords
+        .filter((record) => !loadedIds.has(record.id))
+        .map(async (record) => {
+          const primaryArchived = record.archived ?? false
+          const fallbackArchived = !primaryArchived
+          try {
+            const { thread } = await window.cranberri.codex.readThread(repoPath, record.id, primaryArchived)
+            return { id: record.id, session: codexThreadSummary(thread) }
+          } catch {
+            try {
+              const { thread } = await window.cranberri.codex.readThread(repoPath, record.id, fallbackArchived)
+              return { id: record.id, session: codexThreadSummary(thread) }
+            } catch {
+              return { id: record.id, session: null }
+            }
+          }
+        }))
+      const missingPinnedIds = hydratedPinnedResults
+        .filter((result) => !result.session)
+        .map((result) => result.id)
+      if (missingPinnedIds.length) removePinnedIds(missingPinnedIds)
+      setRecent([...recentResult.sessions, ...hydratedPinnedResults.map((result) => result.session).filter((session): session is CodexSessionSummary => Boolean(session))])
       setArchived(archivedResult.sessions)
     } finally {
       setLoading(false)
     }
-  }, [repoPath])
+  }, [pinnedRecords, removePinnedIds, repoPath])
 
   useEffect(() => {
     refresh().catch((error) => console.error('Failed to load Codex sessions:', error))
@@ -171,17 +223,38 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     await refresh()
   }
 
-  const remove = async (session: CodexSessionSummary) => {
-    if (!window.confirm(`Delete Codex session "${sessionTitle(session)}"? This cannot be undone.`)) return
+  const remove = (session: CodexSessionSummary) => {
+    setDeleteTarget(session)
+    setDeleteError(null)
+  }
+
+  const confirmRemove = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError(null)
+    const session = deleteTarget
+    removePinnedIds([session.id])
     setRecent((prev) => prev.filter((item) => item.id !== session.id))
     setArchived((prev) => prev.filter((item) => item.id !== session.id))
-    await deleteSession(session.id)
-    await refresh()
+    try {
+      await deleteSession(session.id)
+      await refresh()
+      setDeleteTarget(null)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete session')
+      await refresh()
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const rename = (session: CodexSessionSummary) => {
     setRenameTarget(session)
     setRenameValue(sessionTitle(session))
+  }
+
+  const togglePinned = (session: CodexSessionSummary) => {
+    updateAppState((current) => togglePinnedSession(current, repoPath, session))
   }
 
   const submitRename = async () => {
@@ -206,21 +279,30 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
   return (
     <div className="ml-6 mt-1 flex min-h-0 flex-col pl-2">
       <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-        {recent.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
-        {recent.map((session) => (
-          <SessionRow key={session.id} session={session} repoPath={repoPath} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
+        {recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
+        {pinnedSessions.length > 0 && (
+          <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">Pinned</div>
+        )}
+        {pinnedSessions.map((session) => (
+          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onTogglePinned={togglePinned} />
         ))}
-        {archived.length > 0 && (
+        {pinnedSessions.length > 0 && recentSessions.length > 0 && (
+          <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">Recent</div>
+        )}
+        {recentSessions.map((session) => (
+          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onTogglePinned={togglePinned} />
+        ))}
+        {archivedSessions.length > 0 && (
           <>
             <button
               type="button"
               onClick={() => setShowArchived((value) => !value)}
               className="w-full rounded px-2 py-1 text-left text-[11px] text-app-text-muted hover:bg-app-surface-2/50"
             >
-              {showArchived ? 'Hide' : 'Show'} archived ({archived.length})
+              {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
-            {showArchived && archived.map((session) => (
-              <SessionRow key={session.id} session={session} repoPath={repoPath} archived active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} />
+            {showArchived && archivedSessions.map((session) => (
+              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onTogglePinned={togglePinned} />
             ))}
           </>
         )}
@@ -264,6 +346,25 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
             </div>
           </form>
         </div>
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete session"
+          description={`Delete Codex session "${sessionTitle(deleteTarget)}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          busyLabel="Deleting..."
+          busy={deleting}
+          danger
+          error={deleteError}
+          onCancel={() => {
+            if (deleting) return
+            setDeleteTarget(null)
+            setDeleteError(null)
+          }}
+          onConfirm={() => {
+            void confirmRemove()
+          }}
+        />
       )}
     </div>
   )

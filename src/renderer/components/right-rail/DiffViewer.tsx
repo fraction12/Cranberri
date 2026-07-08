@@ -1,21 +1,22 @@
-import { Suspense, lazy } from 'react'
+import ReactDiffViewer from 'react-diff-viewer-continued'
 import { useGitDiffForFile, useGitRawContent } from '../../state/git'
+import { preloadCodePreview } from '../editor/CodePreview'
+import { CodeEditor } from '../editor/CodeEditor'
 import type { GitFileStatus } from '@/shared/git'
 
-const loadReactDiffViewer = () => import('react-diff-viewer-continued')
-const ReactDiffViewer = lazy(loadReactDiffViewer)
-
 export function preloadDiffRenderer() {
-  void loadReactDiffViewer()
+  preloadCodePreview()
 }
 
 interface DiffViewerProps {
   filePath: string
   status: GitFileStatus['status']
   wrapContent: boolean
+  focusLine?: number | null
+  searchRequest?: number
 }
 
-export function DiffViewer({ filePath, status, wrapContent }: DiffViewerProps) {
+export function DiffViewer({ filePath, status, wrapContent, focusLine, searchRequest = 0 }: DiffViewerProps) {
   const { data: oldContent, isLoading: oldLoading } = useGitRawContent(
     status === 'added' || status === 'untracked' ? null : filePath,
     'HEAD',
@@ -26,20 +27,31 @@ export function DiffViewer({ filePath, status, wrapContent }: DiffViewerProps) {
     return <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
   }
 
+  if (status === 'tracked') {
+    return (
+      <CodeEditor
+        value={newContent ?? ''}
+        filePath={filePath}
+        readOnly
+        lineWrap={wrapContent}
+        focusLine={focusLine}
+        searchRequest={searchRequest}
+      />
+    )
+  }
+
   return (
     <div className={`cranberri-diff-viewer h-full overflow-auto text-xs ${wrapContent ? 'wrap-diff-content' : ''}`}>
-      <Suspense fallback={<div className="p-3 text-sm text-app-text-muted">Loading diff...</div>}>
-        <ReactDiffViewer
-          oldValue={oldContent ?? ''}
-          newValue={newContent ?? ''}
-          splitView={false}
-          showDiffOnly={false}
-          hideLineNumbers
-          hideSummary
-          disableWordDiff
-          styles={getDiffStyles(wrapContent)}
-        />
-      </Suspense>
+      <ReactDiffViewer
+        oldValue={oldContent ?? ''}
+        newValue={newContent ?? ''}
+        splitView={false}
+        showDiffOnly={false}
+        hideLineNumbers
+        hideSummary
+        disableWordDiff
+        styles={getDiffStyles(wrapContent)}
+      />
     </div>
   )
 }

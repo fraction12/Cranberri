@@ -1,8 +1,13 @@
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { Loader2, Sparkles, X } from 'lucide-react'
 
 export interface CommitState {
   status: 'idle' | 'committing' | 'success' | 'error'
+  message: string | null
+}
+
+export interface CommitDraftState {
+  status: 'idle' | 'drafting' | 'error'
   message: string | null
 }
 
@@ -10,9 +15,12 @@ interface CommitDialogProps {
   title: string
   summary: string
   commitState: CommitState
+  draftState: CommitDraftState
+  canDraft: boolean
   onClose: () => void
   onTitleChange: (title: string) => void
   onSummaryChange: (summary: string) => void
+  onDraft: () => void
   onCommit: () => void
 }
 
@@ -29,11 +37,16 @@ export function CommitDialog({
   title,
   summary,
   commitState,
+  draftState,
+  canDraft,
   onClose,
   onTitleChange,
   onSummaryChange,
+  onDraft,
   onCommit,
 }: CommitDialogProps) {
+  const draftDisabled = !canDraft || draftState.status === 'drafting' || commitState.status === 'committing'
+
   return createPortal(
     <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/60 px-4">
       <div className="w-full max-w-md rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl shadow-black/60">
@@ -75,23 +88,37 @@ export function CommitDialog({
             placeholder="Optional body explaining what changed."
           />
         </label>
-        {commitState.message && (
-          <div className={`mt-3 text-xs ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
-            {commitState.message}
+        {(draftState.message || commitState.message) && (
+          <div className={`mt-3 text-xs ${draftState.status === 'error' || commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
+            {draftState.message ?? commitState.message}
           </div>
         )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={secondaryButtonClassName}>
-            Cancel
-          </button>
+        <div className="mt-4 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={onCommit}
-            disabled={!title.trim() || commitState.status === 'committing'}
-            className={primaryButtonClassName}
+            onClick={onDraft}
+            disabled={draftDisabled}
+            className={secondaryButtonClassName}
+            title="Ask Codex to draft a commit message from the current changes"
           >
-            {commitState.status === 'committing' ? 'Committing...' : 'Commit'}
+            <span className="inline-flex items-center gap-1.5">
+              {draftState.status === 'drafting' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {draftState.status === 'drafting' ? 'Drafting...' : 'Draft'}
+            </span>
           </button>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className={secondaryButtonClassName}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onCommit}
+              disabled={!title.trim() || commitState.status === 'committing'}
+              className={primaryButtonClassName}
+            >
+              {commitState.status === 'committing' ? 'Committing...' : 'Commit'}
+            </button>
+          </div>
         </div>
       </div>
     </div>,

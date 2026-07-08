@@ -5,9 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
 import { makeCodexEnv } from './env'
-import type { CodexConnectionStatus, CodexEvent, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
+import { FakeCodexClient } from './fakeClient'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
+import { normalizeToolRegistrySnapshot, recordToolEventsForCodexEvent } from '../tools'
 
 interface PluginManifest {
   name?: string
@@ -21,10 +23,37 @@ interface PluginManifest {
   }
 }
 
+interface CodexPluginListEntry {
+  pluginId?: string
+  name?: string
+  marketplaceName?: string
+  version?: string
+  installed?: boolean
+  enabled?: boolean
+  installPolicy?: string
+  authPolicy?: string
+  source?: {
+    source?: string
+    path?: string
+    url?: string
+  }
+  marketplaceSource?: {
+    sourceType?: string
+    source?: string
+  }
+}
+
+interface CodexPluginListJson {
+  installed?: CodexPluginListEntry[]
+  available?: CodexPluginListEntry[]
+}
+
 const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
 const CODEX_SKILLS_DIR = path.join(CODEX_HOME, 'skills')
 
-let client: CodexClient | null = null
+type CodexClientLike = CodexClient | FakeCodexClient
+
+let client: CodexClientLike | null = null
 let clientStarting = false
 
 async function findCodexBinary(): Promise<string | null> {
@@ -232,7 +261,95 @@ async function readToolCounts(): Promise<Map<string, number>> {
   return counts
 }
 
-async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
+function parseJsonOutput<T>(stdout: string): T | null {
+  try {
+    return JSON.parse(stdout) as T
+  } catch {
+    return null
+  }
+}
+
+function safePluginSelector(selector: string): string {
+  const trimmed = selector.trim()
+  if (!/^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+$/.test(trimmed)) {
+    throw new Error('Plugin selector must be in the form plugin@marketplace.')
+  }
+  return trimmed
+}
+
+function pluginSourceLabel(entry: CodexPluginListEntry): string {
+  if (entry.source?.path) return entry.source.path
+  if (entry.source?.url) return entry.source.url
+  if (entry.marketplaceSource?.source) return entry.marketplaceSource.source
+  return entry.marketplaceName ?? 'configured marketplace'
+}
+
+async function manifestForPluginEntry(entry: CodexPluginListEntry): Promise<PluginManifest | null> {
+  if (entry.source?.path) {
+    return readJson<PluginManifest>(path.join(entry.source.path, '.codex-plugin', 'plugin.json'))
+  }
+  if (entry.name && entry.marketplaceName) {
+    const found = await findManifest(entry.name, entry.marketplaceName)
+    return found?.manifest ?? null
+  }
+  return null
+}
+
+async function pluginEntryToInfo(entry: CodexPluginListEntry, toolCounts: Map<string, number>): Promise<CodexPluginInfo | null> {
+  const name = entry.name?.trim()
+  const marketplaceName = entry.marketplaceName?.trim()
+  const id = entry.pluginId?.trim() || (name && marketplaceName ? `${name}@${marketplaceName}` : '')
+  if (!name || !id) return null
+
+  const manifest = await manifestForPluginEntry(entry)
+  const displayName = manifest?.interface?.displayName ?? titleizePluginName(name)
+  const description = manifest?.interface?.shortDescription ?? manifest?.description ?? manifest?.interface?.longDescription ?? ''
+  const prompt = manifest?.interface?.defaultPrompt?.[0] ?? `Use the ${displayName} plugin for this task.`
+  return {
+    id,
+    name,
+    displayName,
+    description,
+    prompt,
+    icon: manifest?.interface?.composerIcon && entry.source?.path ? path.join(entry.source.path, manifest.interface.composerIcon) : undefined,
+    enabled: Boolean(entry.enabled),
+    installed: Boolean(entry.installed),
+    marketplaceName,
+    version: entry.version,
+    installPolicy: entry.installPolicy,
+    authPolicy: entry.authPolicy,
+    sourceLabel: pluginSourceLabel(entry),
+    toolCount: toolCounts.get(displayName.toLowerCase()) ?? toolCounts.get(name.replace(/-/g, ' ').toLowerCase()) ?? 0,
+  }
+}
+
+async function listPluginsFromCli(): Promise<CodexPluginInfo[]> {
+  const cliPath = await findCodexBinary()
+  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
+
+  const result = await run(cliPath, ['plugin', 'list', '--available', '--json'], 30000, await makeCodexEnv())
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout).trim() || 'Failed to list Codex plugins.'
+    throw new Error(detail)
+  }
+
+  const data = parseJsonOutput<CodexPluginListJson>(result.stdout)
+  if (!data) throw new Error('Codex plugin list returned invalid JSON.')
+
+  const toolCounts = await readToolCounts()
+  const rows = await Promise.all([...(data.installed ?? []), ...(data.available ?? [])].map((entry) => pluginEntryToInfo(entry, toolCounts)))
+  const seen = new Set<string>()
+  return rows
+    .filter((plugin): plugin is CodexPluginInfo => Boolean(plugin))
+    .filter((plugin) => {
+      if (seen.has(plugin.id)) return false
+      seen.add(plugin.id)
+      return true
+    })
+    .sort((a, b) => Number(b.installed) - Number(a.installed) || a.displayName.localeCompare(b.displayName))
+}
+
+async function listConfiguredPluginsFromConfig(): Promise<CodexPluginInfo[]> {
   const configPath = path.join(CODEX_HOME, 'config.toml')
   const config = await fs.readFile(configPath, 'utf8').catch(() => '')
   const enabled = enabledPluginRefs(config)
@@ -252,6 +369,8 @@ async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
       prompt,
       icon: manifest?.interface?.composerIcon && found ? path.join(found.root, manifest.interface.composerIcon) : undefined,
       enabled: true,
+      installed: true,
+      marketplaceName: marketplace,
       toolCount: toolCounts.get(displayName.toLowerCase()) ?? toolCounts.get(name.replace(/-/g, ' ').toLowerCase()) ?? 0,
     }
   }))
@@ -259,7 +378,42 @@ async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
   return plugins.sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
-export async function getCodexClient(): Promise<CodexClient> {
+async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
+  return listPluginsFromCli().catch(() => listConfiguredPluginsFromConfig())
+}
+
+async function installCodexPlugin(selector: string): Promise<CodexPluginActionResult> {
+  const pluginId = safePluginSelector(selector)
+  const cliPath = await findCodexBinary()
+  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
+
+  const result = await run(cliPath, ['plugin', 'add', pluginId, '--json'], 120000, await makeCodexEnv())
+  const output = parseJsonOutput<unknown>(result.stdout) ?? (result.stdout || result.stderr).trim()
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout).trim() || `Failed to install ${pluginId}.`
+    throw new Error(detail)
+  }
+  return { ok: true, pluginId, output, message: `Installed ${pluginId}.` }
+}
+
+async function upgradeCodexPluginMarketplaces(): Promise<CodexPluginActionResult> {
+  const cliPath = await findCodexBinary()
+  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
+
+  const result = await run(cliPath, ['plugin', 'marketplace', 'upgrade', '--json'], 180000, await makeCodexEnv())
+  const output = parseJsonOutput<unknown>(result.stdout) ?? (result.stdout || result.stderr).trim()
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout).trim() || 'Failed to refresh Codex plugin marketplaces.'
+    throw new Error(detail)
+  }
+  return { ok: true, output, message: 'Refreshed configured Codex plugin marketplaces.' }
+}
+
+function shouldUseFakeCodexClient(): boolean {
+  return process.env.CRANBERRI_FAKE_CODEX === '1'
+}
+
+export async function getCodexClient(): Promise<CodexClientLike> {
   if (client) {
     await client.start()
     return client
@@ -274,7 +428,9 @@ export async function getCodexClient(): Promise<CodexClient> {
 
   clientStarting = true
   try {
-    const newClient = new CodexClient(process.cwd())
+    const newClient = shouldUseFakeCodexClient()
+      ? new FakeCodexClient(process.cwd())
+      : new CodexClient(process.cwd())
     await newClient.start()
     client = newClient
     return newClient
@@ -286,6 +442,7 @@ export async function getCodexClient(): Promise<CodexClient> {
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   const broadcast = (event: CodexEvent) => {
     void logTelemetry('main', 'codex:event', event).catch(() => undefined)
+    void recordToolEventsForCodexEvent(event).catch(() => undefined)
     const win = mainWindowGetter()
     if (win && !win.isDestroyed()) {
       win.webContents.send('codex:event', event)
@@ -299,6 +456,8 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('codex:plugins', async () => ({ plugins: await listConfiguredPlugins() }))
   ipcMain.handle('codex:skills', async () => ({ skills: await listCodexSkills() }))
+  ipcMain.handle('codex:plugins:install', async (_, pluginId: string) => installCodexPlugin(pluginId))
+  ipcMain.handle('codex:plugins:marketplaces:upgrade', async () => upgradeCodexPluginMarketplaces())
 
   ipcMain.handle('codex:connection:status', async () => {
     return getCodexConnectionStatus()
@@ -324,6 +483,9 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:pick-files', async () => {
+    if (process.env.CRANBERRI_FAKE_PICK_FILES) {
+      return { paths: process.env.CRANBERRI_FAKE_PICK_FILES.split(path.delimiter).filter(Boolean) }
+    }
     const result = await dialog.showOpenDialog({
       title: 'Attach files or folders to Codex',
       properties: ['openFile', 'openDirectory', 'multiSelections'],
@@ -340,7 +502,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('codex:create-thread', async (_, cwd: string, settings?: CodexTurnSettings) => {
     const c = await getCodexClient()
     const thread = await c.createThread(cwd, settings)
-    return { threadId: thread.id }
+    return { threadId: thread.id, title: thread.name ?? null }
   })
 
   ipcMain.handle('codex:threads:list', async (_, cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => {
@@ -419,9 +581,45 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return c.getRateLimits()
   })
 
+  ipcMain.handle('codex:account:usage', async () => {
+    const c = await getCodexClient()
+    return c.getAccountUsage()
+  })
+
   ipcMain.handle('codex:account:consumeResetCredit', async () => {
     const c = await getCodexClient()
     return c.consumeRateLimitResetCredit(randomUUID())
+  })
+
+  ipcMain.handle('tools:registry', async (_, threadId?: string | null, forceRefetch?: boolean) => {
+    const c = await getCodexClient()
+    const errors: string[] = []
+    let appsResult: unknown
+    let mcpResult: unknown
+    let appListAvailable = false
+    let mcpServerStatusAvailable = false
+
+    try {
+      appsResult = await c.listApps({ threadId: threadId ?? null, forceRefetch })
+      appListAvailable = true
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'App list unavailable')
+    }
+
+    try {
+      mcpResult = await c.listMcpServerStatus({ threadId: threadId ?? null })
+      mcpServerStatusAvailable = true
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'MCP server status unavailable')
+    }
+
+    return normalizeToolRegistrySnapshot({
+      appsResult,
+      mcpResult,
+      appListAvailable,
+      mcpServerStatusAvailable,
+      errors,
+    })
   })
 
   ipcMain.handle('codex:stop', async () => {

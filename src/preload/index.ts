@@ -4,9 +4,16 @@ const api = {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
   getBuildInfo: () => ipcRenderer.invoke('app:build-info'),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
+  openPath: (path: string) => ipcRenderer.invoke('app:open-path', path),
+  revealPath: (path: string) => ipcRenderer.invoke('app:reveal-path', path),
+  exportTextFile: (params: import('@/shared/app').ExportTextFileParams) => ipcRenderer.invoke('app:export-text-file', params),
   health: {
     read: () => ipcRenderer.invoke('health:read'),
     doctor: () => ipcRenderer.invoke('health:doctor'),
+    diagnostics: () => ipcRenderer.invoke('health:diagnostics'),
+  },
+  nativeHelpers: {
+    openSettings: (target: import('@/shared/nativeHelpers').NativeHelperSettingsTarget) => ipcRenderer.invoke('native-helpers:open-settings', target),
   },
   appState: {
     read: () => ipcRenderer.invoke('app-state:read'),
@@ -27,9 +34,22 @@ const api = {
     rawContent: (repoPath: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:raw-content', repoPath, filePath, ref),
     githubSummary: (repoPath: string) => ipcRenderer.invoke('git:github-summary', repoPath),
     commit: (repoPath: string, title: string, summary: string) => ipcRenderer.invoke('git:commit', repoPath, title, summary),
+    draftCommitMessage: (repoPath: string) => ipcRenderer.invoke('git:commit-message:draft', repoPath),
   },
   github: {
     panelData: (repoPath: string, kind: import('@/shared/git').GitHubPanelKind) => ipcRenderer.invoke('github:panel-data', repoPath, kind),
+  },
+  search: {
+    repo: (repoPath: string, options: import('@/shared/search').RepoSearchOptions) => ipcRenderer.invoke('search:repo', repoPath, options),
+    files: (repoPath: string, options: import('@/shared/search').RepoFileSearchOptions) => ipcRenderer.invoke('search:repo-files', repoPath, options),
+    previewFile: (repoPath: string, filePath: string, maxBytes?: number) => ipcRenderer.invoke('search:preview-file', repoPath, filePath, maxBytes),
+    watchStart: (repoPath: string) => ipcRenderer.invoke('search:watch:start', repoPath),
+    watchStop: (repoPath: string) => ipcRenderer.invoke('search:watch:stop', repoPath),
+    onRepoChanged: (cb: (event: import('@/shared/search').RepoWatchEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/search').RepoWatchEvent) => cb(payload)
+      ipcRenderer.on('search:repo-changed', handler)
+      return () => ipcRenderer.off('search:repo-changed', handler)
+    },
   },
   codex: {
     start: (cwd: string) => ipcRenderer.invoke('codex:start', cwd),
@@ -40,6 +60,8 @@ const api = {
     interrupt: (cwd: string, threadId: string) => ipcRenderer.invoke('codex:interrupt', cwd, threadId),
     stop: (cwd: string) => ipcRenderer.invoke('codex:stop', cwd),
     plugins: () => ipcRenderer.invoke('codex:plugins'),
+    installPlugin: (pluginId: string) => ipcRenderer.invoke('codex:plugins:install', pluginId),
+    upgradePluginMarketplaces: () => ipcRenderer.invoke('codex:plugins:marketplaces:upgrade'),
     skills: () => ipcRenderer.invoke('codex:skills'),
     pickFiles: () => ipcRenderer.invoke('codex:pick-files'),
     listThreads: (cwd: string, options?: unknown) => ipcRenderer.invoke('codex:threads:list', cwd, options),
@@ -52,6 +74,7 @@ const api = {
     getConnectionStatus: () => ipcRenderer.invoke('codex:connection:status'),
     connect: () => ipcRenderer.invoke('codex:connection:connect'),
     getRateLimits: () => ipcRenderer.invoke('codex:account:rateLimits'),
+    getAccountUsage: () => ipcRenderer.invoke('codex:account:usage'),
     consumeRateLimitResetCredit: () => ipcRenderer.invoke('codex:account:consumeResetCredit'),
     onEvent: (cb: (event: unknown) => void) => {
       const handler = (_: unknown, event: unknown) => cb(event)
@@ -62,6 +85,7 @@ const api = {
   terminal: {
     create: (id: string, cwd: string, cols?: number, rows?: number) => ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
     snapshot: (id: string) => ipcRenderer.invoke('terminal:snapshot', id),
+    clear: (id: string) => ipcRenderer.invoke('terminal:clear', id),
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     kill: (id: string) => ipcRenderer.invoke('terminal:kill', id),
@@ -79,6 +103,29 @@ const api = {
   processes: {
     list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
     terminate: (repoPath: string, processId: string) => ipcRenderer.invoke('processes:terminate', repoPath, processId),
+  },
+  browser: {
+    attach: (params: import('@/shared/browser').BrowserAttachParams) => ipcRenderer.invoke('browser:attach', params),
+    bounds: (windowId: string, bounds: import('@/shared/browser').BrowserBounds) => ipcRenderer.invoke('browser:bounds', windowId, bounds),
+    detach: (windowId: string) => ipcRenderer.invoke('browser:detach', windowId),
+    destroy: (windowId: string) => ipcRenderer.invoke('browser:destroy', windowId),
+    navigate: (windowId: string, url: string) => ipcRenderer.invoke('browser:navigate', windowId, url),
+    reload: (windowId: string) => ipcRenderer.invoke('browser:reload', windowId),
+    stop: (windowId: string) => ipcRenderer.invoke('browser:stop', windowId),
+    back: (windowId: string) => ipcRenderer.invoke('browser:back', windowId),
+    forward: (windowId: string) => ipcRenderer.invoke('browser:forward', windowId),
+    state: (windowId: string) => ipcRenderer.invoke('browser:state', windowId),
+    screenshot: (windowId: string) => ipcRenderer.invoke('browser:screenshot', windowId),
+    saveScreenshot: (windowId: string) => ipcRenderer.invoke('browser:screenshot:save', windowId),
+    snapshot: (windowId: string) => ipcRenderer.invoke('browser:snapshot', windowId),
+    inspectElement: (windowId: string, params?: import('@/shared/browser').BrowserInspectElementParams) => ipcRenderer.invoke('browser:inspect:element', windowId, params),
+    startInspect: (windowId: string) => ipcRenderer.invoke('browser:inspect:start', windowId),
+    stopInspect: (windowId: string) => ipcRenderer.invoke('browser:inspect:stop', windowId),
+    onEvent: (cb: (event: import('@/shared/browser').BrowserEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/browser').BrowserEvent) => cb(payload)
+      ipcRenderer.on('browser:event', handler)
+      return () => ipcRenderer.off('browser:event', handler)
+    },
   },
   update: {
     check: () => ipcRenderer.invoke('updater:check') as Promise<import('@/shared/update').UpdateInfo>,
@@ -99,8 +146,12 @@ const api = {
   telemetry: {
     log: (source: string, type: string, payload?: unknown) => ipcRenderer.invoke('telemetry:log', source, type, payload),
     read: (limit?: number) => ipcRenderer.invoke('telemetry:read', limit),
+    readEvents: (limit?: number) => ipcRenderer.invoke('telemetry:read-events', limit),
     clear: () => ipcRenderer.invoke('telemetry:clear'),
     path: () => ipcRenderer.invoke('telemetry:path'),
+  },
+  tools: {
+    registry: (threadId?: string | null, forceRefetch?: boolean) => ipcRenderer.invoke('tools:registry', threadId, forceRefetch),
   },
 }
 

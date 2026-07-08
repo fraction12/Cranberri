@@ -6,10 +6,15 @@ import {
   GitBranch,
   Github,
   GitPullRequest,
+  MessageSquare,
   PlayCircle,
   UploadCloud,
 } from 'lucide-react'
 import type { GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
+import { createSendChatContextEvent } from '../chat/chat-context-events'
+import { createGitHubContextCapturedEvent } from '../github-context-events'
+import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
+import { githubPanelBadges } from './github-panel-model'
 
 interface GitHubPanelProps {
   repoPath: string | null
@@ -76,6 +81,29 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
   const open = (url?: string) => {
     if (url) void window.cranberri.openExternal(url)
   }
+  const sendPanelContext = (panelData?: GitHubPanelData | null) => {
+    if (!summary || !repoPath) return
+    const text = githubPanelChatContext({ repoPath, summary, data: panelData })
+    window.dispatchEvent(createGitHubContextCapturedEvent({
+      kind: 'panel',
+      label: panelData?.kind ?? 'repo',
+      repoPath,
+      text,
+    }))
+    window.dispatchEvent(createSendChatContextEvent({ text }))
+  }
+  const sendItemContext = (item: GitHubPanelData['items'][number]) => {
+    if (!summary || !repoPath) return
+    const text = githubItemChatContext({ repoPath, summary, kind: activeKind, item })
+    window.dispatchEvent(createGitHubContextCapturedEvent({
+      kind: 'item',
+      label: item.title,
+      repoPath,
+      text,
+    }))
+    window.dispatchEvent(createSendChatContextEvent({ text }))
+  }
+  const dataBadges = githubPanelBadges(data)
 
   if (!repoPath) return <div className="p-3 text-sm text-app-text-muted">Select a repo for GitHub actions.</div>
   if (!summary) return <div className="p-3 text-xs text-app-text-muted">Reading GitHub remote...</div>
@@ -94,7 +122,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 
   return (
     <div className="h-[calc(100%-2rem)] overflow-y-auto p-3 text-xs">
-      <RepoSummaryCard summary={summary} onOpen={open} />
+      <RepoSummaryCard summary={summary} onOpen={open} onSendContext={() => sendPanelContext()} />
 
       <div className="mt-3 grid grid-cols-2 gap-1">
         {panelKinds.map((item) => (
@@ -116,7 +144,14 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 
       <div className="mt-3 rounded-lg bg-app-surface/70 p-2">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-app-text-muted">{activeKind}</span>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
+            <span>{activeKind}</span>
+            {dataBadges.map((badge) => (
+              <span key={badge.id} className="rounded bg-app-bg px-1.5 py-0.5" title={badge.title}>
+                {badge.label}
+              </span>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setReloadKey((key) => key + 1)}
@@ -124,26 +159,48 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
           >
             Refresh
           </button>
+          <button
+            type="button"
+            onClick={() => sendPanelContext(data)}
+            disabled={!data}
+            className="rounded p-1 text-app-text-muted hover:bg-app-bg hover:text-app-text disabled:opacity-40"
+            title="Send GitHub panel context to chat"
+            aria-label="Send GitHub panel context to chat"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
         </div>
-        {loading && <div className="p-2 text-xs text-app-text-muted">Loading GitHub data via gh...</div>}
+        {loading && <div className="p-2 text-xs text-app-text-muted">Loading GitHub data...</div>}
         {error && <div className="p-2 text-xs text-app-danger">{error}</div>}
         {!loading && !error && data?.items.length === 0 && (
           <div className="p-2 text-xs text-app-text-muted">No {activeKind} found.</div>
         )}
         <div className="space-y-1">
           {data?.items.map((item) => (
-            <button
+            <div
               key={item.id}
-              type="button"
-              onClick={() => open(item.url)}
-              disabled={!item.url}
               className={itemButtonClassName}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-app-text" title={item.title}>
+                <button
+                  type="button"
+                  onClick={() => open(item.url)}
+                  disabled={!item.url}
+                  className="min-w-0 flex-1 truncate text-left text-xs font-medium text-app-text disabled:cursor-default"
+                  title={item.title}
+                >
                   {item.title}
-                </span>
+                </button>
                 {item.state && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-app-text-muted">{item.state}</span>}
+                <button
+                  type="button"
+                  onClick={() => sendItemContext(item)}
+                  className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                  title="Send GitHub item context to chat"
+                  aria-label="Send GitHub item context to chat"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </button>
               </div>
               {item.subtitle && (
                 <div className="mt-1 truncate text-[10px] text-app-text-muted" title={item.subtitle}>
@@ -157,7 +214,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
                   value !== null && value !== undefined ? <span key={key}>{key}: {String(value)}</span> : null
                 ))}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
@@ -168,9 +225,11 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 function RepoSummaryCard({
   summary,
   onOpen,
+  onSendContext,
 }: {
   summary: GitHubRepoSummary
   onOpen: (url?: string) => void
+  onSendContext: () => void
 }) {
   return (
     <div className="rounded-lg bg-app-surface p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
@@ -188,6 +247,15 @@ function RepoSummaryCard({
           title="Open repo on GitHub"
         >
           <ExternalLink className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onSendContext}
+          className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+          title="Send GitHub repo context to chat"
+          aria-label="Send GitHub repo context to chat"
+        >
+          <MessageSquare className="h-4 w-4" />
         </button>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-app-text-muted">

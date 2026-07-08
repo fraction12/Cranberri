@@ -56,6 +56,11 @@ export interface GitCommitResult {
   hash: string
 }
 
+export interface GitCommitMessageDraft {
+  title: string
+  summary: string
+}
+
 export type GitHubPanelKind = 'repo' | 'pulls' | 'issues' | 'actions' | 'branches' | 'commits' | 'releases'
 
 export interface GitHubPanelItem {
@@ -74,4 +79,6 @@ export interface GitHubPanelData {
   kind: GitHubPanelKind
   items: GitHubPanelItem[]
   fetchedAt: number
+  source?: 'octokit' | 'gh' | 'git'
+  authenticated?: boolean
 }

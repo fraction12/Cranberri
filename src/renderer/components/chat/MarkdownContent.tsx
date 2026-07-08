@@ -2,8 +2,12 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import { ExternalLink, Github } from 'lucide-react'
+import { CodePreview } from '../editor/CodePreview'
+import { languageFromMarkdownClass } from '../editor/code-utils'
 import { CODE_INLINE_CLASS, MentionPill, classifyMentionLink } from './mention-pill'
-import type { ReactNode } from 'react'
+import { isValidElement, type ReactNode } from 'react'
+import { MermaidDiagram } from './MermaidDiagram'
+import { MarkdownMedia, markdownMediaSourceFromUrl } from './MarkdownMedia'
 
 function stripCodexAppDirectives(text: string): string {
   return text
@@ -24,7 +28,17 @@ function openExternalLink(href: string): void {
 function childrenToText(children: ReactNode): string {
   if (typeof children === 'string' || typeof children === 'number') return String(children)
   if (Array.isArray(children)) return children.map(childrenToText).join('')
+  if (isValidElement<{ children?: ReactNode }>(children)) return childrenToText(children.props.children)
   return ''
+}
+
+function codeElementFromPreChildren(children: ReactNode): React.ReactElement<{ className?: string; children?: ReactNode }> | null {
+  const candidates = Array.isArray(children) ? children : [children]
+  for (const child of candidates) {
+    if (!isValidElement<{ className?: string; children?: ReactNode }>(child)) continue
+    if (typeof child.props.className === 'string' && child.props.className.includes('language-')) return child
+  }
+  return null
 }
 
 const MARKDOWN_COMPONENTS: Components = {
@@ -34,6 +48,9 @@ const MARKDOWN_COMPONENTS: Components = {
   a({ href, children }) {
     const mention = classifyMentionLink(childrenToText(children), href, { allowMissingPluginHref: true })
     if (mention) return <MentionPill mention={mention} />
+
+    const media = markdownMediaSourceFromUrl(href)
+    if (media) return <MarkdownMedia source={media} label={childrenToText(children)} />
 
     if (!isExternalUrl(href)) {
       return <span className="text-[#ffb3b3]">{children}</span>
@@ -57,14 +74,31 @@ const MARKDOWN_COMPONENTS: Components = {
       </a>
     )
   },
+  img({ src, alt }) {
+    const media = markdownMediaSourceFromUrl(src)
+    if (media?.kind === 'image') return <MarkdownMedia source={media} label={alt} />
+    return <span className="text-[#ffb3b3]">{alt || 'Image unavailable'}</span>
+  },
   code({ className, children }) {
     const isBlock = Boolean(className)
     if (isBlock) {
-      return <code className={`${className ?? ''} font-mono text-[13px] leading-6`}>{children}</code>
+      return <code className={className}>{children}</code>
     }
     return <code className={CODE_INLINE_CLASS}>{children}</code>
   },
   pre({ children }) {
+    const codeChild = codeElementFromPreChildren(children)
+    if (codeChild) {
+      const language = languageFromMarkdownClass(codeChild.props.className)
+      const code = childrenToText(codeChild.props.children).replace(/\n$/, '')
+      if (language === 'mermaid') return <MermaidDiagram source={code} />
+      return (
+        <CodePreview
+          code={code}
+          language={language}
+        />
+      )
+    }
     return (
       <pre className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3 text-[13px] leading-6">
         {children}

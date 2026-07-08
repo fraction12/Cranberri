@@ -13,6 +13,8 @@ interface WorkspaceApi {
   activeRepoPath: string | null
   openChat: (id?: string, title?: string, repoId?: string | null) => string
   openTerminal: (id?: string, title?: string, repoId?: string | null) => string
+  openBrowser: (options?: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string }) => string
+  updateBrowserState: (id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => void
   closeWindow: (id: string) => void
   setActiveWindow: (id: string) => void
   renameWindow: (id: string, title: string) => void
@@ -95,6 +97,52 @@ export function useWorkspace(): WorkspaceApi {
     return windowId
   }, [mutateWorkspace])
 
+  const openBrowser = useCallback((options: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string } = {}) => {
+    const windowId = options.id ?? generateId()
+    const repoId = options.repoId ?? activeRepoId
+    const profileId = repoId ? `repo-${repoId}` : 'default'
+    mutateWorkspace(options.repoId, (windows) => {
+      const existingWindow = windows.find((w) => w.id === windowId)
+      if (existingWindow) return { windows, activeWindowId: windowId }
+      const existingCount = windows.filter((w) => w.type === 'browser').length + 1
+      const url = options.url ?? 'about:blank'
+      const newWindow: WorkspaceWindow = {
+        id: windowId,
+        type: 'browser',
+        title: options.title ?? `Browser ${existingCount}`,
+        browser: {
+          url,
+          title: options.title,
+          profileId,
+          viewportMode: 'responsive',
+          devServerProcessId: options.processId,
+        },
+      }
+      return { windows: [...windows, newWindow], activeWindowId: windowId }
+    })
+    return windowId
+  }, [activeRepoId, mutateWorkspace])
+
+  const updateBrowserState = useCallback((id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => {
+    mutateWorkspace(null, (windows, activeWindowId) => ({
+      windows: windows.map((w) => {
+        if (w.id !== id || w.type !== 'browser') return w
+        return {
+          ...w,
+          title: browser.title ?? w.title,
+          browser: {
+            url: browser.url ?? w.browser?.url ?? 'about:blank',
+            profileId: browser.profileId ?? w.browser?.profileId ?? 'default',
+            title: browser.title ?? w.browser?.title,
+            viewportMode: browser.viewportMode ?? w.browser?.viewportMode ?? 'responsive',
+            devServerProcessId: browser.devServerProcessId ?? w.browser?.devServerProcessId,
+          },
+        }
+      }),
+      activeWindowId,
+    }))
+  }, [mutateWorkspace])
+
   const closeWindow = useCallback((id: string) => {
     mutateWorkspace(null, (currentWindows, currentActiveWindowId) => {
       const windows = currentWindows.filter((w) => w.id !== id)
@@ -125,6 +173,8 @@ export function useWorkspace(): WorkspaceApi {
     activeRepoPath: activeRepo?.path ?? null,
     openChat,
     openTerminal,
+    openBrowser,
+    updateBrowserState,
     closeWindow,
     setActiveWindow,
     renameWindow,

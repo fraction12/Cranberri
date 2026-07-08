@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell, protocol } from 'electron'
+import { app, BrowserWindow, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { initAppIpc } from './appIpc'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initGitHubIpc } from './github'
@@ -12,15 +13,22 @@ import { initHealthIpc } from './health'
 import { initAppStateIpc } from './appState'
 import { initTelemetryIpc } from './telemetry'
 import { initUpdaterIpc } from './updater'
-import { buildInfo } from '@/shared/buildInfo'
+import { initSearchIpc } from './search'
+import { initBrowserIpc } from './browser'
 
 const APP_SCHEME = 'cranberri'
+const MEDIA_SCHEME = 'cranberri-media'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { secure: true, standard: true, supportFetchAPI: true, allowServiceWorkers: true, corsEnabled: true } },
+  { scheme: MEDIA_SCHEME, privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
 let mainWindow: BrowserWindow | null = null
+
+if (process.env.CRANBERRI_USER_DATA_DIR) {
+  app.setPath('userData', process.env.CRANBERRI_USER_DATA_DIR)
+}
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
@@ -68,6 +76,47 @@ function registerAppProtocol(): void {
   })
 }
 
+function mediaMimeType(filePath: string): string | null {
+  const mimeTypes: Record<string, string> = {
+    '.apng': 'image/apng',
+    '.avif': 'image/avif',
+    '.gif': 'image/gif',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.m4v': 'video/x-m4v',
+    '.mov': 'video/quicktime',
+    '.mp4': 'video/mp4',
+    '.ogg': 'video/ogg',
+    '.ogv': 'video/ogg',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.webm': 'video/webm',
+    '.webp': 'image/webp',
+  }
+  return mimeTypes[path.extname(filePath).toLowerCase()] ?? null
+}
+
+function registerMediaProtocol(): void {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
+    const url = new URL(request.url)
+    const filePath = url.searchParams.get('path')
+    if (!filePath || !path.isAbsolute(filePath)) return new Response('Not found', { status: 404 })
+
+    const contentType = mediaMimeType(filePath)
+    if (!contentType) return new Response('Unsupported media type', { status: 415 })
+
+    try {
+      const stat = await fs.promises.stat(filePath)
+      if (!stat.isFile()) return new Response('Not found', { status: 404 })
+      const data = await fs.promises.readFile(filePath)
+      return new Response(data, { headers: { 'Content-Type': contentType } })
+    } catch (error) {
+      console.error('[media-protocol] failed to serve', filePath, error)
+      return new Response('Not found', { status: 404 })
+    }
+  })
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
@@ -101,13 +150,17 @@ app.whenReady().then(() => {
   if (app.isPackaged) {
     registerAppProtocol()
   }
+  registerMediaProtocol()
   initRepoIpc()
+  initAppIpc()
   initGitIpc()
   initGitHubIpc()
   initSettingsIpc()
   initCodexIpc(getMainWindow)
   initTerminalIpc()
   initProcessesIpc()
+  initSearchIpc()
+  initBrowserIpc(getMainWindow)
   initHealthIpc()
   initAppStateIpc()
   initTelemetryIpc()
@@ -128,7 +181,3 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopCodexClient()
 })
-
-ipcMain.handle('app:get-version', () => app.getVersion())
-ipcMain.handle('app:open-external', async (_, url: string) => shell.openExternal(url))
-ipcMain.handle('app:build-info', () => buildInfo)

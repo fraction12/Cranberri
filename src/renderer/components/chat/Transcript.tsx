@@ -1,6 +1,8 @@
 import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
-import { ChevronDown, Copy } from 'lucide-react'
+import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
+import { createSendChatContextEvent } from './chat-context-events'
+import { assistantResponseChatContext, stripCodexAppDirectives } from './assistant-response-context'
 import type { CodexMessage, CodexSkillInfo } from '@/shared/codex'
 
 type SkillRenderer = (text: string, skills: CodexSkillInfo[]) => ReactNode[]
@@ -12,15 +14,13 @@ const USER_BUBBLE_CLASS = [
   'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]',
 ].join(' ')
 
-function stripCodexAppDirectives(text: string): string {
-  return text
-    .split('\n')
-    .filter((line) => !/^::[a-z][a-z-]*\{.*\}\s*$/.test(line.trim()))
-    .join('\n')
-    .trim()
-}
-
 function MessageActions({ text }: { text: string }) {
+  const sendToChat = () => {
+    window.dispatchEvent(createSendChatContextEvent({
+      text: assistantResponseChatContext(text),
+    }))
+  }
+
   return (
     <div className="mt-4 flex items-center gap-3 text-[var(--app-text-muted)] opacity-80">
       <button
@@ -28,8 +28,18 @@ function MessageActions({ text }: { text: string }) {
         onClick={() => navigator.clipboard.writeText(text).catch((error) => console.error('Failed to copy response:', error))}
         className="rounded p-0.5 hover:text-[var(--app-text)]"
         aria-label="Copy response"
+        title="Copy response"
       >
         <Copy className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={sendToChat}
+        className="rounded p-0.5 hover:text-[var(--app-text)]"
+        aria-label="Send response to chat"
+        title="Send response to chat"
+      >
+        <MessageSquarePlus className="h-3.5 w-3.5" />
       </button>
     </div>
   )

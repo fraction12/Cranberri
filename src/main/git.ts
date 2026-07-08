@@ -2,10 +2,11 @@ import simpleGit from 'simple-git'
 import { ipcMain } from 'electron'
 import fs from 'node:fs'
 import { z } from 'zod'
-import type { GitHubRepoSummary } from '@/shared/git'
+import type { GitCommitMessageDraft, GitHubRepoSummary } from '@/shared/git'
 import { getRegisteredRepoPaths } from './repos'
 import { resolveRepoFilePath, validateRepoPath, validateRepoRelativePath } from './repoSecurity'
-import { commitRepo } from './gitCommit'
+import { buildCommitMessageDraftPrompt, commitRepo, parseGeneratedCommitMessage } from './gitCommit'
+import { getCodexClient } from './codex/ipc'
 
 const fileStatusSchema = z.object({
   path: z.string(),
@@ -176,6 +177,31 @@ export function initGitIpc(): void {
   ipcMain.handle('git:commit', async (_, repoPath: string, title: string, summary: string) => {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
     return commitRepo(safeRepoPath, title, summary)
+  })
+
+  ipcMain.handle('git:commit-message:draft', async (_, repoPath: string): Promise<GitCommitMessageDraft> => {
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    const git = simpleGit(safeRepoPath)
+    const status = await git.status()
+    const statusSummary = [
+      ...status.created.map((file) => `A ${file}`),
+      ...status.modified.map((file) => `M ${file}`),
+      ...status.deleted.map((file) => `D ${file}`),
+      ...status.renamed.map((file) => `R ${file.from} -> ${file.to}`),
+      ...status.not_added.map((file) => `?? ${file}`),
+      ...status.conflicted.map((file) => `UU ${file}`),
+      ...status.staged.map((file) => `STAGED ${file}`),
+    ].join('\n')
+    if (!statusSummary.trim()) throw new Error('No changes to draft a commit message for')
+
+    const [stagedDiff, unstagedDiff] = await Promise.all([
+      git.diff(['--cached']),
+      git.diff(),
+    ])
+    const client = await getCodexClient()
+    if (!('runOneShot' in client)) throw new Error('Codex client cannot draft commit messages')
+    const output = await client.runOneShot(safeRepoPath, buildCommitMessageDraftPrompt({ statusSummary, stagedDiff, unstagedDiff }), undefined, 120_000)
+    return parseGeneratedCommitMessage(output)
   })
 }
 

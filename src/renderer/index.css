@@ -37,6 +37,11 @@ body.rail-resizing * {
   cursor: col-resize !important;
 }
 
+.cranberri-toaster,
+.cranberri-toaster [data-sonner-toast] {
+  pointer-events: none;
+}
+
 .cranberri-diff-viewer.wrap-diff-content table {
   width: 100% !important;
   min-width: 0 !important;

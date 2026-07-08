@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { Globe, MessageSquare, Terminal, X } from 'lucide-react'
+import { createOpenProcessBrowserEvent } from '../process-browser-events'
 import { createCloseProcessTerminalEvent, createOpenProcessTerminalEvent } from '../process-terminal-events'
+import { createSendChatContextEvent } from '../chat/chat-context-events'
+import { createProcessContextCapturedEvent } from '../process-context-events'
+import { processChatContext } from '../process-chat-context'
+import { canFocusProcessTerminal, processRowMetadata } from './process-row-model'
+import { ConfirmDialog } from '../ConfirmDialog'
 import type { AgentProcessInfo } from '@/shared/processes'
 
 interface ProcessesPanelProps {
@@ -17,11 +23,16 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [terminatingId, setTerminatingId] = useState<string | null>(null)
+  const [terminateTarget, setTerminateTarget] = useState<AgentProcessInfo | null>(null)
 
-  const handleTerminate = async (processInfo: AgentProcessInfo) => {
+  const requestTerminate = (processInfo: AgentProcessInfo) => {
     if (!repoPath || terminatingId) return
-    const command = processInfo.command || processInfo.id
-    if (!window.confirm(`Terminate process "${command}" (pid ${processInfo.pid})?`)) return
+    setTerminateTarget(processInfo)
+  }
+
+  const handleTerminate = async () => {
+    if (!repoPath || terminatingId || !terminateTarget) return
+    const processInfo = terminateTarget
     setTerminatingId(processInfo.id)
     setError(null)
     setProcesses((items) => items.filter((item) => item.id !== processInfo.id))
@@ -35,6 +46,7 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
       const result = await window.cranberri.processes.list(repoPath)
       setProcesses(result.processes)
     } finally {
+      setTerminateTarget(null)
       setTerminatingId(null)
     }
   }
@@ -94,10 +106,27 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
             key={processInfo.id}
             processInfo={processInfo}
             terminating={terminatingId === processInfo.id}
-            onTerminate={handleTerminate}
+            onTerminate={requestTerminate}
           />
         ))}
       </div>
+      {terminateTarget && (
+        <ConfirmDialog
+          title="Terminate process"
+          description={`Terminate process "${terminateTarget.command || terminateTarget.id}" (pid ${terminateTarget.pid})?`}
+          confirmLabel="Terminate"
+          busyLabel="Terminating..."
+          busy={terminatingId === terminateTarget.id}
+          danger
+          onCancel={() => {
+            if (terminatingId) return
+            setTerminateTarget(null)
+          }}
+          onConfirm={() => {
+            void handleTerminate()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -114,30 +143,72 @@ function ProcessRow({
   const openTerminal = () => {
     window.dispatchEvent(createOpenProcessTerminalEvent(processInfo))
   }
+  const openBrowser = () => {
+    window.dispatchEvent(createOpenProcessBrowserEvent(processInfo))
+  }
+  const sendContextToChat = () => {
+    window.dispatchEvent(createProcessContextCapturedEvent(processInfo))
+    window.dispatchEvent(createSendChatContextEvent({ text: processChatContext(processInfo) }))
+  }
+  const canFocusTerminal = canFocusProcessTerminal(processInfo)
+  const metadata = processRowMetadata(processInfo)
 
   return (
     <div className={processRowClassName}>
-      <button
-        type="button"
-        onClick={openTerminal}
-        className="min-w-0 flex-1 text-left focus:outline-none focus:ring-1 focus:ring-app-accent"
-        title="Open in terminal"
-      >
+      <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">
             {processInfo.kind}
           </span>
-          <span className="text-[10px] text-app-text-muted">pid {processInfo.pid}</span>
+          <span className="text-[10px] text-app-text-muted">{processInfo.id}</span>
         </div>
         <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>
           {processInfo.command}
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {metadata.map((item) => (
+            <span key={item} className="rounded bg-app-bg px-1.5 py-0.5 text-[10px] text-app-text-muted">
+              {item}
+            </span>
+          ))}
         </div>
         {processInfo.cwd && (
           <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>
             {processInfo.cwd}
           </div>
         )}
+      </div>
+      {canFocusTerminal && (
+        <button
+          type="button"
+          onClick={openTerminal}
+          className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+          title="Focus process terminal"
+          aria-label="Focus process terminal"
+        >
+          <Terminal className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={sendContextToChat}
+        className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+        title="Send process context to chat"
+        aria-label="Send process context to chat"
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
       </button>
+      {processInfo.kind === 'dev-server' && (
+        <button
+          type="button"
+          onClick={openBrowser}
+          className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+          title="Open browser"
+          aria-label="Open browser"
+        >
+          <Globe className="h-3.5 w-3.5" />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => void onTerminate(processInfo)}

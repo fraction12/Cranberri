@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput } from '../../shared/codex'
 import { makeCodexEnv } from './env'
+import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -322,6 +323,26 @@ export class CodexClient extends EventEmitter {
     return res.result as { outcome: string }
   }
 
+  async listApps(options: { threadId?: string | null; forceRefetch?: boolean } = {}): Promise<unknown> {
+    const res = await this.call('app/list', {
+      limit: 100,
+      threadId: options.threadId ?? null,
+      forceRefetch: options.forceRefetch ?? false,
+    })
+    if (res.error) throw new Error(res.error.message)
+    return res.result
+  }
+
+  async listMcpServerStatus(options: { threadId?: string | null } = {}): Promise<unknown> {
+    const res = await this.call('mcpServerStatus/list', {
+      limit: 100,
+      detail: 'toolsAndAuthOnly',
+      threadId: options.threadId ?? null,
+    })
+    if (res.error) throw new Error(res.error.message)
+    return res.result
+  }
+
   async approve(event: unknown, threadId: string): Promise<void> {
     await this.call('thread/approveGuardianDeniedAction', { threadId, event })
   }
@@ -455,6 +476,8 @@ export class CodexClient extends EventEmitter {
         const item = (params as { item?: { id?: string; type?: string } }).item
         const itemType = item?.type ?? 'unknown'
         this.emit('event', { type: 'item_started', threadId, itemId: item?.id, itemType } as CodexEvent)
+        const toolEvent = createToolEventFromItem(threadId, item, 'started')
+        if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (itemType === 'contextCompaction') {
           this.emit('event', { type: 'context_compaction', threadId, state: 'started' } as CodexEvent)
         }
@@ -506,12 +529,20 @@ export class CodexClient extends EventEmitter {
       }
       case 'item/completed': {
         const item = (params as { item?: { id?: string; type?: string; text?: string; phase?: string } }).item
+        const toolEvent = createToolEventFromItem(threadId, item, 'completed')
+        if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (item?.type === 'contextCompaction') {
           this.emit('event', { type: 'context_compaction', threadId, state: 'completed' } as CodexEvent)
         }
         if (item?.type === 'agentMessage' && item.id) {
           this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '', phase: item.phase } as CodexEvent)
         }
+        break
+      }
+      case 'item/mcpToolCall/progress': {
+        const payload = params as { itemId?: string; message?: string }
+        const toolEvent = createMcpToolProgressEvent(threadId, payload.itemId, payload.message ?? '')
+        if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         break
       }
       case 'item/guardianApprovalReview/started': {

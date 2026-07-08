@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronRight, Gauge, Loader2 } from 'lucide-react'
-import type { CodexRateLimitWindow, CodexRateLimitsReadResult } from '@/shared/codex'
+import type { CodexAccountUsageReadResult, CodexRateLimitWindow, CodexRateLimitsReadResult } from '@/shared/codex'
 
 function windowLabel(window?: CodexRateLimitWindow): string {
   if (!window) return '—'
@@ -29,6 +29,13 @@ function formatResetsAt(resetsAtSeconds: number): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+function formatTokenCount(tokens: number): string {
+  if (!Number.isFinite(tokens)) return '—'
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
+  return String(Math.round(tokens))
+}
+
 function RateLimitRow({ window }: { window?: CodexRateLimitWindow }) {
   if (!window) return null
   const remaining = Math.max(0, 100 - window.usedPercent)
@@ -44,8 +51,34 @@ function RateLimitRow({ window }: { window?: CodexRateLimitWindow }) {
   )
 }
 
+function DailyUsageBars({ usage }: { usage: CodexAccountUsageReadResult | null }) {
+  if (!usage) return null
+  const buckets = usage.dailyUsageBuckets.slice(-7)
+  if (buckets.length === 0) return (
+    <div className="text-[11px] text-app-text-muted">No daily usage history yet.</div>
+  )
+  const peak = Math.max(...buckets.map((bucket) => bucket.tokens), 1)
+  return (
+    <div className="space-y-1.5">
+      {buckets.map((bucket) => {
+        const width = Math.max(4, Math.round((bucket.tokens / peak) * 100))
+        return (
+          <div key={bucket.startDate} className="grid grid-cols-[4.5rem_1fr_3.5rem] items-center gap-2 text-[11px]">
+            <span className="truncate text-app-text-muted">{bucket.startDate}</span>
+            <div className="h-1.5 overflow-hidden rounded-full bg-app-surface-2">
+              <div className="h-full rounded-full bg-app-accent" style={{ width: `${width}%` }} />
+            </div>
+            <span className="text-right text-app-text">{formatTokenCount(bucket.tokens)}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function UsageMeter({ className = '' }: { className?: string }) {
   const [data, setData] = useState<CodexRateLimitsReadResult | null>(null)
+  const [accountUsage, setAccountUsage] = useState<CodexAccountUsageReadResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -56,8 +89,12 @@ export function UsageMeter({ className = '' }: { className?: string }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await window.cranberri.codex.getRateLimits()
-      setData(result)
+      const [limitsResult, usageResult] = await Promise.all([
+        window.cranberri.codex.getRateLimits(),
+        window.cranberri.codex.getAccountUsage(),
+      ])
+      setData(limitsResult)
+      setAccountUsage(usageResult)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -131,6 +168,19 @@ export function UsageMeter({ className = '' }: { className?: string }) {
                 <div className="flex items-center justify-between text-[11px] text-app-text-muted">
                   <span>Weekly resets</span>
                   <span>{formatResetsAt(secondary.resetsAt)}</span>
+                </div>
+              )}
+              {accountUsage && (
+                <div className="space-y-2 border-t border-app-border pt-2">
+                  <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                    <span>Lifetime tokens</span>
+                    <span className="text-app-text">{formatTokenCount(accountUsage.summary.lifetimeTokens)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                    <span>Current streak</span>
+                    <span className="text-app-text">{accountUsage.summary.currentStreakDays}d</span>
+                  </div>
+                  <DailyUsageBars usage={accountUsage} />
                 </div>
               )}
               <button
