@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { NEW_THREAD_EMPTY_STATE, shouldRestoreDraftAfterSendError } from './chat/chat-window-state'
 import { renderSkillText } from './chat/composer-text'
 import type { CodexSkillInfo } from '@/shared/codex'
 
@@ -20,5 +21,15 @@ describe('ChatWindow composer rendering', () => {
     expect(html).toContain('Ce Brainstorm')
     expect(html).toContain('data-mention-kind="skill"')
     expect(html).not.toContain('underline')
+  })
+
+  it('uses ready copy for a lazy new Codex thread', () => {
+    expect(NEW_THREAD_EMPTY_STATE).toBe('Ask Codex to inspect, edit, or explain this repo.')
+  })
+
+  it('restores a draft only when first send failed before a thread was created', () => {
+    expect(shouldRestoreDraftAfterSendError(undefined, new Error('spawn failed'))).toBe(true)
+    expect(shouldRestoreDraftAfterSendError('thread-1', new Error('turn failed'))).toBe(false)
+    expect(shouldRestoreDraftAfterSendError(undefined, Object.assign(new Error('turn failed'), { threadCreated: true }))).toBe(false)
   })
 })

@@ -15,6 +15,7 @@ import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
 import { INSERT_CHAT_CONTEXT_EVENT, insertChatContextDetailFromEvent } from './chat/chat-context-events'
+import { NEW_THREAD_EMPTY_STATE, shouldRestoreDraftAfterSendError } from './chat/chat-window-state'
 import {
   contextInputLabel,
   imageInputFromClipboardFile,
@@ -358,6 +359,9 @@ export function ChatWindow({ id }: { id: string }) {
   const handleSend = async () => {
     const text = input.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
+    const draftInput = input
+    const draftAttachments = attachments
+    const draftContextInputParts = contextInputParts
     composerHadFocusRef.current = true
     setInput('')
     selectionRef.current = { start: 0, end: 0 }
@@ -373,9 +377,16 @@ export function ChatWindow({ id }: { id: string }) {
         if (threadId) {
           await sendMessage(threadId, message.displayText, message.input, turnSettings)
         } else {
-          await createThread(id, message.displayText, turnSettings)
+          await createThread(id, message.displayText, turnSettings, message.input)
         }
       }
+    } catch (error) {
+      if (shouldRestoreDraftAfterSendError(threadId, error)) {
+        setInput(draftInput)
+        setAttachments(draftAttachments)
+        setContextInputParts(draftContextInputParts)
+      }
+      toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
     } finally {
       requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
     }
@@ -517,12 +528,9 @@ export function ChatWindow({ id }: { id: string }) {
           className="h-full overflow-y-auto px-6 pb-36 pt-8"
         >
           <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-5">
-            {!thread && (
-              <div className="text-xs text-[var(--app-text-muted)]">Starting Codex thread...</div>
-            )}
-            {thread?.messages.length === 0 && (
+            {(!thread || thread.messages.length === 0) && (
               <div className="pt-16 text-center text-xs text-[var(--app-text-muted)]">
-                Ask Codex to inspect, edit, or explain this repo.
+                {NEW_THREAD_EMPTY_STATE}
               </div>
             )}
             <TranscriptList

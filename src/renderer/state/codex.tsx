@@ -8,7 +8,7 @@ interface CodexApi {
   activeThread: CodexThread | null
   openThreadIds: string[]
   getThread: (threadId: string) => CodexThread | undefined
-  createThread: (windowId: string, initialContent?: string, settings?: CodexTurnSettings) => Promise<CodexThread>
+  createThread: (windowId: string, initialContent?: string, settings?: CodexTurnSettings, initialInput?: CodexUserInput[]) => Promise<CodexThread>
   sendMessage: (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings) => Promise<void>
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
@@ -292,7 +292,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const createThread = useCallback(async (windowId: string, initialContent?: string, settings?: CodexTurnSettings): Promise<CodexThread> => {
+  const createThread = useCallback(async (windowId: string, initialContent?: string, settings?: CodexTurnSettings, initialInput?: CodexUserInput[]): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
     const { threadId, title } = await window.cranberri.codex.createThread(activeRepo.path, settings)
     const pendingTitle = pendingThreadTitlesRef.current[threadId]
@@ -319,7 +319,28 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     if (initialContent) {
-      await window.cranberri.codex.sendMessage(activeRepo.path, threadId, [{ type: 'text', text: initialContent }], settings)
+      try {
+        await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialInput ?? [{ type: 'text', text: initialContent }], settings)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to send message'
+        if (error && typeof error === 'object') {
+          Object.assign(error, { threadCreated: true })
+        }
+        setThreads((prev) => prev.map((item) => item.id === threadId
+          ? {
+              ...item,
+              isRunning: false,
+              currentActivity: undefined,
+              messages: [...item.messages, {
+                id: crypto.randomUUID(),
+                role: 'system',
+                content: `Error: ${message}`,
+                timestamp: Date.now(),
+              }],
+            }
+          : item))
+        throw error
+      }
     }
     return thread
   }, [activeRepo])

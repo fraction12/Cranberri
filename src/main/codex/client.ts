@@ -107,7 +107,7 @@ function speedToServiceTier(speed: CodexTurnSettings['speed']): string | undefin
 export class CodexClient extends EventEmitter {
   private process: ChildProcess | null = null
   private nextId = 1
-  private pending = new Map<number, (res: JsonRpcResponse) => void>()
+  private pending = new Map<number, { resolve: (res: JsonRpcResponse) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>()
   private buffer = ''
   private cwd: string
   private startPromise: Promise<void> | null = null
@@ -149,6 +149,11 @@ export class CodexClient extends EventEmitter {
       })
 
       this.process?.on('error', (err) => {
+        for (const request of this.pending.values()) {
+          clearTimeout(request.timer)
+          request.reject(err)
+        }
+        this.pending.clear()
         this.process = null
         this.startPromise = null
         reject(err)
@@ -162,6 +167,12 @@ export class CodexClient extends EventEmitter {
 
       this.process?.on('exit', (code) => {
         this.emitRunEnd('', `Codex app-server exited with code ${code ?? 'unknown'}`)
+        const error = new Error(`Codex app-server exited with code ${code ?? 'unknown'}`)
+        for (const request of this.pending.values()) {
+          clearTimeout(request.timer)
+          request.reject(error)
+        }
+        this.pending.clear()
         this.process = null
         this.startPromise = null
       })
@@ -391,9 +402,12 @@ export class CodexClient extends EventEmitter {
 
   private handleMessage(msg: JsonRpcResponse | JsonRpcNotification): void {
     if ('id' in msg && msg.id !== undefined) {
-      const resolve = this.pending.get(msg.id)
-      if (resolve) {
-        resolve(msg as JsonRpcResponse)
+      const pending = this.pending.get(msg.id)
+      if (pending) {
+        clearTimeout(pending.timer)
+        const response = msg as JsonRpcResponse
+        if (response.error) pending.reject(new Error(response.error.message))
+        else pending.resolve(response)
         this.pending.delete(msg.id)
       }
       return
@@ -611,7 +625,7 @@ export class CodexClient extends EventEmitter {
     }
   }
 
-  private call(method: string, params?: Record<string, unknown>): Promise<JsonRpcResponse> {
+  private call(method: string, params?: Record<string, unknown>, timeoutMs = 60_000): Promise<JsonRpcResponse> {
     return new Promise((resolve, reject) => {
       if (!this.process?.stdin?.writable) {
         reject(new Error('Codex app-server not running'))
@@ -619,7 +633,11 @@ export class CodexClient extends EventEmitter {
       }
       const id = this.nextId++
       const req: JsonRpcRequest = { jsonrpc: '2.0', id, method, params }
-      this.pending.set(id, resolve)
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Codex app-server did not respond to ${method} within ${Math.round(timeoutMs / 1000)}s`))
+      }, timeoutMs)
+      this.pending.set(id, { resolve, reject, timer })
       this.process.stdin.write(JSON.stringify(req) + '\n')
     })
   }
