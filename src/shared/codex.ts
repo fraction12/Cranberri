@@ -3,14 +3,82 @@ import type { ToolEventRecord } from './tools'
 export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning' | 'compact'
 
 export type CodexSpeed = 'standard' | 'fast'
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
+export type CodexServiceTier = 'priority'
+export const CODEX_REASONING_EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORT_VALUES)[number]
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
 
-export const CODEX_MODELS = [
-  { label: 'GPT-5.5', value: 'gpt-5.5' },
-  { label: 'GPT-5.4', value: 'gpt-5.4' },
-  { label: 'GPT-5.4-Mini', value: 'gpt-5.4-mini' },
-  { label: 'GPT-5.3-Codex-Spark', value: 'gpt-5.3-codex-spark' },
+export interface CodexModelOption {
+  label: string
+  value: string
+  description: string
+  defaultEffort: CodexReasoningEffort
+  supportedEfforts: readonly CodexReasoningEffort[]
+  serviceTiers: readonly CodexServiceTier[]
+}
+
+const STANDARD_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const satisfies readonly CodexReasoningEffort[]
+const MAX_EFFORTS = [...STANDARD_EFFORTS, 'max'] as const satisfies readonly CodexReasoningEffort[]
+const ULTRA_EFFORTS = [...MAX_EFFORTS, 'ultra'] as const satisfies readonly CodexReasoningEffort[]
+const PRIORITY_SERVICE_TIER = ['priority'] as const satisfies readonly CodexServiceTier[]
+
+export const CODEX_MODELS: readonly CodexModelOption[] = [
+  {
+    label: 'GPT-5.6-Sol',
+    value: 'gpt-5.6-sol',
+    description: 'Most capable',
+    defaultEffort: 'low',
+    supportedEfforts: ULTRA_EFFORTS,
+    serviceTiers: PRIORITY_SERVICE_TIER,
+  },
+  {
+    label: 'GPT-5.6-Terra',
+    value: 'gpt-5.6-terra',
+    description: 'Balanced',
+    defaultEffort: 'medium',
+    supportedEfforts: ULTRA_EFFORTS,
+    serviceTiers: PRIORITY_SERVICE_TIER,
+  },
+  {
+    label: 'GPT-5.6-Luna',
+    value: 'gpt-5.6-luna',
+    description: 'Fastest',
+    defaultEffort: 'medium',
+    supportedEfforts: MAX_EFFORTS,
+    serviceTiers: PRIORITY_SERVICE_TIER,
+  },
+  {
+    label: 'GPT-5.5',
+    value: 'gpt-5.5',
+    description: 'Previous flagship',
+    defaultEffort: 'medium',
+    supportedEfforts: STANDARD_EFFORTS,
+    serviceTiers: PRIORITY_SERVICE_TIER,
+  },
+  {
+    label: 'GPT-5.4',
+    value: 'gpt-5.4',
+    description: 'General coding',
+    defaultEffort: 'medium',
+    supportedEfforts: STANDARD_EFFORTS,
+    serviceTiers: PRIORITY_SERVICE_TIER,
+  },
+  {
+    label: 'GPT-5.4-Mini',
+    value: 'gpt-5.4-mini',
+    description: 'Efficient coding',
+    defaultEffort: 'medium',
+    supportedEfforts: STANDARD_EFFORTS,
+    serviceTiers: [],
+  },
+  {
+    label: 'GPT-5.3-Codex-Spark',
+    value: 'gpt-5.3-codex-spark',
+    description: 'Low latency',
+    defaultEffort: 'high',
+    supportedEfforts: STANDARD_EFFORTS,
+    serviceTiers: [],
+  },
 ]
 
 export const CODEX_EFFORTS: Array<{ label: string; value: CodexReasoningEffort }> = [
@@ -18,12 +86,46 @@ export const CODEX_EFFORTS: Array<{ label: string; value: CodexReasoningEffort }
   { label: 'Medium', value: 'medium' },
   { label: 'High', value: 'high' },
   { label: 'Extra High', value: 'xhigh' },
+  { label: 'Max', value: 'max' },
+  { label: 'Ultra', value: 'ultra' },
 ]
+
+export function getCodexModelOption(model: string): CodexModelOption | undefined {
+  return CODEX_MODELS.find((option) => option.value === model)
+}
+
+export function getCodexEffortsForModel(model: string): typeof CODEX_EFFORTS {
+  const supportedEfforts = getCodexModelOption(model)?.supportedEfforts
+  if (!supportedEfforts) return CODEX_EFFORTS
+  return CODEX_EFFORTS.filter((option) => supportedEfforts.includes(option.value))
+}
+
+export function normalizeCodexReasoningEffort(
+  model: string,
+  effort: CodexReasoningEffort,
+): CodexReasoningEffort {
+  const option = getCodexModelOption(model)
+  if (!option || option.supportedEfforts.includes(effort)) return effort
+  return option.defaultEffort
+}
 
 export const CODEX_SPEEDS: Array<{ label: string; value: CodexSpeed; description: string }> = [
   { label: 'Standard', value: 'standard', description: 'Default speed' },
   { label: 'Fast', value: 'fast', description: '1.5x speed, increased usage' },
 ]
+
+export function getCodexSpeedsForModel(model: string): typeof CODEX_SPEEDS {
+  const option = getCodexModelOption(model)
+  if (!option || option.serviceTiers.includes('priority')) return CODEX_SPEEDS
+  return CODEX_SPEEDS.filter((speed) => speed.value === 'standard')
+}
+
+export function normalizeCodexSpeed(model: string, speed?: CodexSpeed): CodexSpeed | undefined {
+  if (!speed) return undefined
+  const option = getCodexModelOption(model)
+  if (!option || speed === 'standard' || option.serviceTiers.includes('priority')) return speed
+  return 'standard'
+}
 
 export const CODEX_APPROVAL_MODES: Array<{
   value: CodexApprovalMode
@@ -87,6 +189,9 @@ export interface CodexConnectionStatus {
   installed: boolean
   authenticated: boolean
   cliPath?: string
+  version?: string
+  minimumVersion?: string
+  updateRequired?: boolean
   detail: string
 }
 

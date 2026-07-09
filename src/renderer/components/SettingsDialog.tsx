@@ -4,7 +4,15 @@ import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { CodexResourcesSection } from './CodexResourcesSection'
-import { CODEX_MODELS, CODEX_EFFORTS, CODEX_SPEEDS, CODEX_APPROVAL_MODES, type CodexConnectionStatus } from '@/shared/codex'
+import {
+  CODEX_MODELS,
+  CODEX_APPROVAL_MODES,
+  getCodexEffortsForModel,
+  getCodexSpeedsForModel,
+  normalizeCodexReasoningEffort,
+  normalizeCodexSpeed,
+  type CodexConnectionStatus,
+} from '@/shared/codex'
 import type { UpdateInfo } from '@/shared/update'
 import type { AppSettings } from '@/shared/settings'
 
@@ -16,6 +24,14 @@ interface SettingsDialogProps {
 
 export type SettingsTabValue = 'general' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
 
+function codexConnectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
+  if (busy) return status?.updateRequired ? 'Updating…' : 'Connecting…'
+  if (status?.updateRequired) return 'Update Codex'
+  if (status?.authenticated) return 'Connected'
+  if (status?.installed === false) return 'Install & Connect'
+  return 'Connect Codex'
+}
+
 export function SettingsDialog({ open, onClose, initialTab = 'general' }: SettingsDialogProps) {
   const { settings, loading, updateSection } = useSettings()
   const update = useUpdate()
@@ -24,6 +40,8 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
   const [codexStatus, setCodexStatus] = useState<CodexConnectionStatus | null>(null)
   const [connectingCodex, setConnectingCodex] = useState(false)
   const [codexError, setCodexError] = useState<string | null>(null)
+  const defaultEfforts = getCodexEffortsForModel(settings.codex.defaultModel)
+  const defaultSpeeds = getCodexSpeedsForModel(settings.codex.defaultModel)
 
   useEffect(() => {
     if (!open) return
@@ -93,10 +111,10 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                           <button
                             type="button"
                             onClick={() => void connectCodex()}
-                            disabled={connectingCodex || codexStatus?.authenticated === true}
+                            disabled={connectingCodex || (codexStatus?.authenticated === true && !codexStatus.updateRequired)}
                             className="shrink-0 rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:bg-app-surface-2 disabled:text-app-text-muted"
                           >
-                            {connectingCodex ? 'Connecting…' : codexStatus?.authenticated ? 'Connected' : codexStatus?.installed === false ? 'Install & Connect' : 'Connect Codex'}
+                            {codexConnectionActionLabel(codexStatus, connectingCodex)}
                           </button>
                         </div>
                         {!codexStatus?.installed && (
@@ -107,7 +125,20 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                         <span className="mb-1.5 block text-xs text-app-text-muted">Default model</span>
                         <select
                           value={settings.codex.defaultModel}
-                          onChange={(e) => updateSection('codex', { defaultModel: e.target.value })}
+                          onChange={(e) => {
+                            const defaultModel = e.target.value
+                            void updateSection('codex', {
+                              defaultModel,
+                              defaultEffort: normalizeCodexReasoningEffort(
+                                defaultModel,
+                                settings.codex.defaultEffort,
+                              ),
+                              defaultSpeed: normalizeCodexSpeed(
+                                defaultModel,
+                                settings.codex.defaultSpeed,
+                              ),
+                            })
+                          }}
                           className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
                         >
                           {CODEX_MODELS.map((option) => (
@@ -122,7 +153,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                           onChange={(e) => updateSection('codex', { defaultEffort: e.target.value as typeof settings.codex.defaultEffort })}
                           className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
                         >
-                          {CODEX_EFFORTS.map((option) => (
+                          {defaultEfforts.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
@@ -134,7 +165,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                           onChange={(e) => updateSection('codex', { defaultSpeed: e.target.value as typeof settings.codex.defaultSpeed })}
                           className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
                         >
-                          {CODEX_SPEEDS.map((option) => (
+                          {defaultSpeeds.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>

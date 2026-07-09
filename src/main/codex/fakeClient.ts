@@ -109,14 +109,20 @@ export class FakeCodexClient extends EventEmitter {
     return { id, name: thread.title }
   }
 
-  async sendMessage(threadId: string, input: CodexUserInput[], _settings?: CodexTurnSettings): Promise<void> {
+  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
     const thread = this.requireThread(threadId)
     const turnId = `fake-turn-${this.nextTurn++}`
     const itemId = `${turnId}-assistant`
     const userText = firstText(input)
+    if (userText.includes('cranberri-smoke-reject-turn')) {
+      throw new Error('Fake Codex rejected turn')
+    }
     const visualCount = visualInputCount(input)
     const visualLine = visualCount > 0 ? `\nlocal-images:${visualCount}` : ''
-    const response = `Fake Codex received: ${userText || 'empty message'}${visualLine}\ncranberri-fake-codex-stream-complete`
+    const settingsLine = userText.includes('cranberri-model-settings-smoke')
+      ? `\nsettings:${settings?.model ?? 'default'}|${settings?.effort ?? 'default'}|${settings?.speed ?? 'default'}`
+      : ''
+    const response = `Fake Codex received: ${userText || 'empty message'}${visualLine}${settingsLine}\ncranberri-fake-codex-stream-complete`
     thread.updatedAt = Date.now()
     thread.turns.push({
       id: turnId,
@@ -140,7 +146,7 @@ export class FakeCodexClient extends EventEmitter {
         this.emit('event', fakeApproval(threadId, turnId))
       }, 15)
     }
-    const chunks = ['Fake Codex received: ', userText || 'empty message', visualLine, '\ncranberri-fake-codex-stream-complete']
+    const chunks = ['Fake Codex received: ', userText || 'empty message', visualLine, settingsLine, '\ncranberri-fake-codex-stream-complete']
     chunks.forEach((delta, index) => {
       setTimeout(() => {
         this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase: 'final_answer' } satisfies CodexEvent)

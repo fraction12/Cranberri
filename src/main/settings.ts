@@ -2,9 +2,14 @@ import { app, ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { APP_SETTINGS_VERSION, DEFAULT_APP_SETTINGS, type AppSettings } from '@/shared/settings'
+import {
+  CODEX_REASONING_EFFORT_VALUES,
+  normalizeCodexReasoningEffort,
+  normalizeCodexSpeed,
+} from '../shared/codex'
+import { APP_SETTINGS_VERSION, DEFAULT_APP_SETTINGS, type AppSettings } from '../shared/settings'
 
-const codexReasoningEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh'])
+const codexReasoningEffortSchema = z.enum(CODEX_REASONING_EFFORT_VALUES)
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
 const themeSchema = z.enum(['dark', 'light'])
 const updaterChannelSchema = z.enum(['stable', 'beta'])
@@ -40,6 +45,26 @@ const settingsSchema = z.object({
 })
 
 type SettingsFile = z.infer<typeof settingsSchema>
+
+function normalizeSettings(settings: AppSettings): AppSettings {
+  const defaultEffort = normalizeCodexReasoningEffort(
+    settings.codex.defaultModel,
+    settings.codex.defaultEffort,
+  )
+  const defaultSpeed = normalizeCodexSpeed(
+    settings.codex.defaultModel,
+    settings.codex.defaultSpeed,
+  )
+  if (
+    defaultEffort === settings.codex.defaultEffort
+    && defaultSpeed === settings.codex.defaultSpeed
+  ) return settings
+
+  return {
+    ...settings,
+    codex: { ...settings.codex, defaultEffort, defaultSpeed },
+  }
+}
 
 function settingsFilePath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
@@ -85,14 +110,14 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
   }
 
   void version
-  return data
+  return normalizeSettings(data)
 }
 
 export function readSettings(): AppSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFilePath(), 'utf8')) as Record<string, unknown>
     const parsed = settingsSchema.safeParse(raw)
-    if (parsed.success) return parsed.data.data
+    if (parsed.success) return normalizeSettings(parsed.data.data)
     return migrateSettings(raw)
   } catch {
     return DEFAULT_APP_SETTINGS
@@ -100,7 +125,7 @@ export function readSettings(): AppSettings {
 }
 
 export function writeSettings(settings: AppSettings): void {
-  const payload: SettingsFile = { version: APP_SETTINGS_VERSION, data: settings }
+  const payload: SettingsFile = { version: APP_SETTINGS_VERSION, data: normalizeSettings(settings) }
   fs.mkdirSync(path.dirname(settingsFilePath()), { recursive: true })
   fs.writeFileSync(settingsFilePath(), JSON.stringify(payload, null, 2))
 }
@@ -115,7 +140,8 @@ export function initSettingsIpc(): void {
     if (!parsed.success) {
       throw new Error(`Invalid settings: ${parsed.error.message}`)
     }
-    writeSettings(parsed.data)
-    return { settings: parsed.data }
+    const normalized = normalizeSettings(parsed.data)
+    writeSettings(normalized)
+    return { settings: normalized }
   })
 }

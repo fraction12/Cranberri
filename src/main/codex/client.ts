@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput } from '../../shared/codex'
 import { makeCodexEnv } from './env'
+import { buildCodexTurnOverrides } from './turn-settings'
 import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
 
 interface JsonRpcRequest {
@@ -94,14 +95,6 @@ function getThreadApprovalSettings(mode: CodexTurnSettings['approvalMode']): { a
     default:
       return {}
   }
-}
-
-function speedToServiceTier(speed: CodexTurnSettings['speed']): string | undefined {
-  // serviceTier is the app-server knob closest to a speed preference.
-  // 'flex' is the OpenAI flex tier (slower/cheaper); everything else uses the default tier.
-  if (speed === 'fast') return undefined
-  if (speed === 'standard') return 'flex'
-  return undefined
 }
 
 export class CodexClient extends EventEmitter {
@@ -203,13 +196,10 @@ export class CodexClient extends EventEmitter {
 
   async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
     const approvalSettings = getTurnApprovalSettings(settings?.approvalMode)
-    const serviceTier = speedToServiceTier(settings?.speed)
     const res = await this.call('turn/start', {
       threadId,
       input,
-      model: settings?.model ?? null,
-      effort: settings?.effort ?? null,
-      ...(serviceTier !== undefined ? { serviceTier } : {}),
+      ...buildCodexTurnOverrides(settings),
       ...approvalSettings,
     })
     const turnId = (res.result as { turn?: { id?: string } } | undefined)?.turn?.id

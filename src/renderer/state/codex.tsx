@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import { useRepos } from './repos'
+import { applyCodexSendFailure } from './codex-send-failure'
 
 interface CodexApi {
   threads: CodexThread[]
@@ -292,6 +293,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const markSendFailed = useCallback((threadId: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : 'Failed to send message'
+    setThreads((prev) => prev.map((thread) => thread.id === threadId
+      ? applyCodexSendFailure(thread, message, crypto.randomUUID(), Date.now())
+      : thread))
+  }, [])
+
   const createThread = useCallback(async (windowId: string, initialContent?: string, settings?: CodexTurnSettings, initialInput?: CodexUserInput[]): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
     const { threadId, title } = await window.cranberri.codex.createThread(activeRepo.path, settings)
@@ -322,28 +330,15 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       try {
         await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialInput ?? [{ type: 'text', text: initialContent }], settings)
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to send message'
         if (error && typeof error === 'object') {
           Object.assign(error, { threadCreated: true })
         }
-        setThreads((prev) => prev.map((item) => item.id === threadId
-          ? {
-              ...item,
-              isRunning: false,
-              currentActivity: undefined,
-              messages: [...item.messages, {
-                id: crypto.randomUUID(),
-                role: 'system',
-                content: `Error: ${message}`,
-                timestamp: Date.now(),
-              }],
-            }
-          : item))
+        markSendFailed(threadId, error)
         throw error
       }
     }
     return thread
-  }, [activeRepo])
+  }, [activeRepo, markSendFailed])
 
   const sendMessage = useCallback(async (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
@@ -373,9 +368,14 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       return next
     })
 
-    if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
-    await window.cranberri.codex.sendMessage(activeRepo.path, threadId, input ?? [{ type: 'text', text: content }], settings)
-  }, [activeRepo])
+    try {
+      if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
+      await window.cranberri.codex.sendMessage(activeRepo.path, threadId, input ?? [{ type: 'text', text: content }], settings)
+    } catch (error) {
+      markSendFailed(threadId, error)
+      throw error
+    }
+  }, [activeRepo, markSendFailed])
 
   const compactThread = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')

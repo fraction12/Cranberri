@@ -2,12 +2,22 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, ChevronRight, Zap } from 'lucide-react'
 import type { CodexTurnSettings } from '@/shared/codex'
-import { CODEX_EFFORTS, CODEX_MODELS, CODEX_SPEEDS } from '@/shared/codex'
+import {
+  CODEX_EFFORTS,
+  CODEX_MODELS,
+  CODEX_SPEEDS,
+  getCodexEffortsForModel,
+  getCodexSpeedsForModel,
+  normalizeCodexReasoningEffort,
+  normalizeCodexSpeed,
+} from '@/shared/codex'
 
 type PopoverPosition = { top: number; left: number }
 type ModelSelectorProps = { settings: CodexTurnSettings; onChange: (settings: CodexTurnSettings) => void }
 
 const MAIN_POPOVER_WIDTH = 208, MODEL_SUBMENU_WIDTH = 208, SPEED_SUBMENU_WIDTH = 176, POPOVER_GAP = 6, VIEWPORT_PADDING = 8
+const MODEL_SUBMENU_HEIGHT = 36 + CODEX_MODELS.length * 40
+const SPEED_SUBMENU_HEIGHT = 36 + CODEX_SPEEDS.length * 48
 const POPOVER_SHELL = 'rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] text-xs text-[var(--app-text)] shadow-2xl shadow-black/40'
 const ROW_CLASS = 'flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--app-surface-2)]'
 const TRIGGER_CLASS = 'flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]'
@@ -22,8 +32,12 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
   const speedRowRef = useRef<HTMLButtonElement>(null)
   const closeSubmenuTimerRef = useRef<number | null>(null)
   const selectedModel = CODEX_MODELS.find((option) => option.value === settings.model) ?? CODEX_MODELS[0]
-  const selectedEffort = CODEX_EFFORTS.find((option) => option.value === settings.effort) ?? CODEX_EFFORTS[2]
-  const selectedSpeed = CODEX_SPEEDS.find((option) => option.value === settings.speed) ?? CODEX_SPEEDS[0]
+  const normalizedEffort = normalizeCodexReasoningEffort(settings.model, settings.effort)
+  const normalizedSpeed = normalizeCodexSpeed(settings.model, settings.speed) ?? 'standard'
+  const supportedEfforts = getCodexEffortsForModel(settings.model)
+  const supportedSpeeds = getCodexSpeedsForModel(settings.model)
+  const selectedEffort = CODEX_EFFORTS.find((option) => option.value === normalizedEffort) ?? CODEX_EFFORTS[0]
+  const selectedSpeed = CODEX_SPEEDS.find((option) => option.value === normalizedSpeed) ?? CODEX_SPEEDS[0]
 
   const updateMainPosition = () => {
     const rect = buttonRef.current?.getBoundingClientRect()
@@ -54,10 +68,12 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       rightSideLeft + width + VIEWPORT_PADDING <= window.innerWidth
         ? rightSideLeft
         : Math.max(VIEWPORT_PADDING, baseLeft - width - POPOVER_GAP)
-    const top = Math.min(
-      Math.max(VIEWPORT_PADDING, rect.top),
-      window.innerHeight - VIEWPORT_PADDING - 176,
-    )
+    const estimatedHeight = nextSubmenu === 'model' ? MODEL_SUBMENU_HEIGHT : SPEED_SUBMENU_HEIGHT
+    const submenuHeight = Math.min(estimatedHeight, window.innerHeight - VIEWPORT_PADDING * 2)
+    const top = Math.max(VIEWPORT_PADDING, Math.min(
+      rect.top,
+      window.innerHeight - VIEWPORT_PADDING - submenuHeight,
+    ))
 
     setSubmenu(nextSubmenu)
     setSubmenuPosition({ top, left })
@@ -89,13 +105,22 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       updateMainPosition()
       setSubmenu(null); setSubmenuPosition(null)
     }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      setSubmenu(null)
+      setSubmenuPosition(null)
+      buttonRef.current?.focus()
+    }
 
     document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', onWindowChange)
     window.addEventListener('scroll', onWindowChange, true)
 
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', onWindowChange)
       window.removeEventListener('scroll', onWindowChange, true)
     }
@@ -114,7 +139,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       style={{ top: mainPosition.top, left: mainPosition.left }}
     >
       <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Reasoning</div>
-      {CODEX_EFFORTS.map((option) => (
+      {supportedEfforts.map((option) => (
         <button
           key={option.value}
           type="button"
@@ -122,7 +147,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
           className={ROW_CLASS}
         >
           <span>{option.label}</span>
-          {settings.effort === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
+          {normalizedEffort === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
         </button>
       ))}
 
@@ -131,6 +156,9 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       <button
         ref={modelRowRef}
         type="button"
+        aria-haspopup="menu"
+        aria-expanded={submenu === 'model'}
+        onClick={() => openSubmenu('model')}
         onMouseEnter={() => openSubmenu('model')}
         onMouseLeave={scheduleCloseSubmenu}
         className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
@@ -143,6 +171,9 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       <button
         ref={speedRowRef}
         type="button"
+        aria-haspopup="menu"
+        aria-expanded={submenu === 'speed'}
+        onClick={() => openSubmenu('speed')}
         onMouseEnter={() => openSubmenu('speed')}
         onMouseLeave={scheduleCloseSubmenu}
         className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
@@ -162,10 +193,14 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         if (closeSubmenuTimerRef.current) window.clearTimeout(closeSubmenuTimerRef.current)
       }}
       onMouseLeave={scheduleCloseSubmenu}
-      className={`fixed z-[1001] p-1.5 ${POPOVER_SHELL} ${
+      className={`fixed z-[1001] overflow-y-auto p-1.5 ${POPOVER_SHELL} ${
         submenu === 'model' ? 'w-52' : 'w-44'
       }`}
-      style={{ top: submenuPosition.top, left: submenuPosition.left }}
+      style={{
+        top: submenuPosition.top,
+        left: submenuPosition.left,
+        maxHeight: window.innerHeight - submenuPosition.top - VIEWPORT_PADDING,
+      }}
     >
       {submenu === 'model' ? (
         <>
@@ -175,13 +210,21 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
               key={option.value}
               type="button"
               onClick={() => {
-                onChange({ ...settings, model: option.value })
+                onChange({
+                  ...settings,
+                  model: option.value,
+                  effort: normalizeCodexReasoningEffort(option.value, settings.effort),
+                  speed: normalizeCodexSpeed(option.value, settings.speed),
+                })
                 setOpen(false)
                 setSubmenu(null)
               }}
               className={ROW_CLASS}
             >
-              <span>{option.label}</span>
+              <span className="flex min-w-0 flex-col">
+                <span>{option.label}</span>
+                <span className="text-[10px] text-[var(--app-text-muted)]">{option.description}</span>
+              </span>
               {settings.model === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
             </button>
           ))}
@@ -189,7 +232,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       ) : (
         <>
           <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Speed</div>
-          {CODEX_SPEEDS.map((option) => (
+          {supportedSpeeds.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -207,7 +250,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                 </span>
                 <span className="text-xs text-[var(--app-text-muted)]">{option.description}</span>
               </div>
-              {settings.speed === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
+              {normalizedSpeed === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
             </button>
           ))}
         </>
@@ -220,6 +263,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
       <button
         ref={buttonRef}
         type="button"
+        aria-label="Configure model, reasoning, and speed"
         onClick={() => {
           setOpen((value) => !value)
           setSubmenu(null)

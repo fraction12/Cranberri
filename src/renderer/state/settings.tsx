@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '@/shared/settings'
+import { SettingsWriteQueue } from './settings-write-queue'
 
 interface SettingsApi {
   settings: AppSettings
@@ -16,32 +17,38 @@ const SettingsContext = createContext<SettingsApi | null>(null)
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [loading, setLoading] = useState(true)
+  const writeQueueRef = useRef<SettingsWriteQueue | null>(null)
+  if (!writeQueueRef.current) {
+    writeQueueRef.current = new SettingsWriteQueue(
+      DEFAULT_APP_SETTINGS,
+      async (next) => (await window.cranberri.settings.set(next)).settings,
+      setSettings,
+    )
+  }
 
   useEffect(() => {
     window.cranberri.settings.get()
-      .then(({ settings: data }) => setSettings(data))
+      .then(({ settings: data }) => {
+        writeQueueRef.current?.replace(data)
+        setSettings(data)
+      })
       .catch((err) => console.error('Failed to load settings:', err))
       .finally(() => setLoading(false))
   }, [])
 
-  const persist = useCallback(async (next: AppSettings) => {
-    const { settings: saved } = await window.cranberri.settings.set(next)
-    setSettings(saved)
-  }, [])
-
   const update = useCallback(async (next: Partial<AppSettings>) => {
-    await persist({ ...settings, ...next })
-  }, [settings, persist])
+    await writeQueueRef.current?.enqueue((current) => ({ ...current, ...next }))
+  }, [])
 
   const updateSection = useCallback(async <Section extends keyof AppSettings>(
     section: Section,
     values: Partial<AppSettings[Section]>,
   ) => {
-    await persist({
-      ...settings,
-      [section]: { ...settings[section], ...values },
-    })
-  }, [settings, persist])
+    await writeQueueRef.current?.enqueue((current) => ({
+      ...current,
+      [section]: { ...current[section], ...values },
+    }))
+  }, [])
 
   return (
     <SettingsContext.Provider value={{ settings, loading, update, updateSection }}>

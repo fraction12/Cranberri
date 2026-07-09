@@ -179,6 +179,23 @@ async function runFreshStartupSmoke() {
 
       await page.getByLabel('Open settings').click()
       await page.getByText('Settings').waitFor({ timeout: 10_000 })
+      const defaultModel = page.getByLabel('Default model')
+      const defaultEffort = page.getByLabel('Default reasoning effort')
+      const defaultSpeed = page.getByLabel('Default speed')
+      await defaultModel.selectOption('gpt-5.6-sol')
+      await defaultEffort.locator('option[value="ultra"]').waitFor({ state: 'attached', timeout: 10_000 })
+      await defaultEffort.selectOption('ultra')
+      await defaultSpeed.selectOption('fast')
+      await defaultModel.selectOption('gpt-5.4-mini')
+      await page.waitForFunction(() => {
+        const selects = [...document.querySelectorAll('select')]
+        const effort = selects.find((select) => select.labels?.[0]?.textContent?.includes('Default reasoning effort'))
+        const speed = selects.find((select) => select.labels?.[0]?.textContent?.includes('Default speed'))
+        return effort?.value === 'medium'
+          && ![...effort.options].some((option) => option.value === 'ultra')
+          && speed?.value === 'standard'
+          && ![...speed.options].some((option) => option.value === 'fast')
+      }, undefined, { timeout: 10_000 })
       await page.getByRole('button', { name: 'Diagnostics' }).click()
       await page.getByText('Reading local app diagnostics…').waitFor({ timeout: 10_000 })
       await page.getByText('User data').waitFor({ timeout: 10_000 })
@@ -250,6 +267,29 @@ async function runRepoWorkspaceSmoke() {
     await smokePage(electronApp, async (page) => {
       smokeStep('repo and chat basics')
       await page.getByText(repoPath).waitFor({ timeout: 10_000 })
+      const modelSelector = page.getByRole('button', { name: 'Configure model, reasoning, and speed' })
+      await modelSelector.click()
+      await page.getByRole('button', { name: /GPT-5\.5/ }).hover()
+      await page.getByRole('button', { name: /GPT-5\.6-Sol Most capable/ }).click()
+      await modelSelector.click()
+      await page.getByRole('button', { name: 'Ultra', exact: true }).click()
+      await page.getByRole('button', { name: 'Speed', exact: true }).hover()
+      await page.getByRole('button', { name: /Fast 1\.5x speed/ }).click()
+      await modelSelector.click()
+      await page.getByRole('button', { name: /GPT-5\.6-Sol/ }).hover()
+      await page.getByRole('button', { name: /GPT-5\.4-Mini Efficient coding/ }).click()
+      await page.waitForFunction(() => {
+        const trigger = document.querySelector('button[aria-label="Configure model, reasoning, and speed"]')
+        return trigger?.textContent?.includes('5.4-Mini')
+          && trigger.textContent.includes('Medium')
+          && trigger.textContent.includes('Standard')
+      }, undefined, { timeout: 10_000 })
+      await modelSelector.click()
+      await page.getByRole('button', { name: 'Speed', exact: true }).hover()
+      if (await page.getByRole('button', { name: /Fast 1\.5x speed/ }).count() !== 0) {
+        throw new Error('GPT-5.4-Mini should not expose Fast mode')
+      }
+      await modelSelector.click()
       await page.getByTitle('README.md').click()
       await page.getByText('cranberri-diff-smoke-ready').waitFor({ timeout: 20_000 }).catch(async (error) => {
         const rightRailText = await page.locator('.bg-app-surface').last().textContent().catch(() => '')
@@ -287,11 +327,24 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Fake Codex received: Repo file context:').waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Files' }).click()
 
+      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-model-settings-smoke')
+      await page.getByLabel('Send message').click()
+      await page.getByText('settings:gpt-5.4-mini|medium|standard').waitFor({ timeout: 10_000 })
+
       await page.getByPlaceholder('Ask for follow-up changes').waitFor({ timeout: 10_000 })
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri fake codex smoke')
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: cranberri fake codex smoke').waitFor({ timeout: 10_000 })
       await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 10_000 })
+      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-smoke-reject-turn')
+      await page.getByLabel('Send message').click()
+      await page.getByText('Error: Fake Codex rejected turn').waitFor({ timeout: 10_000 })
+      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri fake codex smoke')
+      if (await page.getByLabel('Send message').isDisabled()) {
+        throw new Error('Rejected Codex turn left the chat running')
+      }
+      await page.getByLabel('Send message').click()
+      await page.getByText('Fake Codex received: cranberri fake codex smoke').last().waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('copy latest prompt')
       await page.locator('[cmdk-item]').filter({ hasText: 'Copy latest prompt' }).first().click()
