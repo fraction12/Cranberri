@@ -106,7 +106,7 @@ export function AddMenu({
                 {plugin.description || plugin.prompt}
               </span>
               {plugin.toolCount > 0 && (
-                <span className="ml-auto shrink-0 text-[11px] text-[var(--app-text-muted)]">
+                <span className="ml-auto shrink-0 text-caption text-[var(--app-text-muted)]">
                   {plugin.toolCount} tools
                 </span>
               )}

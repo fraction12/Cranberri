@@ -11,6 +11,9 @@ import { createOpenTerminalLinkBrowserEvent } from './terminal-link-events'
 import { TERMINAL_WINDOW_COMMAND_EVENT, terminalWindowCommandFromEvent } from './terminal-window-command-events'
 import { terminalBufferChatContext } from './terminal-chat-context'
 import { terminalClipboardText } from './terminal-buffer'
+import { terminalTheme } from './terminal-theme'
+import { useAppearance } from '../state/appearance-context'
+import { useSettings } from '../state/settings'
 
 interface TerminalWindowProps {
   id: string
@@ -29,6 +32,8 @@ function readTerminalBuffer(term: XTerm): string {
 }
 
 export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowProps) {
+  const { settings } = useSettings()
+  const { theme } = useAppearance()
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -40,6 +45,8 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
   const [ready, setReady] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const visualSettingsRef = useRef({ theme, fontSize: settings.terminal.fontSize })
+  visualSettingsRef.current = { theme, fontSize: settings.terminal.fontSize }
 
   const termId = `terminal-${id}`
 
@@ -47,34 +54,14 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
     if (!repoPath || !containerRef.current || termRef.current) return
 
     const container = containerRef.current
+    const visuals = visualSettingsRef.current
     const t = new XTerm({
       cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
+      fontFamily: 'SFMono-Regular, Menlo, Monaco, "Courier New", monospace',
+      fontSize: visuals.fontSize,
       allowProposedApi: true,
       scrollback: 10000,
-      theme: {
-        background: '#0f0f11',
-        foreground: '#fafafa',
-        cursor: '#a1a1aa',
-        selectionBackground: '#3f3f46',
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#fafafa',
-        brightBlack: '#27272a',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#facc15',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      },
+      theme: terminalTheme(visuals.theme),
     })
 
     const fit = new FitAddon()
@@ -170,6 +157,22 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       setReady(false)
     }
   }, [id, repoPath, termId])
+
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    term.options.theme = terminalTheme(theme)
+    term.options.fontSize = settings.terminal.fontSize
+    const frame = requestAnimationFrame(() => {
+      try {
+        fitRef.current?.fit()
+      } catch {
+        // xterm can throw while its pane is collapsed.
+      }
+      if (term.cols > 0 && term.rows > 0) window.cranberri.terminal.resize(termId, term.cols, term.rows)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [settings.terminal.fontSize, termId, theme])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -280,7 +283,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
           >
             <Search className="h-3.5 w-3.5" />
           </button>
-          {ready && <span className="text-app-accent">●</span>}
+          {ready && <span className="text-app-success">●</span>}
         </div>
       </div>
       {searchOpen && (
@@ -337,7 +340,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
           </button>
         </div>
       )}
-      <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-[#0f0f11]">
+      <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-app-bg">
         <div ref={containerRef} className="absolute inset-0 w-full h-full p-2" />
       </div>
     </div>

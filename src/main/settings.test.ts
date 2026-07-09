@@ -7,6 +7,7 @@ import { DEFAULT_APP_SETTINGS, type AppSettings } from '../shared/settings'
 const electron = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   userDataPath: '',
+  themeSource: 'system',
 }))
 
 vi.mock('electron', () => ({
@@ -15,6 +16,10 @@ vi.mock('electron', () => ({
     handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
       electron.handlers.set(channel, handler)
     },
+  },
+  nativeTheme: {
+    get themeSource() { return electron.themeSource },
+    set themeSource(value: string) { electron.themeSource = value },
   },
 }))
 
@@ -33,6 +38,7 @@ beforeEach(() => {
   electron.userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-settings-'))
   tempDirs.push(electron.userDataPath)
   electron.handlers.clear()
+  electron.themeSource = 'system'
 })
 
 afterEach(() => {
@@ -94,5 +100,44 @@ describe('Codex settings persistence', () => {
         defaultSpeed: 'fast',
       }),
     })
+  })
+
+  it('migrates older appearance settings and bounds font sizes', () => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 1,
+      data: {
+        ...DEFAULT_APP_SETTINGS,
+        editor: { fontSize: 99, lineWrap: true },
+        terminal: { fontSize: 2 },
+        appearance: { theme: 'dark' },
+      },
+    }))
+
+    expect(readSettings()).toMatchObject({
+      editor: { fontSize: 24 },
+      terminal: { fontSize: 8 },
+      appearance: {
+        theme: 'dark',
+        accent: 'green',
+        uiFontSize: 14,
+        reducedMotion: 'system',
+      },
+    })
+  })
+
+  it('keeps Electron native theme in sync with persisted settings', () => {
+    writeSettings({
+      ...DEFAULT_APP_SETTINGS,
+      appearance: { ...DEFAULT_APP_SETTINGS.appearance, theme: 'dark' },
+    })
+    initSettingsIpc()
+    expect(electron.themeSource).toBe('dark')
+
+    const setSettings = electron.handlers.get('settings:set')
+    setSettings?.({}, {
+      ...DEFAULT_APP_SETTINGS,
+      appearance: { ...DEFAULT_APP_SETTINGS.appearance, theme: 'light' },
+    })
+    expect(electron.themeSource).toBe('light')
   })
 })

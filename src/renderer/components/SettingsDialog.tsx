@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { X, Command, Keyboard, Monitor, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen, Activity, PlugZap } from 'lucide-react'
+import { X, Command, Keyboard, Palette, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen, Activity, PlugZap } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { CodexResourcesSection } from './CodexResourcesSection'
+import { AppearanceSettings } from './settings/AppearanceSettings'
 import {
   CODEX_MODELS,
   CODEX_APPROVAL_MODES,
@@ -22,7 +23,7 @@ interface SettingsDialogProps {
   initialTab?: SettingsTabValue
 }
 
-export type SettingsTabValue = 'general' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
+export type SettingsTabValue = 'general' | 'appearance' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
 
 function codexConnectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating…' : 'Connecting…'
@@ -72,10 +73,11 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-[var(--app-overlay)] p-6" onClick={onClose}>
       <div className="flex h-[560px] w-full max-w-[720px] overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex w-44 shrink-0 flex-col border-r border-app-border bg-app-bg p-2">
           <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="appearance" icon={Palette} label="Appearance" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="apps" icon={PlugZap} label="Apps" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="updates" icon={Download} label="Updates" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="diagnostics" icon={Activity} label="Diagnostics" onClick={setActiveTab} />
@@ -106,19 +108,19 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                             <div className="mt-1 truncate text-xs text-app-text-muted" title={codexError ?? codexStatus?.detail}>
                               {codexError ?? codexStatus?.detail ?? 'Checking Codex…'}
                             </div>
-                            {codexStatus?.cliPath && <div className="mt-1 truncate font-mono text-[10px] text-app-text-muted" title={codexStatus.cliPath}>{codexStatus.cliPath}</div>}
+                            {codexStatus?.cliPath && <div className="mt-1 truncate font-mono text-micro text-app-text-muted" title={codexStatus.cliPath}>{codexStatus.cliPath}</div>}
                           </div>
                           <button
                             type="button"
                             onClick={() => void connectCodex()}
                             disabled={connectingCodex || (codexStatus?.authenticated === true && !codexStatus.updateRequired)}
-                            className="shrink-0 rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:bg-app-surface-2 disabled:text-app-text-muted"
+                            className="shrink-0 rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-app-accent-contrast hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:bg-app-surface-2 disabled:text-app-text-muted"
                           >
                             {codexConnectionActionLabel(codexStatus, connectingCodex)}
                           </button>
                         </div>
                         {!codexStatus?.installed && (
-                          <p className="mt-2 text-[11px] text-app-text-muted">Cranberri will install the Codex CLI with npm, then launch Codex device auth.</p>
+                          <p className="mt-2 text-caption text-app-text-muted">Cranberri will install the Codex CLI with npm, then launch Codex device auth.</p>
                         )}
                       </div>
                       <label className="block">
@@ -184,22 +186,10 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                       </label>
                     </Section>
 
-                    <Section title="Appearance" icon={Monitor}>
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs text-app-text-muted">Theme</span>
-                        <select
-                          value={settings.appearance.theme}
-                          onChange={(e) => updateSection('appearance', { theme: e.target.value as typeof settings.appearance.theme })}
-                          className="w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm outline-none focus:border-app-text-muted"
-                        >
-                          <option value="dark">Dark</option>
-                          <option value="light">Light (preview only)</option>
-                        </select>
-                      </label>
-                      <p className="text-xs text-app-text-muted">Light theme is a placeholder; the app currently enforces dark mode.</p>
-                    </Section>
                   </>
                 )}
+
+                {activeTab === 'appearance' && <AppearanceSettings />}
 
                 {activeTab === 'shortcuts' && (
                   <Section title="Keyboard shortcuts" icon={Keyboard}>
@@ -274,7 +264,7 @@ function SidebarButton({
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-app-text-muted">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
         <Icon className="h-3.5 w-3.5" />
         {title}
       </div>
@@ -329,7 +319,7 @@ function UpdatesSection({ update, settings, updateSection }: {
                 className={`rounded-lg border px-3 py-2 text-left text-xs ${settings.updater.channel === channel ? 'border-app-accent bg-app-accent/10 text-app-text' : 'border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border'}`}
               >
                 <div className="font-medium capitalize">{channel}</div>
-                <div className="mt-1 text-[10px] leading-snug opacity-80">
+                <div className="mt-1 text-micro leading-snug opacity-80">
                   {channel === 'stable' ? 'GitHub Actions release artifacts.' : 'Build latest origin/main from local source.'}
                 </div>
               </button>
@@ -353,13 +343,13 @@ function UpdatesSection({ update, settings, updateSection }: {
               >
                 Choose repo…
               </button>
-              <p className="text-[11px] text-app-text-muted">Beta requires a local clone. Cranberri fetches origin/main, builds it, packages it, then installs that app.</p>
+              <p className="text-caption text-app-text-muted">Beta requires a local clone. Cranberri fetches origin/main, builds it, packages it, then installs that app.</p>
             </div>
           )}
         </div>
 
         <StatusRow icon={status?.status === 'upToDate' ? CheckCircle2 : status?.status === 'updateAvailable' ? Download : status?.status === 'failed' ? AlertCircle : RotateCw} label="Status">
-          <span className={status?.status === 'updateAvailable' ? 'text-app-accent' : status?.status === 'failed' ? 'text-app-danger' : ''}>
+          <span className={status?.status === 'updateAvailable' ? 'text-app-info' : status?.status === 'failed' ? 'text-app-danger' : ''}>
             {formatUpdateStatus(status)}
           </span>
         </StatusRow>
@@ -385,7 +375,7 @@ function UpdatesSection({ update, settings, updateSection }: {
             <div className="font-medium text-app-danger">Update failed</div>
             <div className="mt-1">{status.failureMessage}</div>
             {status.logPath && (
-              <div className="mt-1 font-mono text-[10px] opacity-80">{status.logPath}</div>
+              <div className="mt-1 font-mono text-micro opacity-80">{status.logPath}</div>
             )}
           </div>
         )}
@@ -397,7 +387,7 @@ function UpdatesSection({ update, settings, updateSection }: {
             <button
               type="button"
               onClick={() => void update.clearResult()}
-              className="mt-2 rounded bg-app-surface-2 px-2 py-1 text-[11px] hover:bg-app-surface-2/80"
+              className="mt-2 rounded bg-app-surface-2 px-2 py-1 text-caption hover:bg-app-surface-2/80"
             >
               Dismiss
             </button>
@@ -433,7 +423,7 @@ function UpdatesSection({ update, settings, updateSection }: {
               type="button"
               onClick={() => void update.install()}
               disabled={checking || installing}
-              className="rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-black hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-app-accent px-3 py-2 text-xs font-medium text-app-accent-contrast hover:bg-app-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {installing ? 'Installing…' : settings.updater.channel === 'beta' ? 'Build & install beta' : 'Download & install update'}
             </button>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol } from 'electron'
+import { app, BrowserWindow, nativeTheme, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { initAppIpc } from './appIpc'
@@ -123,6 +123,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f0f11' : '#f7f7f8',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
     webPreferences: {

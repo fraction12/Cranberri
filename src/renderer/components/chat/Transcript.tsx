@@ -10,8 +10,8 @@ const MarkdownContent = lazy(() => import('./MarkdownContent').then((module) => 
 const PING_DOT_CLASS = 'absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40'
 const USER_BUBBLE_CLASS = [
   'max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5',
-  'text-[13px] leading-5 text-[var(--app-text)]',
-  'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]',
+  'text-sm leading-5 text-[var(--app-text)]',
+  'shadow-[inset_0_0_0_1px_var(--app-inset)]',
 ].join(' ')
 
 function MessageActions({ text }: { text: string }) {
@@ -119,7 +119,7 @@ export function TranscriptMessage({
 }) {
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
-      <div className="max-w-full text-[13px] leading-5 text-[var(--app-text-muted)]">
+      <div className="max-w-full text-sm leading-5 text-[var(--app-text-muted)]">
         <div className="whitespace-pre-wrap">{formatInlineCodexText(msg.content)}</div>
       </div>
     )
@@ -138,9 +138,9 @@ export function TranscriptMessage({
   const fallbackText = stripCodexAppDirectives(msg.content)
 
   return (
-    <article className="max-w-full text-[15px] leading-7 text-[var(--app-text)]">
+    <article className="max-w-full text-base leading-7 text-[var(--app-text)]">
       <div className="break-words">
-        <Suspense fallback={<div className="whitespace-pre-wrap text-[13px] leading-5">{formatInlineCodexText(fallbackText)}</div>}>
+        <Suspense fallback={<div className="whitespace-pre-wrap text-sm leading-5">{formatInlineCodexText(fallbackText)}</div>}>
           <MarkdownContent text={msg.content} hideAppDirectives />
         </Suspense>
       </div>

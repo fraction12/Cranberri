@@ -1,9 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, ChevronRight, Zap } from 'lucide-react'
-import type { CodexTurnSettings } from '@/shared/codex'
+import type { CodexReasoningEffort, CodexSpeed, CodexTurnSettings } from '@/shared/codex'
 import {
-  CODEX_EFFORTS,
   CODEX_MODELS,
   CODEX_SPEEDS,
   getCodexEffortsForModel,
@@ -12,273 +10,166 @@ import {
   normalizeCodexSpeed,
 } from '@/shared/codex'
 
-type PopoverPosition = { top: number; left: number }
-type ModelSelectorProps = { settings: CodexTurnSettings; onChange: (settings: CodexTurnSettings) => void }
+type ModelSelectorProps = {
+  settings: CodexTurnSettings
+  onChange: (settings: CodexTurnSettings) => void
+}
 
-const MAIN_POPOVER_WIDTH = 208, MODEL_SUBMENU_WIDTH = 208, SPEED_SUBMENU_WIDTH = 176, POPOVER_GAP = 6, VIEWPORT_PADDING = 8
-const MODEL_SUBMENU_HEIGHT = 36 + CODEX_MODELS.length * 40
-const SPEED_SUBMENU_HEIGHT = 36 + CODEX_SPEEDS.length * 48
-const POPOVER_SHELL = 'rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] text-xs text-[var(--app-text)] shadow-2xl shadow-black/40'
-const ROW_CLASS = 'flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--app-surface-2)]'
-const TRIGGER_CLASS = 'flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[var(--app-text)] hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]'
+const MENU_SHELL = [
+  'z-[1200] overflow-y-auto rounded-lg border border-app-border bg-app-surface p-1.5',
+  'text-xs text-app-text shadow-2xl shadow-black/40 outline-none',
+].join(' ')
+const ITEM_CLASS = [
+  'relative flex min-h-8 w-full select-none items-center justify-between rounded-md px-2 py-1.5',
+  'text-left outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:opacity-40',
+].join(' ')
 
 export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
-  const [open, setOpen] = useState(false)
-  const [submenu, setSubmenu] = useState<'model' | 'speed' | null>(null)
-  const [mainPosition, setMainPosition] = useState<PopoverPosition | null>(null)
-  const [submenuPosition, setSubmenuPosition] = useState<PopoverPosition | null>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const modelRowRef = useRef<HTMLButtonElement>(null)
-  const speedRowRef = useRef<HTMLButtonElement>(null)
-  const closeSubmenuTimerRef = useRef<number | null>(null)
   const selectedModel = CODEX_MODELS.find((option) => option.value === settings.model) ?? CODEX_MODELS[0]
   const normalizedEffort = normalizeCodexReasoningEffort(settings.model, settings.effort)
   const normalizedSpeed = normalizeCodexSpeed(settings.model, settings.speed) ?? 'standard'
   const supportedEfforts = getCodexEffortsForModel(settings.model)
   const supportedSpeeds = getCodexSpeedsForModel(settings.model)
-  const selectedEffort = CODEX_EFFORTS.find((option) => option.value === normalizedEffort) ?? CODEX_EFFORTS[0]
+  const selectedEffort = supportedEfforts.find((option) => option.value === normalizedEffort) ?? supportedEfforts[0]
   const selectedSpeed = CODEX_SPEEDS.find((option) => option.value === normalizedSpeed) ?? CODEX_SPEEDS[0]
 
-  const updateMainPosition = () => {
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (!rect) return
-
-    const left = Math.min(
-      Math.max(VIEWPORT_PADDING, rect.right - MAIN_POPOVER_WIDTH),
-      window.innerWidth - MAIN_POPOVER_WIDTH - VIEWPORT_PADDING,
-    )
-    const top = Math.max(VIEWPORT_PADDING, rect.top - POPOVER_GAP)
-    setMainPosition({ top, left })
+  const selectModel = (model: string) => {
+    onChange({
+      ...settings,
+      model,
+      effort: normalizeCodexReasoningEffort(model, settings.effort),
+      speed: normalizeCodexSpeed(model, settings.speed),
+    })
   }
-
-  const openSubmenu = (nextSubmenu: 'model' | 'speed') => {
-    if (closeSubmenuTimerRef.current) {
-      window.clearTimeout(closeSubmenuTimerRef.current); closeSubmenuTimerRef.current = null
-    }
-
-    if (!mainPosition) return
-    const row = nextSubmenu === 'model' ? modelRowRef.current : speedRowRef.current
-    const rect = row?.getBoundingClientRect()
-    if (!rect) return
-
-    const width = nextSubmenu === 'model' ? MODEL_SUBMENU_WIDTH : SPEED_SUBMENU_WIDTH
-    const baseLeft = mainPosition.left
-    const rightSideLeft = baseLeft + MAIN_POPOVER_WIDTH + POPOVER_GAP
-    const left =
-      rightSideLeft + width + VIEWPORT_PADDING <= window.innerWidth
-        ? rightSideLeft
-        : Math.max(VIEWPORT_PADDING, baseLeft - width - POPOVER_GAP)
-    const estimatedHeight = nextSubmenu === 'model' ? MODEL_SUBMENU_HEIGHT : SPEED_SUBMENU_HEIGHT
-    const submenuHeight = Math.min(estimatedHeight, window.innerHeight - VIEWPORT_PADDING * 2)
-    const top = Math.max(VIEWPORT_PADDING, Math.min(
-      rect.top,
-      window.innerHeight - VIEWPORT_PADDING - submenuHeight,
-    ))
-
-    setSubmenu(nextSubmenu)
-    setSubmenuPosition({ top, left })
-  }
-
-  const scheduleCloseSubmenu = () => {
-    closeSubmenuTimerRef.current = window.setTimeout(() => {
-      setSubmenu(null); setSubmenuPosition(null)
-    }, 80)
-  }
-
-  useLayoutEffect(() => {
-    if (!open) return
-    updateMainPosition()
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return undefined
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (buttonRef.current?.contains(target)) return
-      const path = event.composedPath()
-      if (path.some((node) => node instanceof HTMLElement && node.dataset.modelSelectorPopover === 'true')) return
-      setOpen(false)
-      setSubmenu(null)
-    }
-    const onWindowChange = () => {
-      updateMainPosition()
-      setSubmenu(null); setSubmenuPosition(null)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setOpen(false)
-      setSubmenu(null)
-      setSubmenuPosition(null)
-      buttonRef.current?.focus()
-    }
-
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', onWindowChange)
-    window.addEventListener('scroll', onWindowChange, true)
-
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', onWindowChange)
-      window.removeEventListener('scroll', onWindowChange, true)
-    }
-  }, [open])
-
-  useEffect(() => {
-    return () => {
-      if (closeSubmenuTimerRef.current) window.clearTimeout(closeSubmenuTimerRef.current)
-    }
-  }, [])
-
-  const mainPopover = open && mainPosition ? (
-    <div
-      data-model-selector-popover="true"
-      className={`fixed z-[1000] w-52 -translate-y-full p-1.5 ${POPOVER_SHELL}`}
-      style={{ top: mainPosition.top, left: mainPosition.left }}
-    >
-      <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Reasoning</div>
-      {supportedEfforts.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange({ ...settings, effort: option.value })}
-          className={ROW_CLASS}
-        >
-          <span>{option.label}</span>
-          {normalizedEffort === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
-        </button>
-      ))}
-
-      <div className="my-1 h-px bg-[var(--app-border)]" />
-
-      <button
-        ref={modelRowRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={submenu === 'model'}
-        onClick={() => openSubmenu('model')}
-        onMouseEnter={() => openSubmenu('model')}
-        onMouseLeave={scheduleCloseSubmenu}
-        className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
-          submenu === 'model' ? 'bg-[var(--app-surface-2)]' : 'hover:bg-[var(--app-surface-2)]'
-        }`}
-      >
-        <span>{selectedModel.label}</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
-      </button>
-      <button
-        ref={speedRowRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={submenu === 'speed'}
-        onClick={() => openSubmenu('speed')}
-        onMouseEnter={() => openSubmenu('speed')}
-        onMouseLeave={scheduleCloseSubmenu}
-        className={`flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left ${
-          submenu === 'speed' ? 'bg-[var(--app-surface-2)]' : 'hover:bg-[var(--app-surface-2)]'
-        }`}
-      >
-        <span>Speed</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
-      </button>
-    </div>
-  ) : null
-
-  const submenuPopover = submenu && submenuPosition ? (
-    <div
-      data-model-selector-popover="true"
-      onMouseEnter={() => {
-        if (closeSubmenuTimerRef.current) window.clearTimeout(closeSubmenuTimerRef.current)
-      }}
-      onMouseLeave={scheduleCloseSubmenu}
-      className={`fixed z-[1001] overflow-y-auto p-1.5 ${POPOVER_SHELL} ${
-        submenu === 'model' ? 'w-52' : 'w-44'
-      }`}
-      style={{
-        top: submenuPosition.top,
-        left: submenuPosition.left,
-        maxHeight: window.innerHeight - submenuPosition.top - VIEWPORT_PADDING,
-      }}
-    >
-      {submenu === 'model' ? (
-        <>
-          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Model</div>
-          {CODEX_MODELS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onChange({
-                  ...settings,
-                  model: option.value,
-                  effort: normalizeCodexReasoningEffort(option.value, settings.effort),
-                  speed: normalizeCodexSpeed(option.value, settings.speed),
-                })
-                setOpen(false)
-                setSubmenu(null)
-              }}
-              className={ROW_CLASS}
-            >
-              <span className="flex min-w-0 flex-col">
-                <span>{option.label}</span>
-                <span className="text-[10px] text-[var(--app-text-muted)]">{option.description}</span>
-              </span>
-              {settings.model === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
-            </button>
-          ))}
-        </>
-      ) : (
-        <>
-          <div className="px-1.5 pb-1.5 pt-1 text-xs text-[var(--app-text-muted)]">Speed</div>
-          {supportedSpeeds.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => {
-                onChange({ ...settings, speed: option.value })
-                setOpen(false)
-                setSubmenu(null)
-              }}
-              className={ROW_CLASS}
-            >
-              <div className="flex flex-col items-start">
-                <span className="flex items-center gap-2">
-                  {option.value === 'fast' && <Zap className="h-3.5 w-3.5" />}
-                  {option.label}
-                </span>
-                <span className="text-xs text-[var(--app-text-muted)]">{option.description}</span>
-              </div>
-              {normalizedSpeed === option.value && <Check className="h-3.5 w-3.5 text-[var(--app-text)]" />}
-            </button>
-          ))}
-        </>
-      )}
-    </div>
-  ) : null
 
   return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-label="Configure model, reasoning, and speed"
-        onClick={() => {
-          setOpen((value) => !value)
-          setSubmenu(null)
-        }}
-        className={TRIGGER_CLASS}
-      >
-        <span>{selectedModel.label.replace('GPT-', '')}</span>
-        <span>{selectedEffort.label}</span>
-        <span className="text-[var(--app-text-muted)]">·</span>
-        <span>{selectedSpeed.label}</span>
-        <ChevronDown className="h-3 w-3 text-[var(--app-text-muted)]" />
-      </button>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          aria-label="Configure model, reasoning, and speed"
+          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-app-text outline-none hover:bg-app-surface-2 focus-visible:ring-2 focus-visible:ring-app-accent"
+        >
+          <span>{selectedModel.label.replace('GPT-', '')}</span>
+          <span>{selectedEffort.label}</span>
+          <span className="text-app-text-muted">·</span>
+          <span>{selectedSpeed.label}</span>
+          <ChevronDown className="h-3 w-3 text-app-text-muted" />
+        </button>
+      </DropdownMenu.Trigger>
 
-      {mainPopover && createPortal(mainPopover, document.body)}
-      {submenuPopover && createPortal(submenuPopover, document.body)}
-    </div>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="top"
+          align="end"
+          sideOffset={8}
+          collisionPadding={8}
+          className={`w-52 ${MENU_SHELL}`}
+          style={{ maxHeight: 'calc(100vh - 16px)' }}
+        >
+          <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+            Reasoning
+          </DropdownMenu.Label>
+          <DropdownMenu.RadioGroup
+            value={normalizedEffort}
+            onValueChange={(effort) => onChange({
+              ...settings,
+              effort: effort as CodexReasoningEffort,
+            })}
+          >
+            {supportedEfforts.map((option) => (
+              <MenuRadioItem key={option.value} value={option.value} label={option.label} />
+            ))}
+          </DropdownMenu.RadioGroup>
+
+          <DropdownMenu.Separator className="my-1 h-px bg-app-border" />
+
+          <DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className={ITEM_CLASS}>
+              <span>{selectedModel.label}</span>
+              <ChevronRight className="h-3.5 w-3.5 text-app-text-muted" />
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent
+                data-model-selector-submenu="model"
+                sideOffset={6}
+                alignOffset={-6}
+                collisionPadding={8}
+                className={`w-52 ${MENU_SHELL}`}
+                style={{ maxHeight: 'calc(100vh - 16px)' }}
+              >
+                <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+                  Model
+                </DropdownMenu.Label>
+                <DropdownMenu.RadioGroup value={settings.model} onValueChange={selectModel}>
+                  {CODEX_MODELS.map((option) => (
+                    <DropdownMenu.RadioItem key={option.value} value={option.value} className={ITEM_CLASS}>
+                      <span className="flex min-w-0 flex-col">
+                        <span>{option.label}</span>
+                        <span className="text-micro text-app-text-muted">{option.description}</span>
+                      </span>
+                      <DropdownMenu.ItemIndicator>
+                        <Check className="h-3.5 w-3.5 text-app-text" />
+                      </DropdownMenu.ItemIndicator>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+
+          <DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className={ITEM_CLASS}>
+              <span>Speed</span>
+              <ChevronRight className="h-3.5 w-3.5 text-app-text-muted" />
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent
+                data-model-selector-submenu="speed"
+                sideOffset={6}
+                alignOffset={-6}
+                collisionPadding={8}
+                className={`w-44 ${MENU_SHELL}`}
+                style={{ maxHeight: 'calc(100vh - 16px)' }}
+              >
+                <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+                  Speed
+                </DropdownMenu.Label>
+                <DropdownMenu.RadioGroup
+                  value={normalizedSpeed}
+                  onValueChange={(speed) => onChange({ ...settings, speed: speed as CodexSpeed })}
+                >
+                  {supportedSpeeds.map((option) => (
+                    <DropdownMenu.RadioItem key={option.value} value={option.value} className={ITEM_CLASS}>
+                      <span className="flex min-w-0 flex-col items-start">
+                        <span className="flex items-center gap-2">
+                          {option.value === 'fast' && <Zap className="h-3.5 w-3.5" />}
+                          {option.label}
+                        </span>
+                        <span className="text-xs text-app-text-muted">{option.description}</span>
+                      </span>
+                      <DropdownMenu.ItemIndicator>
+                        <Check className="h-3.5 w-3.5 text-app-text" />
+                      </DropdownMenu.ItemIndicator>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  )
+}
+
+function MenuRadioItem({ value, label }: { value: string; label: string }) {
+  return (
+    <DropdownMenu.RadioItem value={value} className={ITEM_CLASS}>
+      <span>{label}</span>
+      <DropdownMenu.ItemIndicator>
+        <Check className="h-3.5 w-3.5 text-app-text" />
+      </DropdownMenu.ItemIndicator>
+    </DropdownMenu.RadioItem>
   )
 }

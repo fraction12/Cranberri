@@ -81,10 +81,10 @@ export function CodeEditor({
             height: '100%',
             backgroundColor: 'var(--app-bg)',
             color: 'var(--app-text)',
-            fontSize: '13px',
+            fontSize: 'var(--app-code-font-size)',
           },
           '.cm-scroller': {
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            fontFamily: 'var(--app-font-mono)',
             lineHeight: '1.55',
           },
           '.cm-content': {
@@ -100,14 +100,14 @@ export function CodeEditor({
             color: 'var(--app-text-muted)',
           },
           '.cm-activeLine, .cm-activeLineGutter': {
-            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            backgroundColor: 'var(--app-active-line)',
           },
           '.cranberri-cm-focused-line': {
-            backgroundColor: 'rgba(34, 197, 94, 0.14)',
+            backgroundColor: 'var(--app-accent-soft)',
             boxShadow: 'inset 2px 0 0 var(--app-accent)',
           },
           '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-            backgroundColor: 'rgba(34, 197, 94, 0.28)',
+            backgroundColor: 'var(--app-accent-selection)',
           },
           '&.cm-focused': {
             outline: 'none',
@@ -172,7 +172,7 @@ export function CodeEditor({
     })
   }, [searchRequest])
 
-  return <div ref={hostRef} className="h-full min-h-0 text-[13px]" data-code-editor="true" data-focus-line={focusLine ?? undefined} />
+  return <div ref={hostRef} className="h-full min-h-0 text-code" data-code-editor="true" data-focus-line={focusLine ?? undefined} />
 }
 
 function scrollToFocusLine(view: EditorViewType | null, focusLine?: number | null): void {

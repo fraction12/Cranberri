@@ -371,14 +371,14 @@ export function RightRail() {
         {activeTab === 'files' && (
           <div className="absolute inset-0 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-app-border shrink-0">
-              <span className="text-xs font-medium text-app-text-muted uppercase tracking-wider">{filesMode === 'changes' ? 'Changes' : 'All Files'}</span>
+              <span className="text-xs font-medium text-app-text-muted uppercase">{filesMode === 'changes' ? 'Changes' : 'All Files'}</span>
               <div className="flex items-center gap-1.5">
                 {filesMode === 'changes' && (
                   <button
                     type="button"
                     onClick={openCommitDialog}
                     disabled={!activeRepo || !status?.length || commitState.status === 'committing'}
-                    className="text-[10px] px-2 py-1 rounded bg-app-surface-2 text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
+                    className="text-micro px-2 py-1 rounded bg-app-surface-2 text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
                     title="Write a commit message and commit these changes"
                   >
                     {commitState.status === 'committing' ? 'Committing…' : 'Commit'}
@@ -387,14 +387,14 @@ export function RightRail() {
                 <button
                   type="button"
                   onClick={() => setFilesMode((m) => (m === 'changes' ? 'all' : 'changes'))}
-                  className="text-[10px] px-2 py-1 rounded bg-app-surface-2 hover:bg-app-border text-app-text"
+                  className="text-micro px-2 py-1 rounded bg-app-surface-2 hover:bg-app-border text-app-text"
                 >
                   {filesMode === 'changes' ? 'Show all files' : 'Show changes'}
                 </button>
               </div>
             </div>
             {commitState.message && filesMode === 'changes' && (
-              <div className={`border-b border-app-border px-3 py-1.5 text-[11px] ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
+              <div className={`border-b border-app-border px-3 py-1.5 text-caption ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
                 {commitState.message}
               </div>
             )}
@@ -453,7 +453,7 @@ export function RightRail() {
                   <button
                     type="button"
                     onClick={() => void copySelectedFilePath()}
-                    className="rounded px-1.5 py-1 text-[10px] font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                    className="rounded px-1.5 py-1 text-micro font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text"
                     title="Copy selected file path"
                     aria-label="Copy selected file path"
                   >
@@ -473,7 +473,7 @@ export function RightRail() {
                     type="button"
                     onClick={() => void copySelectedFileAbsolutePath()}
                     disabled={!activeRepo || selectedFile.status === 'deleted'}
-                    className="rounded px-1.5 py-1 text-[10px] font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
+                    className="rounded px-1.5 py-1 text-micro font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
                     title="Copy selected file absolute path"
                     aria-label="Copy selected file absolute path"
                   >
@@ -528,7 +528,7 @@ export function RightRail() {
                   )}
                 </div>
                 {contextState.message && (
-                  <div className={`border-b border-app-border px-3 py-1.5 text-[11px] ${contextState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
+                  <div className={`border-b border-app-border px-3 py-1.5 text-caption ${contextState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
                     {contextState.message}
                   </div>
                 )}
@@ -539,7 +539,7 @@ export function RightRail() {
                     className="flex items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2"
                     onSubmit={submitGoToLine}
                   >
-                    <label htmlFor="right-rail-go-to-line" className="text-[11px] font-medium text-app-text-muted">Line</label>
+                    <label htmlFor="right-rail-go-to-line" className="text-caption font-medium text-app-text-muted">Line</label>
                     <input
                       id="right-rail-go-to-line"
                       autoFocus
@@ -553,13 +553,13 @@ export function RightRail() {
                     />
                     <button
                       type="submit"
-                      className="h-7 rounded bg-app-accent px-2 text-[11px] font-semibold text-app-bg hover:bg-app-accent/90"
+                      className="h-7 rounded bg-app-accent px-2 text-caption font-semibold text-app-accent-contrast hover:bg-app-accent/90"
                     >
                       Go
                     </button>
                     <button
                       type="button"
-                      className="h-7 rounded px-2 text-[11px] font-medium text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                      className="h-7 rounded px-2 text-caption font-medium text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
                       onClick={() => {
                         setLineDialogOpen(false)
                         setLineError(null)
@@ -567,7 +567,7 @@ export function RightRail() {
                     >
                       Cancel
                     </button>
-                    {lineError && <span className="min-w-0 text-[11px] text-app-danger">{lineError}</span>}
+                    {lineError && <span className="min-w-0 text-caption text-app-danger">{lineError}</span>}
                   </form>
                 )}
                 <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">

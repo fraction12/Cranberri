@@ -123,7 +123,7 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
       className="my-4 overflow-hidden rounded-lg border border-app-border bg-app-surface"
       data-markdown-media={source.kind}
     >
-      <div className="flex min-h-8 items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-3 py-1.5 text-[10px] uppercase text-app-text-muted">
+      <div className="flex min-h-8 items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-3 py-1.5 text-micro uppercase text-app-text-muted">
         <figcaption className="truncate" title={title}>{title}</figcaption>
         <span className="flex items-center gap-1">
           {canSendToChat && (

@@ -89,7 +89,7 @@ export function CodexResourcesSection() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-app-text-muted">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
             <PlugZap className="h-3.5 w-3.5" />
             Apps and tools
           </div>
@@ -120,7 +120,7 @@ export function CodexResourcesSection() {
       </div>
 
       {(actionMessage || installPluginMutation.error || upgradeMarketplacesMutation.error) && (
-        <div className={`rounded-lg border p-3 text-xs ${installPluginMutation.error || upgradeMarketplacesMutation.error ? 'border-app-danger/30 bg-app-danger/10 text-app-danger' : 'border-app-accent/30 bg-app-accent/10 text-app-accent'}`}>
+        <div className={`rounded-lg border p-3 text-xs ${installPluginMutation.error || upgradeMarketplacesMutation.error ? 'border-app-danger/30 bg-app-danger/10 text-app-danger' : 'border-app-success/30 bg-app-success/10 text-app-success'}`}>
           {installPluginMutation.error instanceof Error
             ? installPluginMutation.error.message
             : upgradeMarketplacesMutation.error instanceof Error
@@ -191,8 +191,8 @@ export function CodexResourcesSection() {
           <div key={server.name} className="rounded-lg border border-app-border bg-app-bg p-3">
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{server.name}</span>
-              <span className="text-[10px] text-app-text-muted">{server.authStatus}</span>
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px]">{server.toolCount} tools</span>
+              <span className="text-micro text-app-text-muted">{server.authStatus}</span>
+              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro">{server.toolCount} tools</span>
               <ResourceContextButton
                 label={`Send ${server.name} MCP server context to chat`}
                 onClick={() => sendResourceContextToChat('mcp-server', server.name, mcpServerChatContext(server))}
@@ -204,7 +204,7 @@ export function CodexResourcesSection() {
                   <button
                     key={tool.name}
                     type="button"
-                    className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text-muted hover:text-app-text focus:outline-none focus:ring-1 focus:ring-app-accent"
+                    className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted hover:text-app-text focus:outline-none focus:ring-1 focus:ring-app-accent"
                     title={`Send ${tool.title ?? tool.name} tool context to chat`}
                     aria-label={`Send ${tool.title ?? tool.name} tool context to chat`}
                     onClick={() => sendResourceContextToChat('mcp-tool', tool.title ?? tool.name, mcpToolChatContext(server, tool))}
@@ -212,7 +212,7 @@ export function CodexResourcesSection() {
                     {tool.title ?? tool.name}
                   </button>
                 ))}
-                {server.tools.length > 8 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text-muted">+{server.tools.length - 8}</span>}
+                {server.tools.length > 8 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">+{server.tools.length - 8}</span>}
               </div>
             )}
           </div>
@@ -224,7 +224,7 @@ export function CodexResourcesSection() {
           <div key={skill.id} className="rounded-lg border border-app-border bg-app-bg p-3">
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.displayName}</span>
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text-muted">{skillSourceLabel(skill)}</span>
+              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">{skillSourceLabel(skill)}</span>
               <button
                 type="button"
                 onClick={() => sendSkillToChat(skill)}
@@ -267,7 +267,7 @@ function ResourceContextButton({ label, onClick }: { label: string; onClick: () 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-app-border bg-app-bg p-3">
-      <div className="text-[10px] uppercase tracking-wider text-app-text-muted">{label}</div>
+      <div className="text-micro uppercase text-app-text-muted">{label}</div>
       <div className="mt-1 truncate text-sm font-semibold">{value}</div>
     </div>
   )
@@ -276,7 +276,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function ResourceGroup({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-app-text-muted">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
         <Icon className="h-3.5 w-3.5" />
         {title}
       </div>
@@ -292,14 +292,14 @@ function PluginRow({ plugin, pending = false, onInstall }: { plugin: CodexPlugin
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{plugin.displayName}</span>
         <StatusPill ok={installed}>{installed ? (plugin.enabled ? 'Enabled' : 'Installed') : 'Available'}</StatusPill>
-        {plugin.version && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text-muted">{plugin.version}</span>}
-        {plugin.toolCount > 0 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px]">{plugin.toolCount} tools</span>}
+        {plugin.version && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">{plugin.version}</span>}
+        {plugin.toolCount > 0 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro">{plugin.toolCount} tools</span>}
         {!installed && onInstall && (
           <button
             type="button"
             onClick={onInstall}
             disabled={pending}
-            className="inline-flex items-center gap-1 rounded bg-app-accent px-2 py-1 text-[10px] font-semibold text-app-bg hover:bg-app-accent/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded bg-app-accent px-2 py-1 text-micro font-semibold text-app-accent-contrast hover:bg-app-accent/90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
             {pending ? 'Installing' : 'Install'}
@@ -307,14 +307,14 @@ function PluginRow({ plugin, pending = false, onInstall }: { plugin: CodexPlugin
         )}
       </div>
       <div className="mt-1 truncate text-xs text-app-text-muted">{plugin.description || plugin.prompt || plugin.id}</div>
-      <div className="mt-1 truncate text-[10px] text-app-text-muted">{plugin.marketplaceName ?? 'marketplace'}{plugin.sourceLabel ? ` - ${plugin.sourceLabel}` : ''}</div>
+      <div className="mt-1 truncate text-micro text-app-text-muted">{plugin.marketplaceName ?? 'marketplace'}{plugin.sourceLabel ? ` - ${plugin.sourceLabel}` : ''}</div>
     </div>
   )
 }
 
 function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${ok ? 'bg-app-accent/10 text-app-accent' : 'bg-app-surface-2 text-app-text-muted'}`}>
+    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-micro ${ok ? 'bg-app-success/10 text-app-success' : 'bg-app-surface-2 text-app-text-muted'}`}>
       {ok && <CheckCircle2 className="h-3 w-3" />}
       {children}
     </span>

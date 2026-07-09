@@ -144,7 +144,7 @@ function AppShell() {
         </div>
         <div className="flex-1 min-w-0 flex h-full min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 h-full overflow-hidden">
-            <Workspace />
+            <Workspace browserSurfaceObscured={settingsOpen || commandPaletteOpen} />
           </div>
         </div>
         <div

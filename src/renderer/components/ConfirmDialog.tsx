@@ -27,7 +27,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 px-4 pt-[18vh]"
+      className="fixed inset-0 z-[70] flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[18vh]"
       role="presentation"
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onCancel()
@@ -57,7 +57,7 @@ export function ConfirmDialog({
             className={`h-8 rounded px-3 text-xs font-semibold disabled:opacity-50 ${
               danger
                 ? 'bg-app-danger text-white hover:bg-app-danger/90'
-                : 'bg-app-accent text-app-bg hover:bg-app-accent/90'
+                : 'bg-app-accent text-app-accent-contrast hover:bg-app-accent/90'
             }`}
             onClick={onConfirm}
           >

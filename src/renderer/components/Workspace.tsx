@@ -23,7 +23,11 @@ import type { CodexUserInput } from '@/shared/codex'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
-export function Workspace() {
+interface WorkspaceProps {
+  browserSurfaceObscured?: boolean
+}
+
+export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
   const { openSession, closeThreadWindow } = useCodex()
@@ -227,6 +231,7 @@ export function Workspace() {
               <BrowserPane
                 windowState={win}
                 active={activeWindowId === win.id}
+                obscured={browserSurfaceObscured}
                 onPageState={(state) => updateBrowserState(win.id, { url: state.url, title: state.title || 'Browser' })}
                 onViewportModeChange={(viewportMode) => updateBrowserState(win.id, { viewportMode })}
                 onSendToChat={sendContextToChat}

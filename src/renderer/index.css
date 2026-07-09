@@ -3,14 +3,149 @@
 @tailwind utilities;
 
 :root {
-  --app-bg: #0f0f11;
-  --app-surface: #18181b;
-  --app-surface-2: #27272a;
-  --app-border: #3f3f46;
-  --app-text: #fafafa;
-  --app-text-muted: #a1a1aa;
-  --app-accent: #22c55e;
-  --app-danger: #ef4444;
+  --app-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --app-font-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --app-ui-font-size: 14px;
+  --app-code-font-size: 12px;
+  --app-terminal-font-size: 13px;
+  --app-font-micro: clamp(9px, calc(var(--app-ui-font-size) - 4px), 12px);
+  --app-font-caption: clamp(10px, calc(var(--app-ui-font-size) - 3px), 13px);
+  --app-font-label: clamp(11px, calc(var(--app-ui-font-size) - 2px), 14px);
+  --app-font-ui-size: clamp(12px, calc(var(--app-ui-font-size) - 1px), 15px);
+  --app-font-prose: clamp(13px, calc(var(--app-ui-font-size) + 1px), 17px);
+  --app-font-title: clamp(15px, calc(var(--app-ui-font-size) + 2px), 18px);
+  --app-font-display: clamp(18px, calc(var(--app-ui-font-size) + 6px), 22px);
+  --app-line-micro: clamp(13px, var(--app-ui-font-size), 16px);
+  --app-line-caption: clamp(14px, calc(var(--app-ui-font-size) + 2px), 18px);
+  --app-line-label: clamp(14px, calc(var(--app-ui-font-size) + 2px), 18px);
+  --app-line-ui: clamp(18px, calc(var(--app-ui-font-size) + 6px), 22px);
+  --app-line-prose: clamp(21px, calc(var(--app-ui-font-size) + 10px), 26px);
+  --app-line-title: clamp(20px, calc(var(--app-ui-font-size) + 8px), 24px);
+  --app-line-display: clamp(26px, calc(var(--app-ui-font-size) + 14px), 30px);
+  --app-bg-rgb: 15 15 17;
+  --app-surface-rgb: 24 24 27;
+  --app-surface-2-rgb: 39 39 42;
+  --app-border-rgb: 63 63 70;
+  --app-text-rgb: 250 250 250;
+  --app-text-muted-rgb: 161 161 170;
+  --app-success-rgb: 74 222 128;
+  --app-warning-rgb: 250 204 21;
+  --app-info-rgb: 96 165 250;
+  --app-danger-rgb: 239 68 68;
+  --app-mention-rgb: 255 179 179;
+  --app-inset: rgba(255, 255, 255, 0.045);
+  --app-overlay: rgba(0, 0, 0, 0.62);
+  --app-active-line: rgba(255, 255, 255, 0.045);
+  --app-accent-soft: rgba(34, 197, 94, 0.14);
+  --app-accent-selection: rgba(34, 197, 94, 0.28);
+  --app-diff-added: rgba(34, 197, 94, 0.12);
+  --app-diff-removed: rgba(239, 68, 68, 0.12);
+  --app-bg: rgb(var(--app-bg-rgb));
+  --app-surface: rgb(var(--app-surface-rgb));
+  --app-surface-2: rgb(var(--app-surface-2-rgb));
+  --app-border: rgb(var(--app-border-rgb));
+  --app-text: rgb(var(--app-text-rgb));
+  --app-text-muted: rgb(var(--app-text-muted-rgb));
+  --app-accent: rgb(var(--app-accent-rgb));
+  --app-danger: rgb(var(--app-danger-rgb));
+  --app-mention: rgb(var(--app-mention-rgb));
+  --app-mention-ring: rgba(255, 143, 143, 0.18);
+}
+
+:root[data-theme='light'] {
+  --app-bg-rgb: 247 247 248;
+  --app-surface-rgb: 255 255 255;
+  --app-surface-2-rgb: 237 237 240;
+  --app-border-rgb: 209 209 214;
+  --app-text-rgb: 32 33 35;
+  --app-text-muted-rgb: 103 103 111;
+  --app-success-rgb: 21 128 61;
+  --app-warning-rgb: 161 98 7;
+  --app-info-rgb: 37 99 235;
+  --app-danger-rgb: 220 38 38;
+  --app-mention-rgb: 190 24 93;
+  --app-mention-ring: rgba(190, 24, 93, 0.18);
+  --app-inset: rgba(15, 23, 42, 0.055);
+  --app-overlay: rgba(24, 24, 27, 0.28);
+  --app-active-line: rgba(15, 23, 42, 0.045);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --app-bg-rgb: 247 247 248;
+    --app-surface-rgb: 255 255 255;
+    --app-surface-2-rgb: 237 237 240;
+    --app-border-rgb: 209 209 214;
+    --app-text-rgb: 32 33 35;
+    --app-text-muted-rgb: 103 103 111;
+    --app-success-rgb: 21 128 61;
+    --app-warning-rgb: 161 98 7;
+    --app-info-rgb: 37 99 235;
+    --app-danger-rgb: 220 38 38;
+    --app-mention-rgb: 190 24 93;
+    --app-mention-ring: rgba(190, 24, 93, 0.18);
+    --app-inset: rgba(15, 23, 42, 0.055);
+    --app-overlay: rgba(24, 24, 27, 0.28);
+    --app-active-line: rgba(15, 23, 42, 0.045);
+  }
+}
+
+:root,
+:root[data-accent='green'] {
+  --app-accent-rgb: 34 197 94;
+  --app-accent-contrast-rgb: 8 24 15;
+  --app-accent-soft: rgba(34, 197, 94, 0.14);
+  --app-accent-selection: rgba(34, 197, 94, 0.28);
+}
+
+:root[data-accent='blue'] {
+  --app-accent-rgb: 59 130 246;
+  --app-accent-contrast-rgb: 255 255 255;
+  --app-accent-soft: rgba(59, 130, 246, 0.14);
+  --app-accent-selection: rgba(59, 130, 246, 0.26);
+}
+
+:root[data-accent='orange'] {
+  --app-accent-rgb: 249 115 22;
+  --app-accent-contrast-rgb: 32 14 4;
+  --app-accent-soft: rgba(249, 115, 22, 0.14);
+  --app-accent-selection: rgba(249, 115, 22, 0.26);
+}
+
+:root[data-accent='rose'] {
+  --app-accent-rgb: 244 63 94;
+  --app-accent-contrast-rgb: 255 255 255;
+  --app-accent-soft: rgba(244, 63, 94, 0.14);
+  --app-accent-selection: rgba(244, 63, 94, 0.26);
+}
+
+:root[data-accent='violet'] {
+  --app-accent-rgb: 139 92 246;
+  --app-accent-contrast-rgb: 255 255 255;
+  --app-accent-soft: rgba(139, 92, 246, 0.14);
+  --app-accent-selection: rgba(139, 92, 246, 0.26);
+}
+
+:root[data-theme='light'][data-accent='green'] {
+  --app-accent-rgb: 21 128 61;
+  --app-accent-contrast-rgb: 255 255 255;
+}
+
+:root[data-theme='light'][data-accent='blue'] {
+  --app-accent-rgb: 37 99 235;
+}
+
+:root[data-theme='light'][data-accent='orange'] {
+  --app-accent-rgb: 194 65 12;
+  --app-accent-contrast-rgb: 255 255 255;
+}
+
+:root[data-theme='light'][data-accent='rose'] {
+  --app-accent-rgb: 225 29 72;
+}
+
+:root[data-theme='light'][data-accent='violet'] {
+  --app-accent-rgb: 124 58 237;
 }
 
 html,
@@ -21,11 +156,28 @@ body,
   overflow: hidden;
 }
 
+html {
+  font-size: 16px;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--app-font-ui);
   background: var(--app-bg);
   color: var(--app-text);
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--app-accent-selection);
+}
+
+:root[data-reduced-motion='reduce'] *,
+:root[data-reduced-motion='reduce'] *::before,
+:root[data-reduced-motion='reduce'] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 body.rail-resizing {

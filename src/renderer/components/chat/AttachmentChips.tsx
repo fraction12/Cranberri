@@ -8,7 +8,7 @@ interface AttachmentChipsProps {
 
 const ATTACHMENT_CHIP_CLASS = [
   'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)]',
-  'bg-[var(--app-surface-2)] px-1.5 py-1 text-[11px] text-[var(--app-text)]',
+  'bg-[var(--app-surface-2)] px-1.5 py-1 text-caption text-[var(--app-text)]',
   'hover:bg-[var(--app-border)]',
 ].join(' ')
 

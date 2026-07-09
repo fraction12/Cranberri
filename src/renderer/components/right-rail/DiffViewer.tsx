@@ -41,7 +41,7 @@ export function DiffViewer({ filePath, status, wrapContent, focusLine, searchReq
   }
 
   return (
-    <div className={`cranberri-diff-viewer h-full overflow-auto text-xs ${wrapContent ? 'wrap-diff-content' : ''}`}>
+    <div className={`cranberri-diff-viewer h-full overflow-auto text-code ${wrapContent ? 'wrap-diff-content' : ''}`}>
       <ReactDiffViewer
         oldValue={oldContent ?? ''}
         newValue={newContent ?? ''}
@@ -62,9 +62,9 @@ export function DiffStats({ filePath }: { filePath: string; status: GitFileStatu
   const { additions, deletions } = fileDiff.files[0]
   if (additions === 0 && deletions === 0) return null
   return (
-    <div className="ml-auto flex items-center gap-2 text-[10px] font-medium">
-      {additions > 0 && <span className="text-green-400">+{additions}</span>}
-      {deletions > 0 && <span className="text-red-400">−{deletions}</span>}
+    <div className="ml-auto flex items-center gap-2 text-micro font-medium">
+      {additions > 0 && <span className="text-app-success">+{additions}</span>}
+      {deletions > 0 && <span className="text-app-danger">−{deletions}</span>}
     </div>
   )
 }
@@ -78,9 +78,9 @@ function getDiffStyles(wrapContent: boolean) {
         diffViewerTitleBackground: 'var(--app-surface-2)',
         diffViewerTitleColor: 'var(--app-text)',
         diffViewerTitleBorderColor: 'var(--app-border)',
-        addedBackground: 'rgba(34, 197, 94, 0.12)',
+        addedBackground: 'var(--app-diff-added)',
         addedColor: 'var(--app-text)',
-        removedBackground: 'rgba(239, 68, 68, 0.12)',
+        removedBackground: 'var(--app-diff-removed)',
         removedColor: 'var(--app-text)',
         changedBackground: 'transparent',
         gutterColor: 'var(--app-text-muted)',
@@ -89,7 +89,7 @@ function getDiffStyles(wrapContent: boolean) {
       },
     },
     diffContainer: {
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontFamily: 'var(--app-font-mono)',
       borderRadius: 0,
       border: 'none',
       width: '100%',

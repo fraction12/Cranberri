@@ -26,15 +26,15 @@ function statusClass(status: ToolEventStatus): string {
   switch (status) {
     case 'completed':
     case 'approved':
-      return 'text-emerald-300'
+      return 'text-app-success'
     case 'failed':
     case 'denied':
       return 'text-app-danger'
     case 'approval_requested':
-      return 'text-amber-300'
+      return 'text-app-warning'
     case 'running':
     case 'progress':
-      return 'text-sky-300'
+      return 'text-app-info'
     case 'disabled':
       return 'text-app-text-muted'
     default:
@@ -103,7 +103,7 @@ function ToolRow({ event }: { event: ToolTimelineEvent }) {
             <span className="truncate text-xs font-medium text-app-text" title={event.name}>
               {event.title ?? event.name}
             </span>
-            <span className={cn('shrink-0 text-[10px] font-medium uppercase', statusClass(event.status))}>
+            <span className={cn('shrink-0 text-micro font-medium uppercase', statusClass(event.status))}>
               {STATUS_LABELS[event.status]}
             </span>
             <button
@@ -125,13 +125,13 @@ function ToolRow({ event }: { event: ToolTimelineEvent }) {
               <Copy className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-app-text-muted">
+          <div className="mt-0.5 flex items-center gap-2 text-micro text-app-text-muted">
             <span>{formatTime(event.timestamp)}</span>
             <span className="truncate">{eventMeta(event)}</span>
           </div>
           {preview && (
             <pre className={cn(
-              'mt-1 max-h-20 overflow-hidden whitespace-pre-wrap break-words rounded bg-app-surface-2 px-2 py-1 text-[10px] leading-4 text-app-text-muted',
+              'mt-1 max-h-20 overflow-hidden whitespace-pre-wrap break-words rounded bg-app-surface-2 px-2 py-1 text-micro leading-4 text-app-text-muted',
               event.error ? 'text-app-danger' : '',
             )}>
               {preview}
@@ -152,7 +152,7 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
 
   return (
     <section className="border-b border-app-border">
-      <div className="grid grid-cols-3 border-b border-app-border text-center text-[10px] text-app-text-muted">
+      <div className="grid grid-cols-3 border-b border-app-border text-center text-micro text-app-text-muted">
         <div className="border-r border-app-border py-2">
           <div className="text-sm font-semibold text-app-text">{apps.length}</div>
           <div>apps</div>
@@ -180,22 +180,22 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
           {capabilityMessages.map((message) => (
             <div key={message.id} className="rounded border border-amber-400/20 bg-amber-400/10 px-2 py-1.5">
               <div className="text-xs font-medium text-amber-200">{message.title}</div>
-              <div className="mt-0.5 text-[10px] leading-4 text-app-text-muted">{message.description}</div>
+              <div className="mt-0.5 text-micro leading-4 text-app-text-muted">{message.description}</div>
             </div>
           ))}
         </div>
       )}
       {enabledApps.length > 0 && (
         <div className="border-b border-app-border px-3 py-2">
-          <div className="mb-1 text-[10px] font-medium uppercase text-app-text-muted">Apps</div>
+          <div className="mb-1 text-micro font-medium uppercase text-app-text-muted">Apps</div>
           <div className="flex flex-wrap gap-1.5">
             {enabledApps.slice(0, 12).map((app) => (
-              <span key={app.id} className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text">
+              <span key={app.id} className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text">
                 {app.name}
               </span>
             ))}
             {enabledApps.length > 12 && (
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] text-app-text-muted">
+              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">
                 +{enabledApps.length - 12}
               </span>
             )}
@@ -208,11 +208,11 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
             <div key={server.name} className="px-3 py-2">
               <div className="flex items-center gap-2 text-xs">
                 <span className="min-w-0 flex-1 truncate font-medium text-app-text">{server.name}</span>
-                <span className="text-[10px] text-app-text-muted">{server.authStatus}</span>
-                <span className="text-[10px] text-app-text-muted">{server.toolCount}</span>
+                <span className="text-micro text-app-text-muted">{server.authStatus}</span>
+                <span className="text-micro text-app-text-muted">{server.toolCount}</span>
               </div>
               {server.tools.length > 0 && (
-                <div className="mt-1 truncate text-[10px] text-app-text-muted">
+                <div className="mt-1 truncate text-micro text-app-text-muted">
                   {server.tools.slice(0, 5).map((tool) => tool.title ?? tool.name).join(' · ')}
                 </div>
               )}
@@ -257,7 +257,7 @@ export function ToolsPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-3 border-b border-app-border px-3 text-[11px] text-app-text-muted">
+      <div className="flex h-9 shrink-0 items-center gap-3 border-b border-app-border px-3 text-caption text-app-text-muted">
         <span className="flex items-center gap-1.5">
           <Wrench className="h-3.5 w-3.5" />
           {events.length}
@@ -291,7 +291,7 @@ export function ToolsPanel() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <RegistrySection registry={registry} isLoading={registryLoading} />
-        <div className="px-3 py-2 text-[10px] font-medium uppercase text-app-text-muted">Timeline</div>
+        <div className="px-3 py-2 text-micro font-medium uppercase text-app-text-muted">Timeline</div>
         {isLoading ? (
           <div className="px-3 pb-3 text-sm text-app-text-muted">Loading tool events...</div>
         ) : newestFirst.length ? (

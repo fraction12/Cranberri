@@ -10,6 +10,7 @@ import { createBrowserScreenshotContextCapturedEvent, createBrowserSnapshotConte
 interface BrowserWindowProps {
   windowState: WorkspaceWindow
   active: boolean
+  obscured: boolean
   onPageState: (state: BrowserPageState) => void
   onViewportModeChange: (mode: BrowserViewportMode) => void
   onSendToChat: (text: string, inputParts?: CodexUserInput[]) => void
@@ -39,7 +40,7 @@ function boundsFromElement(element: HTMLElement): BrowserBounds {
   }
 }
 
-export function BrowserWindow({ windowState, active, onPageState, onViewportModeChange, onSendToChat }: BrowserWindowProps) {
+export function BrowserWindow({ windowState, active, obscured, onPageState, onViewportModeChange, onSendToChat }: BrowserWindowProps) {
   const initialUrl = windowState.browser?.url ?? 'about:blank'
   const profileId = windowState.browser?.profileId ?? 'default'
   const viewportMode = windowState.browser?.viewportMode ?? 'responsive'
@@ -84,7 +85,7 @@ export function BrowserWindow({ windowState, active, onPageState, onViewportMode
   }, [onPageState, windowState.id])
 
   useEffect(() => {
-    if (!active) {
+    if (!active || obscured) {
       window.cranberri.browser.detach(windowState.id).catch(() => undefined)
       return
     }
@@ -119,7 +120,7 @@ export function BrowserWindow({ windowState, active, onPageState, onViewportMode
       observer.disconnect()
       window.cranberri.browser.detach(windowState.id).catch(() => undefined)
     }
-  }, [active, attachParams, viewportFrame.height, viewportFrame.width, windowState.id])
+  }, [active, attachParams, obscured, viewportFrame.height, viewportFrame.width, windowState.id])
 
   const navigate = (target = address) => {
     setNotice(null)
@@ -410,7 +411,8 @@ export function BrowserWindow({ windowState, active, onPageState, onViewportMode
           <div
             ref={viewportRef}
             data-browser-viewport="true"
-            className="relative mx-auto min-h-0 overflow-hidden bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+            data-browser-surface-obscured={obscured ? 'true' : undefined}
+            className="relative mx-auto min-h-0 overflow-hidden bg-white shadow-[0_0_0_1px_var(--app-border)]"
             style={{ width: viewportFrame.width, height: viewportFrame.height }}
           >
             {!active && (
@@ -420,7 +422,7 @@ export function BrowserWindow({ windowState, active, onPageState, onViewportMode
             )}
           </div>
           {active && viewportMode !== 'responsive' && (
-            <div className="mx-auto mt-2 text-center text-[10px] text-app-text-muted" style={{ width: viewportFrame.width }}>
+            <div className="mx-auto mt-2 text-center text-micro text-app-text-muted" style={{ width: viewportFrame.width }}>
               {viewportFrame.label}
             </div>
           )}
@@ -528,7 +530,7 @@ export function BrowserWindow({ windowState, active, onPageState, onViewportMode
               {inspection ? (
                 <ElementInspectionView inspection={inspection} />
               ) : (
-                <pre className="h-52 overflow-auto whitespace-pre-wrap break-words bg-app-bg p-3 font-mono text-[11px] leading-relaxed text-app-text-muted">
+                <pre className="h-52 overflow-auto whitespace-pre-wrap break-words bg-app-bg p-3 font-mono text-caption leading-relaxed text-app-text-muted">
                   {capture.snapshot?.text || 'No page text captured yet.'}
                 </pre>
               )}
@@ -558,7 +560,7 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
         <InfoCell label="Rect" value={`${inspection.rect.width}x${inspection.rect.height} @ ${inspection.rect.x},${inspection.rect.y}`} />
       </div>
       {inspection.text && (
-        <pre className="mt-3 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-[11px] leading-relaxed text-app-text-muted">
+        <pre className="mt-3 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-caption leading-relaxed text-app-text-muted">
           {inspection.text}
         </pre>
       )}
@@ -566,17 +568,17 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
         {styleRows.map(([label, value]) => (
           <div key={label} className="flex gap-3">
             <span className="w-20 shrink-0 text-app-text-muted">{label}</span>
-            <span className="min-w-0 flex-1 break-words font-mono text-[11px]">{value || '-'}</span>
+            <span className="min-w-0 flex-1 break-words font-mono text-caption">{value || '-'}</span>
           </div>
         ))}
       </div>
       {Object.keys(inspection.attributes).length > 0 && (
         <div className="mt-3 border-t border-app-border pt-2">
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-app-text-muted">Attributes</div>
+          <div className="mb-1 text-micro uppercase text-app-text-muted">Attributes</div>
           {Object.entries(inspection.attributes).slice(0, 8).map(([name, value]) => (
             <div key={name} className="flex gap-3">
               <span className="w-20 shrink-0 text-app-text-muted">{name}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={value}>{value}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-caption" title={value}>{value}</span>
             </div>
           ))}
         </div>
@@ -588,8 +590,8 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded border border-app-border bg-app-surface px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-app-text-muted">{label}</div>
-      <div className="mt-1 truncate font-mono text-[11px]" title={value}>{value}</div>
+      <div className="text-micro uppercase text-app-text-muted">{label}</div>
+      <div className="mt-1 truncate font-mono text-caption" title={value}>{value}</div>
     </div>
   )
 }

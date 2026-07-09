@@ -22,15 +22,15 @@ function statusColor(status: GitFileStatus['status']) {
   switch (status) {
     case 'added':
     case 'untracked':
-      return 'text-app-accent bg-app-accent/10'
+      return 'text-app-success bg-app-success/10'
     case 'deleted':
       return 'text-app-danger bg-app-danger/10'
     case 'modified':
-      return 'text-yellow-400 bg-yellow-400/10'
+      return 'text-app-warning bg-app-warning/10'
     case 'renamed':
-      return 'text-blue-400 bg-blue-400/10'
+      return 'text-app-info bg-app-info/10'
     case 'conflict':
-      return 'text-orange-400 bg-orange-400/10'
+      return 'text-app-warning bg-app-warning/10'
     case 'staged':
       return 'text-green-300 bg-green-300/10'
     case 'tracked':
@@ -159,8 +159,8 @@ function ChangeTreeNode({
           title={node.path}
         >
           <FileText className="h-3.5 w-3.5 shrink-0 text-app-text-muted group-hover:text-app-text" />
-          <span className="min-w-0 flex-1 truncate text-[13px] text-app-text">{node.name}</span>
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${statusColor(node.file.status)}`}>
+          <span className="min-w-0 flex-1 truncate text-sm text-app-text">{node.name}</span>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-micro uppercase ${statusColor(node.file.status)}`}>
             {node.file.status}
           </span>
         </button>
@@ -181,8 +181,8 @@ function ChangeTreeNode({
       >
         <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
         <Folder className="h-3.5 w-3.5 shrink-0 text-app-accent/80" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-text">{node.name}</span>
-        <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-app-text-muted">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-app-text">{node.name}</span>
+        <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro tabular-nums text-app-text-muted">
           {countChangedFiles(node)}
         </span>
         <span className={`h-1.5 w-1.5 rounded-full ${statusColor(badgeStatus).split(' ')[1]}`} />

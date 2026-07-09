@@ -55,7 +55,7 @@ function DailyUsageBars({ usage }: { usage: CodexAccountUsageReadResult | null }
   if (!usage) return null
   const buckets = usage.dailyUsageBuckets.slice(-7)
   if (buckets.length === 0) return (
-    <div className="text-[11px] text-app-text-muted">No daily usage history yet.</div>
+    <div className="text-caption text-app-text-muted">No daily usage history yet.</div>
   )
   const peak = Math.max(...buckets.map((bucket) => bucket.tokens), 1)
   return (
@@ -63,7 +63,7 @@ function DailyUsageBars({ usage }: { usage: CodexAccountUsageReadResult | null }
       {buckets.map((bucket) => {
         const width = Math.max(4, Math.round((bucket.tokens / peak) * 100))
         return (
-          <div key={bucket.startDate} className="grid grid-cols-[4.5rem_1fr_3.5rem] items-center gap-2 text-[11px]">
+          <div key={bucket.startDate} className="grid grid-cols-[4.5rem_1fr_3.5rem] items-center gap-2 text-caption">
             <span className="truncate text-app-text-muted">{bucket.startDate}</span>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-surface-2">
               <div className="h-full rounded-full bg-app-accent" style={{ width: `${width}%` }} />
@@ -141,7 +141,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
       </div>
 
       {error && !data && (
-        <div className="text-[11px] text-app-text-muted">Usage unavailable</div>
+        <div className="text-caption text-app-text-muted">Usage unavailable</div>
       )}
 
       {data && (
@@ -159,24 +159,24 @@ export function UsageMeter({ className = '' }: { className?: string }) {
           {panelOpen && (
             <div className="mt-2 space-y-1 border-t border-app-border pt-2">
               {primary && (
-                <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                <div className="flex items-center justify-between text-caption text-app-text-muted">
                   <span>Primary resets</span>
                   <span>{formatResetsAt(primary.resetsAt)}</span>
                 </div>
               )}
               {secondary && (
-                <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                <div className="flex items-center justify-between text-caption text-app-text-muted">
                   <span>Weekly resets</span>
                   <span>{formatResetsAt(secondary.resetsAt)}</span>
                 </div>
               )}
               {accountUsage && (
                 <div className="space-y-2 border-t border-app-border pt-2">
-                  <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                  <div className="flex items-center justify-between text-caption text-app-text-muted">
                     <span>Lifetime tokens</span>
                     <span className="text-app-text">{formatTokenCount(accountUsage.summary.lifetimeTokens)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-app-text-muted">
+                  <div className="flex items-center justify-between text-caption text-app-text-muted">
                     <span>Current streak</span>
                     <span className="text-app-text">{accountUsage.summary.currentStreakDays}d</span>
                   </div>
@@ -191,7 +191,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
               >
                 {claiming ? 'Claiming…' : 'Claim 1 reset'}
               </button>
-              {error && <div className="text-[11px] text-app-danger">{error}</div>}
+              {error && <div className="text-caption text-app-danger">{error}</div>}
             </div>
           )}
         </>
@@ -199,7 +199,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
 
       {confirmOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--app-overlay)]"
           onClick={() => !claiming && setConfirmOpen(false)}
         >
           <div

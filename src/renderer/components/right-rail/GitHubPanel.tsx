@@ -112,7 +112,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
       <div className="p-3 text-sm text-app-text-muted">
         No GitHub remote detected for this repo.
         {summary.remoteUrl && (
-          <div className="mt-2 truncate font-mono text-[11px]" title={summary.remoteUrl}>
+          <div className="mt-2 truncate font-mono text-caption" title={summary.remoteUrl}>
             {summary.remoteUrl}
           </div>
         )}
@@ -144,7 +144,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 
       <div className="mt-3 rounded-lg bg-app-surface/70 p-2">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
+          <div className="flex items-center gap-2 text-micro uppercase text-app-text-muted">
             <span>{activeKind}</span>
             {dataBadges.map((badge) => (
               <span key={badge.id} className="rounded bg-app-bg px-1.5 py-0.5" title={badge.title}>
@@ -155,7 +155,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
           <button
             type="button"
             onClick={() => setReloadKey((key) => key + 1)}
-            className="text-[10px] text-app-text-muted hover:text-app-text"
+            className="text-micro text-app-text-muted hover:text-app-text"
           >
             Refresh
           </button>
@@ -191,7 +191,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
                 >
                   {item.title}
                 </button>
-                {item.state && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-app-text-muted">{item.state}</span>}
+                {item.state && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro uppercase text-app-text-muted">{item.state}</span>}
                 <button
                   type="button"
                   onClick={() => sendItemContext(item)}
@@ -203,11 +203,11 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
                 </button>
               </div>
               {item.subtitle && (
-                <div className="mt-1 truncate text-[10px] text-app-text-muted" title={item.subtitle}>
+                <div className="mt-1 truncate text-micro text-app-text-muted" title={item.subtitle}>
                   {item.subtitle}
                 </div>
               )}
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-app-text-muted">
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-micro text-app-text-muted">
                 {item.author && <span>@{item.author}</span>}
                 {item.createdAt && <span>{new Date(item.createdAt).toLocaleString()}</span>}
                 {item.meta && Object.entries(item.meta).map(([key, value]) => (
@@ -232,11 +232,11 @@ function RepoSummaryCard({
   onSendContext: () => void
 }) {
   return (
-    <div className="rounded-lg bg-app-surface p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+    <div className="rounded-lg bg-app-surface p-3 shadow-[inset_0_0_0_1px_var(--app-inset)]">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-medium text-app-text">{summary.owner}/{summary.repo}</div>
-          <div className="mt-1 truncate font-mono text-[10px] text-app-text-muted" title={summary.remoteUrl ?? undefined}>
+          <div className="mt-1 truncate font-mono text-micro text-app-text-muted" title={summary.remoteUrl ?? undefined}>
             {summary.remoteUrl}
           </div>
         </div>
@@ -258,7 +258,7 @@ function RepoSummaryCard({
           <MessageSquare className="h-4 w-4" />
         </button>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-app-text-muted">
+      <div className="mt-3 grid grid-cols-3 gap-2 text-micro text-app-text-muted">
         <SummaryStat label="Branch" value={summary.branch ?? 'unknown'} title={summary.branch ?? undefined} />
         <SummaryStat label="Ahead" value={summary.ahead} />
         <SummaryStat label="Behind" value={summary.behind} />

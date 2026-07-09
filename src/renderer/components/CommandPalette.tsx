@@ -1473,7 +1473,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   const grouped = groupActions(filteredActions)
   const renameDialog = renameTarget ? (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/45 px-4 pt-[18vh]" role="presentation">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[18vh]" role="presentation">
       <form
         role="dialog"
         aria-label="Rename Codex session"
@@ -1481,7 +1481,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         onSubmit={submitRenameSession}
       >
         <div className="text-sm font-semibold text-app-text">Rename session</div>
-        <label htmlFor="command-palette-rename-session" className="mt-3 block text-[11px] font-medium text-app-text-muted">Name</label>
+        <label htmlFor="command-palette-rename-session" className="mt-3 block text-caption font-medium text-app-text-muted">Name</label>
         <input
           id="command-palette-rename-session"
           autoFocus
@@ -1506,7 +1506,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
           </button>
           <button
             type="submit"
-            className="h-8 rounded bg-app-accent px-3 text-xs font-semibold text-app-bg hover:bg-app-accent/90"
+            className="h-8 rounded bg-app-accent px-3 text-xs font-semibold text-app-accent-contrast hover:bg-app-accent/90"
           >
             Rename
           </button>
@@ -1546,7 +1546,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     <>
       {modalDialogs}
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[12vh]"
+        className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[12vh]"
         role="presentation"
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) onOpenChange(false)

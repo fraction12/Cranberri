@@ -1,5 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { CodePreview } from '../editor/CodePreview'
+import { useAppearance } from '../../state/appearance-context'
+import type { AppAccent } from '@/shared/settings'
 
 interface MermaidDiagramProps {
   source: string
@@ -10,6 +12,7 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
   const diagramId = `cranberri-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`
   const [svg, setSvg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { theme, accent } = useAppearance()
 
   useEffect(() => {
     let cancelled = false
@@ -21,17 +24,8 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
         module.default.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
-          theme: 'dark',
-          themeVariables: {
-            background: '#111115',
-            primaryColor: '#1f2937',
-            primaryTextColor: '#f4f4f5',
-            primaryBorderColor: '#3f3f46',
-            lineColor: '#a1a1aa',
-            secondaryColor: '#18181b',
-            tertiaryColor: '#27272a',
-            fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          },
+          theme: theme === 'dark' ? 'dark' : 'default',
+          themeVariables: mermaidThemeVariables(theme, accent),
         })
         const rendered = await module.default.render(diagramId, source)
         if (!cancelled) setSvg(rendered.svg)
@@ -45,7 +39,7 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
     return () => {
       cancelled = true
     }
-  }, [diagramId, source])
+  }, [accent, diagramId, source, theme])
 
   if (error) {
     return (
@@ -73,4 +67,37 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
       )}
     </div>
   )
+}
+
+const ACCENT_COLORS: Record<AppAccent, string> = {
+  green: '#22c55e',
+  blue: '#3b82f6',
+  orange: '#f97316',
+  rose: '#f43f5e',
+  violet: '#8b5cf6',
+}
+
+function mermaidThemeVariables(theme: 'light' | 'dark', accent: AppAccent) {
+  if (theme === 'light') {
+    return {
+      background: '#ffffff',
+      primaryColor: '#ededf0',
+      primaryTextColor: '#202123',
+      primaryBorderColor: ACCENT_COLORS[accent],
+      lineColor: '#67676f',
+      secondaryColor: '#f7f7f8',
+      tertiaryColor: '#ffffff',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+    }
+  }
+  return {
+    background: '#0f0f11',
+    primaryColor: '#27272a',
+    primaryTextColor: '#fafafa',
+    primaryBorderColor: ACCENT_COLORS[accent],
+    lineColor: '#a1a1aa',
+    secondaryColor: '#18181b',
+    tertiaryColor: '#27272a',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+  }
 }

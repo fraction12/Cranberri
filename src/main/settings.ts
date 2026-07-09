@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, nativeTheme } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -7,11 +7,23 @@ import {
   normalizeCodexReasoningEffort,
   normalizeCodexSpeed,
 } from '../shared/codex'
-import { APP_SETTINGS_VERSION, DEFAULT_APP_SETTINGS, type AppSettings } from '../shared/settings'
+import {
+  APP_ACCENT_VALUES,
+  APP_CODE_FONT_SIZE_RANGE,
+  APP_REDUCED_MOTION_VALUES,
+  APP_SETTINGS_VERSION,
+  APP_TERMINAL_FONT_SIZE_RANGE,
+  APP_THEME_VALUES,
+  APP_UI_FONT_SIZE_RANGE,
+  DEFAULT_APP_SETTINGS,
+  type AppSettings,
+} from '../shared/settings'
 
 const codexReasoningEffortSchema = z.enum(CODEX_REASONING_EFFORT_VALUES)
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
-const themeSchema = z.enum(['dark', 'light'])
+const themeSchema = z.enum(APP_THEME_VALUES)
+const accentSchema = z.enum(APP_ACCENT_VALUES)
+const reducedMotionSchema = z.enum(APP_REDUCED_MOTION_VALUES)
 const updaterChannelSchema = z.enum(['stable', 'beta'])
 
 const codexSpeedSchema = z.enum(['standard', 'fast'])
@@ -27,15 +39,18 @@ const settingsSchema = z.object({
       streamTokens: z.boolean(),
     }),
     editor: z.object({
-      fontSize: z.number(),
+      fontSize: z.number().int().min(APP_CODE_FONT_SIZE_RANGE.min).max(APP_CODE_FONT_SIZE_RANGE.max),
       lineWrap: z.boolean(),
     }),
     terminal: z.object({
-      fontSize: z.number(),
+      fontSize: z.number().int().min(APP_TERMINAL_FONT_SIZE_RANGE.min).max(APP_TERMINAL_FONT_SIZE_RANGE.max),
       defaultShell: z.string().optional(),
     }),
     appearance: z.object({
       theme: themeSchema,
+      accent: accentSchema,
+      uiFontSize: z.number().int().min(APP_UI_FONT_SIZE_RANGE.min).max(APP_UI_FONT_SIZE_RANGE.max),
+      reducedMotion: reducedMotionSchema,
     }),
     updater: z.object({
       channel: updaterChannelSchema,
@@ -45,6 +60,11 @@ const settingsSchema = z.object({
 })
 
 type SettingsFile = z.infer<typeof settingsSchema>
+
+function boundedInteger(value: unknown, range: { min: number; max: number }, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(range.max, Math.max(range.min, Math.round(value)))
+}
 
 function normalizeSettings(settings: AppSettings): AppSettings {
   const defaultEffort = normalizeCodexReasoningEffort(
@@ -93,15 +113,20 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
       streamTokens: typeof codex.streamTokens === 'boolean' ? codex.streamTokens : DEFAULT_APP_SETTINGS.codex.streamTokens,
     },
     editor: {
-      fontSize: typeof editor.fontSize === 'number' ? editor.fontSize : DEFAULT_APP_SETTINGS.editor.fontSize,
+      fontSize: boundedInteger(editor.fontSize, APP_CODE_FONT_SIZE_RANGE, DEFAULT_APP_SETTINGS.editor.fontSize),
       lineWrap: typeof editor.lineWrap === 'boolean' ? editor.lineWrap : DEFAULT_APP_SETTINGS.editor.lineWrap,
     },
     terminal: {
-      fontSize: typeof terminal.fontSize === 'number' ? terminal.fontSize : DEFAULT_APP_SETTINGS.terminal.fontSize,
+      fontSize: boundedInteger(terminal.fontSize, APP_TERMINAL_FONT_SIZE_RANGE, DEFAULT_APP_SETTINGS.terminal.fontSize),
       defaultShell: typeof terminal.defaultShell === 'string' && terminal.defaultShell ? terminal.defaultShell : DEFAULT_APP_SETTINGS.terminal.defaultShell,
     },
     appearance: {
       theme: themeSchema.safeParse(appearance.theme).success ? (appearance.theme as AppSettings['appearance']['theme']) : DEFAULT_APP_SETTINGS.appearance.theme,
+      accent: accentSchema.safeParse(appearance.accent).success ? (appearance.accent as AppSettings['appearance']['accent']) : DEFAULT_APP_SETTINGS.appearance.accent,
+      uiFontSize: boundedInteger(appearance.uiFontSize, APP_UI_FONT_SIZE_RANGE, DEFAULT_APP_SETTINGS.appearance.uiFontSize),
+      reducedMotion: reducedMotionSchema.safeParse(appearance.reducedMotion).success
+        ? (appearance.reducedMotion as AppSettings['appearance']['reducedMotion'])
+        : DEFAULT_APP_SETTINGS.appearance.reducedMotion,
     },
     updater: {
       channel: updaterChannelSchema.safeParse(updater.channel).success ? (updater.channel as AppSettings['updater']['channel']) : DEFAULT_APP_SETTINGS.updater.channel,
@@ -126,11 +151,21 @@ export function readSettings(): AppSettings {
 
 export function writeSettings(settings: AppSettings): void {
   const payload: SettingsFile = { version: APP_SETTINGS_VERSION, data: normalizeSettings(settings) }
-  fs.mkdirSync(path.dirname(settingsFilePath()), { recursive: true })
-  fs.writeFileSync(settingsFilePath(), JSON.stringify(payload, null, 2))
+  const targetPath = settingsFilePath()
+  const temporaryPath = `${targetPath}.tmp`
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(payload, null, 2))
+    fs.renameSync(temporaryPath, targetPath)
+  } catch (error) {
+    fs.rmSync(temporaryPath, { force: true })
+    throw error
+  }
 }
 
 export function initSettingsIpc(): void {
+  nativeTheme.themeSource = readSettings().appearance.theme
+
   ipcMain.handle('settings:get', () => {
     return { settings: readSettings() }
   })
@@ -142,6 +177,7 @@ export function initSettingsIpc(): void {
     }
     const normalized = normalizeSettings(parsed.data)
     writeSettings(normalized)
+    nativeTheme.themeSource = normalized.appearance.theme
     return { settings: normalized }
   })
 }

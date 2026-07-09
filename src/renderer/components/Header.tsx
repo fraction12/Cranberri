@@ -8,7 +8,7 @@ export function Header({ onOpenSettings, onOpenCommandPalette }: { onOpenSetting
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-app-border bg-app-surface px-3 pl-[80px]">
       <div className="header-drag flex h-full flex-1 items-center gap-2">
         <span className="text-base leading-none" aria-hidden="true">🫐</span>
-        <span className="text-sm font-semibold tracking-tight">Cranberri</span>
+        <span className="text-sm font-semibold">Cranberri</span>
       </div>
       <div className="flex items-center gap-3 text-xs text-app-text-muted">
         {activeRepo ? (

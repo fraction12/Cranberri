@@ -157,23 +157,23 @@ function ProcessRow({
     <div className={processRowClassName}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">
+          <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro uppercase text-app-text-muted">
             {processInfo.kind}
           </span>
-          <span className="text-[10px] text-app-text-muted">{processInfo.id}</span>
+          <span className="text-micro text-app-text-muted">{processInfo.id}</span>
         </div>
-        <div className="mt-1 truncate font-mono text-[11px] text-app-text" title={processInfo.command}>
+        <div className="mt-1 truncate font-mono text-caption text-app-text" title={processInfo.command}>
           {processInfo.command}
         </div>
         <div className="mt-1 flex flex-wrap gap-1">
           {metadata.map((item) => (
-            <span key={item} className="rounded bg-app-bg px-1.5 py-0.5 text-[10px] text-app-text-muted">
+            <span key={item} className="rounded bg-app-bg px-1.5 py-0.5 text-micro text-app-text-muted">
               {item}
             </span>
           ))}
         </div>
         {processInfo.cwd && (
-          <div className="mt-1 truncate text-[10px] text-app-text-muted" title={processInfo.cwd}>
+          <div className="mt-1 truncate text-micro text-app-text-muted" title={processInfo.cwd}>
             {processInfo.cwd}
           </div>
         )}

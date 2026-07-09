@@ -85,7 +85,7 @@ export function DiagnosticsSection() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-app-text-muted">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
             <Activity className="h-3.5 w-3.5" />
             Diagnostics
           </div>
@@ -129,7 +129,7 @@ export function DiagnosticsSection() {
                 <div key={check.id} className="rounded-lg border border-app-border bg-app-bg p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 text-sm font-medium">{check.label}</div>
-                    <span className={`shrink-0 text-[10px] font-semibold uppercase ${levelClass(check.level)}`}>{check.level}</span>
+                    <span className={`shrink-0 text-micro font-semibold uppercase ${levelClass(check.level)}`}>{check.level}</span>
                   </div>
                   <div className="mt-1 truncate text-xs text-app-text-muted" title={check.detail}>{check.detail}</div>
                 </div>
@@ -170,7 +170,7 @@ export function DiagnosticsSection() {
                           <Settings className="h-3.5 w-3.5" />
                         </button>
                       )}
-                      <span className={`text-[10px] font-semibold uppercase ${availabilityClass(helper.availability)}`}>
+                      <span className={`text-micro font-semibold uppercase ${availabilityClass(helper.availability)}`}>
                         {helper.availability}
                       </span>
                     </div>
@@ -187,7 +187,7 @@ export function DiagnosticsSection() {
               <button
                 type="button"
                 onClick={() => void clearTelemetry()}
-                className="inline-flex items-center gap-1.5 rounded bg-app-surface-2 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text"
+                className="inline-flex items-center gap-1.5 rounded bg-app-surface-2 px-2 py-1 text-caption text-app-text-muted hover:text-app-text"
               >
                 <Trash2 className="h-3 w-3" />
                 Clear
@@ -202,7 +202,7 @@ export function DiagnosticsSection() {
                     <span className="font-medium">{event.source} / {event.type}</span>
                     <span className="shrink-0 text-app-text-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
                   </div>
-                  <pre className="mt-2 max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-[10px] text-app-text-muted">
+                  <pre className="mt-2 max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-micro text-app-text-muted">
                     {JSON.stringify(event.payload, null, 2)}
                   </pre>
                 </div>
@@ -218,7 +218,7 @@ export function DiagnosticsSection() {
 function Metric({ label, value, level }: { label: string; value: string; level?: CranberriHealthLevel }) {
   return (
     <div className="rounded-lg border border-app-border bg-app-bg p-3">
-      <div className="text-[10px] uppercase tracking-wider text-app-text-muted">{label}</div>
+      <div className="text-micro uppercase text-app-text-muted">{label}</div>
       <div className={`mt-1 truncate text-sm font-medium ${level ? levelClass(level) : ''}`} title={value}>{value}</div>
     </div>
   )
@@ -226,7 +226,7 @@ function Metric({ label, value, level }: { label: string; value: string; level?:
 
 function PanelHeader({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
   return (
-    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-app-text-muted">
+    <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
       <Icon className="h-3.5 w-3.5" />
       {label}
     </div>
@@ -247,7 +247,7 @@ function PathRow({
   return (
     <div className="flex items-center gap-2 border-b border-app-border/70 px-3 py-2 last:border-b-0">
       <div className="w-24 shrink-0 text-xs text-app-text-muted">{row.label}</div>
-      <div className="min-w-0 flex-1 truncate font-mono text-[11px]" title={row.value}>{row.value}</div>
+      <div className="min-w-0 flex-1 truncate font-mono text-caption" title={row.value}>{row.value}</div>
       <button
         type="button"
         disabled={!row.actionable}
@@ -280,13 +280,13 @@ function PathRow({
 }
 
 function levelClass(level: CranberriHealthLevel): string {
-  if (level === 'ok') return 'text-app-accent'
-  if (level === 'warning') return 'text-app-accent'
+  if (level === 'ok') return 'text-app-success'
+  if (level === 'warning') return 'text-app-warning'
   return 'text-app-danger'
 }
 
 function availabilityClass(availability: CranberriDiagnosticsReport['nativeHelpers'][number]['availability']): string {
-  if (availability === 'available') return 'text-app-accent'
+  if (availability === 'available') return 'text-app-success'
   if (availability === 'disabled' || availability === 'unavailable') return 'text-app-text-muted'
   return 'text-app-danger'
 }

@@ -12,6 +12,7 @@ const appExecutable = process.platform === 'darwin'
     : path.resolve('dist/linux-unpacked/cranberri')
 
 const SMOKE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lUzf1wAAAABJRU5ErkJggg=='
+const smokeScreenshotDir = process.env.CRANBERRI_SMOKE_SCREENSHOT_DIR
 
 if (!fs.existsSync(appExecutable)) {
   throw new Error(`Packaged app not found at ${appExecutable}. Run npm run package:dir first.`)
@@ -59,6 +60,12 @@ function smokeStep(label) {
   console.log(`[smoke] ${label}`)
 }
 
+async function captureSmokeScreenshot(page, name) {
+  if (!smokeScreenshotDir) return
+  fs.mkdirSync(smokeScreenshotDir, { recursive: true })
+  await page.screenshot({ path: path.join(smokeScreenshotDir, `${name}.png`) })
+}
+
 async function launchApp(userDataDir, extraEnv = {}) {
   return electron.launch({
     executablePath: appExecutable,
@@ -68,6 +75,33 @@ async function launchApp(userDataDir, extraEnv = {}) {
       ...extraEnv,
     },
   })
+}
+
+async function mainWindowChildViewCount(electronApp) {
+  return electronApp.evaluate(({ BrowserWindow }) => (
+    BrowserWindow.getAllWindows()[0]?.contentView.children.length ?? -1
+  ))
+}
+
+async function waitForMainWindowChildViewCount(electronApp, expected, label) {
+  const deadline = Date.now() + 10_000
+  let count = await mainWindowChildViewCount(electronApp)
+  while (count !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    count = await mainWindowChildViewCount(electronApp)
+  }
+  if (count !== expected) {
+    throw new Error(`${label}: expected ${expected} native child views, found ${count}`)
+  }
+}
+
+async function resizeMainWindow(electronApp, width, height, minimumWidth, minimumHeight) {
+  await electronApp.evaluate(({ BrowserWindow }, bounds) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (!window) throw new Error('Main window not found')
+    window.setMinimumSize(bounds.minimumWidth, bounds.minimumHeight)
+    window.setSize(bounds.width, bounds.height)
+  }, { width, height, minimumWidth, minimumHeight })
 }
 
 async function smokePage(electronApp, run) {
@@ -196,6 +230,26 @@ async function runFreshStartupSmoke() {
           && speed?.value === 'standard'
           && ![...speed.options].some((option) => option.value === 'fast')
       }, undefined, { timeout: 10_000 })
+      await page.getByRole('button', { name: 'Appearance' }).click()
+      await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Light' }).click()
+      await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+      const nativeThemeSource = await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource)
+      if (nativeThemeSource !== 'light') throw new Error(`Native theme did not follow renderer setting: ${nativeThemeSource}`)
+      await page.getByRole('group', { name: 'Accent color' }).getByRole('button', { name: 'Blue' }).click()
+      await page.waitForFunction(() => document.documentElement.dataset.accent === 'blue')
+      await page.getByRole('button', { name: 'Increase UI font size' }).click()
+      await page.waitForFunction(() => (
+        document.documentElement.style.getPropertyValue('--app-ui-font-size') === '15px'
+        && getComputedStyle(document.documentElement).fontSize === '16px'
+      ))
+      await captureSmokeScreenshot(page, 'appearance-light')
+      if (smokeScreenshotDir) {
+        await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Dark' }).click()
+        await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+        await captureSmokeScreenshot(page, 'appearance-dark')
+        await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Light' }).click()
+        await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+      }
       await page.getByRole('button', { name: 'Diagnostics' }).click()
       await page.getByText('Reading local app diagnostics…').waitFor({ timeout: 10_000 })
       await page.getByText('User data').waitFor({ timeout: 10_000 })
@@ -267,17 +321,42 @@ async function runRepoWorkspaceSmoke() {
     await smokePage(electronApp, async (page) => {
       smokeStep('repo and chat basics')
       await page.getByText(repoPath).waitFor({ timeout: 10_000 })
+      await resizeMainWindow(electronApp, 900, 280, 800, 240)
+      await page.waitForFunction(() => window.innerHeight < 320)
       const modelSelector = page.getByRole('button', { name: 'Configure model, reasoning, and speed' })
       await modelSelector.click()
-      await page.getByRole('button', { name: /GPT-5\.5/ }).hover()
-      await page.getByRole('button', { name: /GPT-5\.6-Sol Most capable/ }).click()
+      await page.getByRole('menuitem', { name: /GPT-5\.5/ }).hover()
+      const modelSubmenu = page.locator('[data-model-selector-submenu="model"]')
+      await modelSubmenu.waitFor({ timeout: 10_000 })
+      const submenuMetrics = await modelSubmenu.evaluate((element) => {
+        return {
+          clientHeight: element.clientHeight,
+          overflowY: getComputedStyle(element).overflowY,
+          scrollHeight: element.scrollHeight,
+        }
+      })
+      if (submenuMetrics.overflowY !== 'auto' || submenuMetrics.scrollHeight <= submenuMetrics.clientHeight) {
+        throw new Error(`Model submenu is not scrollable in a constrained window: ${JSON.stringify(submenuMetrics)}`)
+      }
+      await modelSubmenu.hover()
+      await page.mouse.wheel(0, 240)
+      await page.waitForFunction(() => {
+        const submenu = document.querySelector('[data-model-selector-submenu="model"]')
+        return submenu instanceof HTMLElement && submenu.scrollTop > 0
+      })
+      await modelSubmenu.waitFor({ state: 'visible', timeout: 2_000 })
+      await captureSmokeScreenshot(page, 'model-selector')
+      await page.getByRole('menuitemradio', { name: /GPT-5\.6-Sol Most capable/ }).click()
+      await resizeMainWindow(electronApp, 1400, 900, 900, 600)
+      await page.waitForFunction(() => window.innerHeight > 700)
       await modelSelector.click()
-      await page.getByRole('button', { name: 'Ultra', exact: true }).click()
-      await page.getByRole('button', { name: 'Speed', exact: true }).hover()
-      await page.getByRole('button', { name: /Fast 1\.5x speed/ }).click()
+      await page.getByRole('menuitemradio', { name: 'Ultra', exact: true }).click()
       await modelSelector.click()
-      await page.getByRole('button', { name: /GPT-5\.6-Sol/ }).hover()
-      await page.getByRole('button', { name: /GPT-5\.4-Mini Efficient coding/ }).click()
+      await page.getByRole('menuitem', { name: 'Speed', exact: true }).hover()
+      await page.getByRole('menuitemradio', { name: /Fast 1\.5x speed/ }).click()
+      await modelSelector.click()
+      await page.getByRole('menuitem', { name: /GPT-5\.6-Sol/ }).hover()
+      await page.getByRole('menuitemradio', { name: /GPT-5\.4-Mini Efficient coding/ }).click()
       await page.waitForFunction(() => {
         const trigger = document.querySelector('button[aria-label="Configure model, reasoning, and speed"]')
         return trigger?.textContent?.includes('5.4-Mini')
@@ -285,11 +364,35 @@ async function runRepoWorkspaceSmoke() {
           && trigger.textContent.includes('Standard')
       }, undefined, { timeout: 10_000 })
       await modelSelector.click()
-      await page.getByRole('button', { name: 'Speed', exact: true }).hover()
-      if (await page.getByRole('button', { name: /Fast 1\.5x speed/ }).count() !== 0) {
+      await page.getByRole('menuitem', { name: 'Speed', exact: true }).hover()
+      if (await page.getByRole('menuitemradio', { name: /Fast 1\.5x speed/ }).count() !== 0) {
         throw new Error('GPT-5.4-Mini should not expose Fast mode')
       }
-      await modelSelector.click()
+      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape')
+      const composer = page.getByRole('textbox', { name: 'Chat message' })
+      await composer.fill(Array.from({ length: 40 }, (_, index) => `Long composer line ${index + 1}`).join('\n'))
+      await page.waitForFunction(() => {
+        const textarea = document.querySelector('textarea[aria-label="Chat message"]')
+        if (!(textarea instanceof HTMLTextAreaElement)) return false
+        return textarea.clientHeight <= 160
+          && textarea.scrollHeight > textarea.clientHeight
+          && getComputedStyle(textarea).overflowY === 'auto'
+      }, undefined, { timeout: 10_000 })
+      await composer.evaluate((textarea) => {
+        textarea.scrollTop = textarea.scrollHeight
+        textarea.dispatchEvent(new Event('scroll'))
+      })
+      await page.waitForFunction(() => {
+        const viewport = document.querySelector('[data-composer-viewport="true"]')
+        const ghost = document.querySelector('[data-composer-ghost="true"]')
+        const textarea = document.querySelector('textarea[aria-label="Chat message"]')
+        if (!(viewport instanceof HTMLElement) || !(ghost instanceof HTMLElement) || !(textarea instanceof HTMLTextAreaElement)) return false
+        return viewport.getBoundingClientRect().height <= 160
+          && ghost.style.transform.includes(`${-textarea.scrollTop}px`)
+      }, undefined, { timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'composer-long-message')
+      await composer.fill('')
       await page.getByTitle('README.md').click()
       await page.getByText('cranberri-diff-smoke-ready').waitFor({ timeout: 20_000 }).catch(async (error) => {
         const rightRailText = await page.locator('.bg-app-surface').last().textContent().catch(() => '')
@@ -1623,7 +1726,12 @@ async function runRepoWorkspaceSmoke() {
         const text = await navigator.clipboard.readText()
         return text.includes('Browser page context:') && text.includes('cranberri-browser-smoke-ready')
       }, { timeout: 10_000 })
+      const attachedBrowserChildViews = await mainWindowChildViewCount(electronApp)
+      if (attachedBrowserChildViews < 1) throw new Error('Active browser did not attach a native child view')
       await openCommandPalette(page)
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-browser-surface-obscured="true"]')))
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Quick Search did not detach the browser surface')
+      await captureSmokeScreenshot(page, 'browser-quick-search')
       await page.getByPlaceholder('Run command or switch repo...').fill('copy latest browser page context')
       const toolbarCopyLatestBrowserPageAction = page.locator('[cmdk-item]').filter({ hasText: 'Copy latest browser page context' }).first()
       await toolbarCopyLatestBrowserPageAction.waitFor({ timeout: 10_000 })
@@ -1631,10 +1739,19 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Toolbar-captured latest browser page context action was disabled: ${await toolbarCopyLatestBrowserPageAction.textContent()}`)
       }
       await toolbarCopyLatestBrowserPageAction.click()
+      await page.waitForFunction(() => !document.querySelector('[data-browser-surface-obscured="true"]'))
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Closing Quick Search did not reattach the browser surface')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
         return text.includes('Browser page context:') && text.includes('cranberri-browser-smoke-ready')
       }, { timeout: 10_000 })
+      await page.getByLabel('Open settings').click()
+      await page.getByLabel('Close settings').waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-browser-surface-obscured="true"]')))
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Settings did not detach the browser surface')
+      await page.getByLabel('Close settings').click()
+      await page.waitForFunction(() => !document.querySelector('[data-browser-surface-obscured="true"]'))
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Closing Settings did not reattach the browser surface')
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('reload active browser')
       await page.locator('[cmdk-item]').filter({ hasText: 'Reload active browser' }).first().click()

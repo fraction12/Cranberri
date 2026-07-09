@@ -53,7 +53,7 @@ const MARKDOWN_COMPONENTS: Components = {
     if (media) return <MarkdownMedia source={media} label={childrenToText(children)} />
 
     if (!isExternalUrl(href)) {
-      return <span className="text-[#ffb3b3]">{children}</span>
+      return <span className="text-app-mention">{children}</span>
     }
 
     const isGitHubLink = href.startsWith('https://github.com/')
@@ -66,7 +66,7 @@ const MARKDOWN_COMPONENTS: Components = {
           event.preventDefault()
           openExternalLink(href)
         }}
-        className="inline-flex items-center gap-1 rounded-md text-[#ffb3b3] decoration-[#ffb3b3]/60 underline-offset-4 hover:underline"
+        className="inline-flex items-center gap-1 rounded-md text-app-mention decoration-app-mention/60 underline-offset-4 hover:underline"
       >
         {isGitHubLink ? <Github className="h-[1em] w-[1em]" /> : null}
         <span>{children}</span>
@@ -77,7 +77,7 @@ const MARKDOWN_COMPONENTS: Components = {
   img({ src, alt }) {
     const media = markdownMediaSourceFromUrl(src)
     if (media?.kind === 'image') return <MarkdownMedia source={media} label={alt} />
-    return <span className="text-[#ffb3b3]">{alt || 'Image unavailable'}</span>
+    return <span className="text-app-mention">{alt || 'Image unavailable'}</span>
   },
   code({ className, children }) {
     const isBlock = Boolean(className)
@@ -100,7 +100,7 @@ const MARKDOWN_COMPONENTS: Components = {
       )
     }
     return (
-      <pre className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3 text-[13px] leading-6">
+      <pre className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3 text-sm leading-6">
         {children}
       </pre>
     )
@@ -123,7 +123,7 @@ const MARKDOWN_COMPONENTS: Components = {
   table({ children }) {
     return (
       <div className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)]">
-        <table className="w-full border-collapse text-left text-[13px]">{children}</table>
+        <table className="w-full border-collapse text-left text-sm">{children}</table>
       </div>
     )
   },

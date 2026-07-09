@@ -96,7 +96,7 @@ function SessionRow({
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
             <span className="truncate text-xs text-app-text">{sessionTitle(session)}</span>
           </span>
-          <span className="shrink-0 text-[10px] text-app-text-muted">{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
+          <span className="shrink-0 text-micro text-app-text-muted">{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
         </div>
       </button>
       {menu && (
@@ -297,7 +297,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
           <button
             type="button"
             onClick={() => refresh().catch((error) => console.error('Failed to load Codex sessions:', error))}
-            className="w-full rounded px-2 py-1 text-left text-[11px] text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text"
+            className="w-full rounded px-2 py-1 text-left text-caption text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text"
           >
             Load sessions
           </button>
@@ -306,21 +306,21 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
           <button
             type="button"
             onClick={() => refresh().catch((error) => console.error('Failed to load Codex sessions:', error))}
-            className="w-full rounded px-2 py-1 text-left text-[11px] text-app-danger hover:bg-app-danger hover:text-white"
+            className="w-full rounded px-2 py-1 text-left text-caption text-app-danger hover:bg-app-danger hover:text-white"
             title={loadError}
           >
             Session load failed. Retry
           </button>
         )}
-        {loaded && recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-[11px] text-app-text-muted">No Codex sessions</div>}
+        {loaded && recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-caption text-app-text-muted">No Codex sessions</div>}
         {pinnedSessions.length > 0 && (
-          <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">Pinned</div>
+          <div className="px-2 pt-1 text-micro font-medium uppercase text-app-text-muted">Pinned</div>
         )}
         {pinnedSessions.map((session) => (
           <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onTogglePinned={togglePinned} />
         ))}
         {pinnedSessions.length > 0 && recentSessions.length > 0 && (
-          <div className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">Recent</div>
+          <div className="px-2 pt-1 text-micro font-medium uppercase text-app-text-muted">Recent</div>
         )}
         {recentSessions.map((session) => (
           <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onTogglePinned={togglePinned} />
@@ -330,7 +330,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
             <button
               type="button"
               onClick={() => setShowArchived((value) => !value)}
-              className="w-full rounded px-2 py-1 text-left text-[11px] text-app-text-muted hover:bg-app-surface-2/50"
+              className="w-full rounded px-2 py-1 text-left text-caption text-app-text-muted hover:bg-app-surface-2/50"
             >
               {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
@@ -339,10 +339,10 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
             ))}
           </>
         )}
-        {loading && <div className="px-2 py-2 text-[11px] text-app-text-muted">Loading…</div>}
+        {loading && <div className="px-2 py-2 text-caption text-app-text-muted">Loading…</div>}
       </div>
       {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45" onClick={() => !renaming && setRenameTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--app-overlay)]" onClick={() => !renaming && setRenameTarget(null)}>
           <form
             className="w-[360px] rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
@@ -411,7 +411,7 @@ function healthLevelLabel(report: CranberriHealthReport | null): string {
 }
 
 function healthLevelClass(level: CranberriHealthReport['level'] | 'unknown'): string {
-  if (level === 'ok') return 'text-app-accent'
+  if (level === 'ok') return 'text-app-success'
   if (level === 'warning') return 'text-yellow-400'
   if (level === 'error') return 'text-app-danger'
   return 'text-app-text-muted'
@@ -452,23 +452,23 @@ function HealthCard() {
   }
 
   return (
-    <div className="mt-2 rounded-xl bg-app-bg p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+    <div className="mt-2 rounded-xl bg-app-bg p-3 shadow-[inset_0_0_0_1px_var(--app-inset)]">
       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-app-text">
         <Activity className={`h-3.5 w-3.5 ${healthLevelClass(report?.level ?? 'unknown')}`} />
         <span>Cranberri health</span>
         {(loading || doctorRunning) && <Loader2 className="ml-auto h-3 w-3 animate-spin text-app-text-muted" />}
       </div>
       <div className={`text-xs font-medium ${healthLevelClass(report?.level ?? 'unknown')}`}>{healthLevelLabel(report)}</div>
-      {error && <div className="mt-1 text-[11px] text-app-danger">{error}</div>}
+      {error && <div className="mt-1 text-caption text-app-danger">{error}</div>}
       {report && (
         <div className="mt-2 space-y-1">
           {report.checks.map((check) => (
             <div key={check.id} className="rounded-lg bg-app-surface/60 px-2 py-1.5">
-              <div className="flex items-center justify-between gap-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2 text-caption">
                 <span className="truncate text-app-text">{check.label}</span>
                 <span className={`shrink-0 uppercase ${healthLevelClass(check.level)}`}>{check.level}</span>
               </div>
-              <div className="mt-0.5 truncate text-[10px] text-app-text-muted" title={check.detail}>{check.detail}</div>
+              <div className="mt-0.5 truncate text-micro text-app-text-muted" title={check.detail}>{check.detail}</div>
             </div>
           ))}
         </div>
@@ -502,7 +502,7 @@ function LeftRailFooter() {
   return (
     <>
       {openPanel === 'usage' && (
-        <div className="mt-2 rounded-xl bg-app-bg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        <div className="mt-2 rounded-xl bg-app-bg shadow-[inset_0_0_0_1px_var(--app-inset)]">
           <UsageMeter />
         </div>
       )}
@@ -547,7 +547,7 @@ export function RepoRail() {
   return (
     <div className="h-full w-full flex flex-col border-r border-app-border bg-app-surface py-2 px-3 overflow-hidden">
       <div className="flex items-center justify-between mb-3 shrink-0">
-        <span className="text-xs font-semibold uppercase text-app-text-muted tracking-wider">Repos</span>
+        <span className="text-xs font-semibold uppercase text-app-text-mutedr">Repos</span>
         <button
           onClick={addRepo}
           className="p-1.5 rounded hover:bg-app-surface-2"

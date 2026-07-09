@@ -3,12 +3,12 @@ import type { ReactNode } from 'react'
 
 const CODE_INLINE_CLASS = [
   'rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 font-mono text-[0.92em]',
-  'text-[var(--app-text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]',
+  'text-[var(--app-text)] shadow-[inset_0_0_0_1px_var(--app-inset)]',
 ].join(' ')
 const MENTION_PILL_CLASS = [
-  'inline-flex max-w-full items-center gap-1 rounded-full bg-[#ff8f8f]/10 px-2 py-0.5',
-  'align-baseline text-[0.92em] font-medium text-[#ffb3b3]',
-  'shadow-[inset_0_0_0_1px_rgba(255,143,143,0.18)]',
+  'inline-flex max-w-full items-center gap-1 rounded-full bg-app-mention/10 px-2 py-0.5',
+  'align-baseline text-[0.92em] font-medium text-app-mention',
+  'shadow-[inset_0_0_0_1px_var(--app-mention-ring)]',
 ].join(' ')
 const INLINE_TOKEN_PATTERN = /(`[^`]+`|\[[^\]\n]+\]\([^)\n]+\))/g
 const MARKDOWN_LINK_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/

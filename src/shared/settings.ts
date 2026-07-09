@@ -1,5 +1,18 @@
 import type { CodexApprovalMode, CodexReasoningEffort, CodexSpeed } from './codex'
 
+export const APP_THEME_VALUES = ['system', 'light', 'dark'] as const
+export type AppTheme = (typeof APP_THEME_VALUES)[number]
+
+export const APP_ACCENT_VALUES = ['green', 'blue', 'orange', 'rose', 'violet'] as const
+export type AppAccent = (typeof APP_ACCENT_VALUES)[number]
+
+export const APP_REDUCED_MOTION_VALUES = ['system', 'on', 'off'] as const
+export type AppReducedMotion = (typeof APP_REDUCED_MOTION_VALUES)[number]
+
+export const APP_UI_FONT_SIZE_RANGE = { min: 11, max: 16 } as const
+export const APP_CODE_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
+export const APP_TERMINAL_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
+
 export interface AppSettings {
   codex: {
     defaultModel: string
@@ -17,7 +30,10 @@ export interface AppSettings {
     defaultShell?: string
   }
   appearance: {
-    theme: 'dark' | 'light'
+    theme: AppTheme
+    accent: AppAccent
+    uiFontSize: number
+    reducedMotion: AppReducedMotion
   }
   updater: {
     channel: 'stable' | 'beta'
@@ -25,7 +41,7 @@ export interface AppSettings {
   }
 }
 
-export const APP_SETTINGS_VERSION = 1
+export const APP_SETTINGS_VERSION = 2
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   codex: {
@@ -35,14 +51,17 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     streamTokens: true,
   },
   editor: {
-    fontSize: 13,
+    fontSize: 12,
     lineWrap: true,
   },
   terminal: {
     fontSize: 13,
   },
   appearance: {
-    theme: 'dark',
+    theme: 'system',
+    accent: 'green',
+    uiFontSize: 14,
+    reducedMotion: 'system',
   },
   updater: {
     channel: 'stable',

@@ -25,9 +25,9 @@ interface CommitDialogProps {
 }
 
 const inputClassName =
-  'mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted'
+  'mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case text-app-text outline-none focus:border-app-text-muted'
 const textareaClassName =
-  'mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case tracking-normal text-app-text outline-none focus:border-app-text-muted'
+  'mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case text-app-text outline-none focus:border-app-text-muted'
 const secondaryButtonClassName =
   'rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs text-app-text-muted hover:text-app-text'
 const primaryButtonClassName =
@@ -48,12 +48,12 @@ export function CommitDialog({
   const draftDisabled = !canDraft || draftState.status === 'drafting' || commitState.status === 'committing'
 
   return createPortal(
-    <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-black/60 px-4">
+    <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-[var(--app-overlay)] px-4">
       <div className="w-full max-w-md rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl shadow-black/60">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-medium text-app-text">Commit changes</div>
-            <div className="mt-1 text-[11px] text-app-text-muted">
+            <div className="mt-1 text-caption text-app-text-muted">
               Stages all current changes and commits them.
             </div>
           </div>
@@ -66,7 +66,7 @@ export function CommitDialog({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <label className="block text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+        <label className="block text-caption font-medium uppercase text-app-text-muted">
           Title
           <input
             autoFocus
@@ -79,7 +79,7 @@ export function CommitDialog({
             placeholder="fix(git): commit from changes panel"
           />
         </label>
-        <label className="mt-3 block text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+        <label className="mt-3 block text-caption font-medium uppercase text-app-text-muted">
           Summary
           <textarea
             value={summary}

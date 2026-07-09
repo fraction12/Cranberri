@@ -73,16 +73,18 @@ const COMPOSER_CARD_CLASS = [
   'pointer-events-auto relative mx-auto w-full max-w-[760px] rounded-3xl border',
   'border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30',
 ].join(' ')
+const COMPOSER_MIN_HEIGHT = 44
+const COMPOSER_MAX_HEIGHT = 160
 const TEXTAREA_CLASS = [
-  'relative min-h-[24px] w-full resize-none bg-transparent px-0 text-[13px] leading-5',
+  'relative z-10 block min-h-[44px] max-h-[160px] w-full resize-none overflow-y-hidden bg-transparent px-0 text-sm leading-5',
   'text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]',
 ].join(' ')
 const SKILL_MENU_CLASS = [
   'absolute inset-x-0 bottom-full mb-4 max-h-[420px] rounded-3xl border',
   'border-[var(--app-border)] bg-[var(--app-surface)] p-5 shadow-2xl shadow-black/40',
 ].join(' ')
-const COMPOSER_GHOST_TEXT_CLASS =
-  'pointer-events-none absolute inset-x-1 top-0 whitespace-pre-wrap break-words text-[var(--app-text)]'
+const COMPOSER_GHOST_VIEWPORT_CLASS =
+  'pointer-events-none absolute inset-0 overflow-hidden px-1 text-sm leading-5 text-app-text'
 const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)]',
   'text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40',
@@ -150,6 +152,7 @@ export function ChatWindow({ id }: { id: string }) {
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerGhostTextRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const composerHadFocusRef = useRef(false)
   const selectionRef = useRef({ start: 0, end: 0 })
@@ -162,6 +165,25 @@ export function ChatWindow({ id }: { id: string }) {
     if (!container) return
     container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
   }, [])
+
+  const syncComposerScroll = useCallback(() => {
+    const textarea = textareaRef.current
+    const ghostText = composerGhostTextRef.current
+    if (!textarea || !ghostText) return
+    ghostText.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`
+  }, [])
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = '0px'
+    const contentHeight = textarea.scrollHeight
+    textarea.style.height = `${Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, contentHeight))}px`
+    textarea.style.overflowY = contentHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden'
+    syncComposerScroll()
+    const frame = requestAnimationFrame(syncComposerScroll)
+    return () => cancelAnimationFrame(frame)
+  }, [input, syncComposerScroll])
 
   useEffect(() => {
     window.cranberri.codex.skills()
@@ -590,7 +612,7 @@ export function ChatWindow({ id }: { id: string }) {
             />
             {showSkills && (
               <div className={SKILL_MENU_CLASS}>
-                <div className="mb-4 text-[13px] text-[var(--app-text-muted)]">Skills</div>
+                <div className="mb-4 text-sm text-[var(--app-text-muted)]">Skills</div>
                 <div className="max-h-[340px] space-y-1 overflow-y-auto pr-1">
                   {compactCommand.map((command, index) => (
                     <button
@@ -603,11 +625,11 @@ export function ChatWindow({ id }: { id: string }) {
                       }`}
                     >
                       <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
-                      <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                      <span className="min-w-0 flex-1 truncate text-sm leading-5">
                         <span className="text-[var(--app-text)]">{command.label}</span>
                         <span className="ml-3 text-[var(--app-text-muted)]">{command.description}</span>
                       </span>
-                      <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">Command</span>
+                      <span className="shrink-0 text-sm text-[var(--app-text-muted)]">Command</span>
                     </button>
                   ))}
                   {matchingSkills.map((skill, index) => (
@@ -632,11 +654,11 @@ export function ChatWindow({ id }: { id: string }) {
                         >
                           <Package
                             className={`h-4 w-4 shrink-0 ${
-                              selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)] opacity-80'
+                              selected ? 'text-app-mention' : 'text-[var(--app-text)] opacity-80'
                             }`}
                           />
-                          <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
-                            <span className={selected ? 'text-[#ff8f8f]' : 'text-[var(--app-text)]'}>
+                          <span className="min-w-0 flex-1 truncate text-sm leading-5">
+                            <span className={selected ? 'text-app-mention' : 'text-[var(--app-text)]'}>
                               {skillToken(skill, skillTrigger?.char ?? '/')}
                             </span>
                             {skill.description && (
@@ -644,11 +666,11 @@ export function ChatWindow({ id }: { id: string }) {
                             )}
                           </span>
                           {selected ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[13px] text-[#ff8f8f]">
+                            <span className="inline-flex shrink-0 items-center gap-1 text-sm text-app-mention">
                               <Check className="h-3.5 w-3.5" /> Selected
                             </span>
                           ) : (
-                            <span className="shrink-0 text-[13px] text-[var(--app-text-muted)]">{sourceLabel}</span>
+                            <span className="shrink-0 text-sm text-[var(--app-text-muted)]">{sourceLabel}</span>
                           )}
                         </button>
                       )
@@ -657,12 +679,15 @@ export function ChatWindow({ id }: { id: string }) {
                 </div>
               </div>
             )}
-            <div className="relative min-h-[44px] px-1 text-[13px] leading-5">
-              <div className={COMPOSER_GHOST_TEXT_CLASS}>
-                {input ? renderComposerText(input, skills) : null}
+            <div data-composer-viewport="true" className="relative min-h-[44px] max-h-[160px] overflow-hidden px-1 text-sm leading-5">
+              <div className={COMPOSER_GHOST_VIEWPORT_CLASS} aria-hidden="true">
+                <div ref={composerGhostTextRef} data-composer-ghost="true" className="min-h-full whitespace-pre-wrap break-words will-change-transform">
+                  {input ? renderComposerText(input, skills) : null}
+                </div>
               </div>
               <textarea
               ref={textareaRef}
+              aria-label="Chat message"
               value={input}
               onChange={(e) => {
                 setInput(e.target.value)
@@ -674,6 +699,7 @@ export function ChatWindow({ id }: { id: string }) {
               onSelect={rememberSelection}
               onKeyUp={rememberSelection}
               onMouseUp={rememberSelection}
+              onScroll={syncComposerScroll}
               onKeyDown={(e) => {
                 if (e.key === 'Backspace' && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
                   const cursor = e.currentTarget.selectionStart
@@ -734,7 +760,7 @@ export function ChatWindow({ id }: { id: string }) {
                     ? 'Describe your goal, define measurable outcomes for best results'
                     : 'Ask for follow-up changes'
               }
-              rows={2}
+              rows={1}
               spellCheck={false}
               className={TEXTAREA_CLASS}
             />
@@ -789,7 +815,7 @@ function ContextInputChips({ attachments, onRemove }: { attachments: ContextInpu
             key={attachment.id}
             type="button"
             onClick={() => onRemove(attachment.id)}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-2)] px-1.5 py-1 text-[11px] text-[var(--app-text)] hover:bg-[var(--app-border)]"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-2)] px-1.5 py-1 text-caption text-[var(--app-text)] hover:bg-[var(--app-border)]"
             title={`Remove ${attachment.label}`}
             aria-label={`Remove context attachment ${attachment.label}`}
           >
