@@ -69,7 +69,7 @@ export function BottomPanelContent({ bottomPanel, repoPath }: BottomPanelContent
 
 export function BottomPanelNav({ bottomPanel, onTogglePanel }: BottomPanelNavProps) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border px-3 text-[11px] text-app-text-muted">
+    <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border bg-app-surface px-3 text-[11px] text-app-text">
       <PanelNavButton
         active={bottomPanel === 'issue'}
         onClick={() => onTogglePanel('issue')}
@@ -138,8 +138,8 @@ function PanelNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg p-2 hover:bg-app-surface-2 hover:text-app-text ${
-        active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'
+      className={`rounded-lg p-2 transition-colors ${
+        active ? 'bg-app-border text-app-text shadow-inner' : 'text-app-text-muted hover:bg-app-surface-2 hover:text-app-text'
       }`}
       title={title}
     >

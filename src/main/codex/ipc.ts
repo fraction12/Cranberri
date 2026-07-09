@@ -59,6 +59,19 @@ let clientStarting = false
 let clientEventHandlerAttached = false
 let codexEventBroadcast: ((event: CodexEvent) => void) | null = null
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
+function isThreadNotFoundError(error: unknown): boolean {
+  return /thread not found/i.test(errorMessage(error, ''))
+}
+
+function registryErrorMessage(error: unknown, fallback: string): string {
+  const message = errorMessage(error, fallback)
+  return /thread not found/i.test(message) ? 'Active Codex thread is no longer available for registry lookup.' : message
+}
+
 async function findCodexBinary(): Promise<string | null> {
   return findExecutable('codex', ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'])
 }
@@ -615,14 +628,32 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       appsResult = await c.listApps({ threadId: threadId ?? null, forceRefetch })
       appListAvailable = true
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'App list unavailable')
+      if (threadId && isThreadNotFoundError(error)) {
+        try {
+          appsResult = await c.listApps({ threadId: null, forceRefetch })
+          appListAvailable = true
+        } catch (fallbackError) {
+          errors.push(registryErrorMessage(fallbackError, 'App list unavailable'))
+        }
+      } else {
+        errors.push(registryErrorMessage(error, 'App list unavailable'))
+      }
     }
 
     try {
       mcpResult = await c.listMcpServerStatus({ threadId: threadId ?? null })
       mcpServerStatusAvailable = true
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'MCP server status unavailable')
+      if (threadId && isThreadNotFoundError(error)) {
+        try {
+          mcpResult = await c.listMcpServerStatus({ threadId: null })
+          mcpServerStatusAvailable = true
+        } catch (fallbackError) {
+          errors.push(registryErrorMessage(fallbackError, 'MCP server status unavailable'))
+        }
+      } else {
+        errors.push(registryErrorMessage(error, 'MCP server status unavailable'))
+      }
     }
 
     return normalizeToolRegistrySnapshot({

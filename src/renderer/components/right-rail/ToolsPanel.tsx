@@ -8,7 +8,7 @@ import { createToolEventContextCapturedEvent } from '../tool-event-context-event
 import { toolRegistryChatContext } from '../codex-resources'
 import { toolEventChatContext } from '../tool-chat-context'
 import type { ToolEventStatus, ToolRegistrySnapshot } from '@/shared/tools'
-import { toolRegistryCapabilityMessages } from './tool-registry-model'
+import { toolRegistryCapabilityMessages, toolRegistryVisibleErrors } from './tool-registry-model'
 
 const STATUS_LABELS: Record<ToolEventStatus, string> = {
   pending: 'Pending',
@@ -147,7 +147,7 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
   const apps = registry?.apps ?? []
   const mcpServers = registry?.mcpServers ?? []
   const enabledApps = apps.filter((app) => app.enabled)
-  const errors = registry?.capabilities.errors ?? []
+  const errors = toolRegistryVisibleErrors(registry)
   const capabilityMessages = toolRegistryCapabilityMessages(registry)
 
   return (
@@ -220,7 +220,7 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
           ))}
         </div>
       )}
-      {!isLoading && !apps.length && !mcpServers.length && !errors.length && (
+      {!isLoading && !apps.length && !mcpServers.length && !errors.length && !capabilityMessages.length && (
         <div className="px-3 py-2 text-xs text-app-text-muted">No app or MCP registry entries.</div>
       )}
     </section>

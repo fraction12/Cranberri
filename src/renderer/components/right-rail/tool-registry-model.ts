@@ -26,3 +26,16 @@ export function toolRegistryCapabilityMessages(registry?: ToolRegistrySnapshot |
   }
   return messages
 }
+
+export function toolRegistryVisibleErrors(registry?: ToolRegistrySnapshot | null): string[] {
+  if (!registry) return []
+
+  const seen = new Set<string>()
+  return registry.capabilities.errors.flatMap((error) => {
+    const message = error.trim()
+    if (!message || /thread not found/i.test(message)) return []
+    if (seen.has(message)) return []
+    seen.add(message)
+    return [message]
+  })
+}
