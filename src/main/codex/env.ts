@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import path from 'node:path'
+import { withGuiToolPath } from '../guiToolPath'
 
 async function findExecutable(name: string, candidates: string[]): Promise<string | null> {
   const fromPath = await new Promise<{ stdout: string; code: number | null }>((resolve) => {
@@ -30,5 +31,5 @@ export async function makeCodexEnv(extra: Record<string, string> = {}): Promise<
   const binDir = nodePath ? path.dirname(nodePath) : '/opt/homebrew/bin'
   const basePath = process.env.PATH ?? ''
   const separator = process.platform === 'win32' ? ';' : ':'
-  return { ...process.env, ...extra, PATH: `${binDir}${separator}${basePath}` }
+  return withGuiToolPath({ ...process.env, ...extra, PATH: `${binDir}${separator}${basePath}` })
 }

@@ -9,9 +9,9 @@ import {
 
 export const TOOL_CATALOG_FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'available', label: 'Available' },
-  { value: 'needs-attention', label: 'Needs attention' },
-  { value: 'pinned', label: 'Pinned' },
+  { value: 'available', label: 'Ready' },
+  { value: 'needs-attention', label: 'Action' },
+  { value: 'pinned', label: 'In rail' },
 ] as const
 
 export type ToolCatalogFilter = (typeof TOOL_CATALOG_FILTER_OPTIONS)[number]['value']

@@ -12,3 +12,13 @@ export function renameWorkspaceWindow(
   next[index] = { ...windows[index], title }
   return next
 }
+
+export function codexThreadIdForActiveWindow(
+  windows: WorkspaceWindowState[],
+  activeWindowId: string | null,
+  activeThreadId: string | null,
+): string | null {
+  return windows.find((window) => window.id === activeWindowId)?.type === 'chat'
+    ? activeThreadId
+    : null
+}

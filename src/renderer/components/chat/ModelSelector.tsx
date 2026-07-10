@@ -24,8 +24,12 @@ const ITEM_CLASS = [
   'text-left outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:opacity-40',
 ].join(' ')
 
+export function codexModelLabel(model: string): string {
+  return CODEX_MODELS.find((option) => option.value === model)?.label ?? model
+}
+
 export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
-  const selectedModel = CODEX_MODELS.find((option) => option.value === settings.model) ?? CODEX_MODELS[0]
+  const selectedModelLabel = codexModelLabel(settings.model)
   const normalizedEffort = normalizeCodexReasoningEffort(settings.model, settings.effort)
   const normalizedSpeed = normalizeCodexSpeed(settings.model, settings.speed) ?? 'standard'
   const supportedEfforts = getCodexEffortsForModel(settings.model)
@@ -48,12 +52,24 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         <button
           type="button"
           aria-label="Configure model, reasoning, and speed"
-          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-app-text outline-none hover:bg-app-surface-2 focus-visible:ring-2 focus-visible:ring-app-accent"
+          className="flex min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs text-app-text outline-none hover:bg-app-surface-2 focus-visible:ring-2 focus-visible:ring-app-accent"
         >
-          <span>{selectedModel.label.replace('GPT-', '')}</span>
-          <span>{selectedEffort.label}</span>
-          <span className="hidden text-app-text-muted xl:inline">·</span>
-          <span className="hidden xl:inline">{selectedSpeed.label}</span>
+          <span className="max-w-28 truncate" title={selectedModelLabel}>{selectedModelLabel.replace('GPT-', '')}</span>
+          <span className="shrink-0">{selectedEffort.label}</span>
+          {selectedSpeed.value === 'fast' ? (
+            <>
+              <span className="shrink-0 text-app-text-muted">·</span>
+              <span className="flex shrink-0 items-center gap-1">
+                <Zap className="h-3 w-3" />
+                {selectedSpeed.label}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="hidden shrink-0 text-app-text-muted xl:inline">·</span>
+              <span className="hidden shrink-0 xl:inline">{selectedSpeed.label}</span>
+            </>
+          )}
           <ChevronDown className="h-3 w-3 text-app-text-muted" />
         </button>
       </DropdownMenu.Trigger>
@@ -86,7 +102,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
 
           <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger className={ITEM_CLASS}>
-              <span>{selectedModel.label}</span>
+              <span className="truncate" title={selectedModelLabel}>{selectedModelLabel}</span>
               <ChevronRight className="h-3.5 w-3.5 text-app-text-muted" />
             </DropdownMenu.SubTrigger>
             <DropdownMenu.Portal>

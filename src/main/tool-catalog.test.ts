@@ -96,10 +96,40 @@ describe('tool catalog IDs and defaults', () => {
       expect.objectContaining({ id: 'codex:apply_patch', isDefault: true }),
       expect.objectContaining({ source: expect.objectContaining({ kind: 'browser' }), isDefault: true }),
     ]))
+    expect(DEFAULT_TOOL_CATALOG_DESCRIPTORS
+      .filter((entry) => entry.source.kind === 'cli' && entry.isDefault)
+      .map((entry) => entry.name)
+      .sort()).toEqual(['git', 'rg'])
   })
 })
 
 describe('tool catalog evidence assembly', () => {
+  it('marks Codex runtime tools ready when the app-server connection is live', () => {
+    const snapshot = assembleToolCatalog({
+      now: NOW,
+      activeTask: TASK,
+      runtimeConnected: true,
+    })
+
+    expect(catalogEntry(snapshot, 'codex:exec_command')).toMatchObject({
+      machine: { status: 'connected', provenance: 'runtime-connection' },
+      task: { status: 'unknown', provenance: 'none' },
+    })
+    expect(catalogEntry(snapshot, 'browser:codex-runtime:web_search')).toMatchObject({
+      machine: { status: 'connected', provenance: 'runtime-connection' },
+      task: { status: 'unknown', provenance: 'none' },
+    })
+
+    const disconnected = assembleToolCatalog({
+      now: NOW,
+      activeTask: TASK,
+      runtimeConnected: false,
+    })
+    expect(catalogEntry(disconnected, 'codex:exec_command')).toMatchObject({
+      machine: { status: 'unknown', provenance: 'none' },
+    })
+  })
+
   it('keeps global and stale-fallback inventory unknown, active inventory addressable, and strong same-task evidence usable', () => {
     const id = createToolCatalogId(
       { kind: 'mcp', providerId: 'provider:alpha', providerName: 'provider:alpha' },

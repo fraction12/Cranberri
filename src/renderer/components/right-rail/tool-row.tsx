@@ -5,12 +5,8 @@ import { cn, iconButton } from '../../lib/ui'
 import {
   toolAvailability,
   toolAvailabilityLabel,
-  toolMachineContextLabel,
-  toolMachineStatusLabel,
-  toolSourceDisplayLabel,
-  toolTaskStatusLabel,
 } from '../../state/tool-catalog-selectors'
-import { ToolDetails, toolTimeLabel } from './tool-details'
+import { ToolDetails } from './tool-details'
 
 export interface ToolRowProps {
   entry: ToolCatalogEntry
@@ -35,7 +31,6 @@ export function ToolRow({
 }: ToolRowProps) {
   const detailsId = useId()
   const availability = toolAvailability(entry)
-  const machineLabel = entry.isOrphan ? toolAvailabilityLabel(entry) : toolMachineStatusLabel(entry.machine.status)
   const probeCapable = entry.probeCapability.kind !== 'unsupported'
   const toggleExpanded = useCallback(() => onExpandedChange(entry.id, !expanded), [entry.id, expanded, onExpandedChange])
   const testTool = useCallback(() => onTest(entry.id), [entry.id, onTest])
@@ -43,32 +38,28 @@ export function ToolRow({
   const sendDiagnostic = useCallback(() => onSendDiagnostic?.(entry.id), [entry.id, onSendDiagnostic])
 
   return (
-    <article aria-busy={busy || undefined}>
-      <div className="grid min-h-[66px] grid-cols-[minmax(0,1fr)_auto] items-start gap-1 px-2 py-2">
+    <article aria-busy={busy || undefined} className="group">
+      <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5">
         <button
           type="button"
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={toggleExpanded}
-          className="min-w-0 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+          className="min-w-0 rounded px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
         >
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-app-text-muted transition-transform', expanded && 'rotate-90')} />
-            <span className="truncate text-xs font-medium text-app-text" title={entry.name}>{entry.name}</span>
-            <span className={cn(
-              'ml-auto shrink-0 text-micro',
-              availability === 'available' && 'text-app-success',
-              availability === 'needs-attention' && 'text-app-warning',
-              availability === 'unknown' && 'text-app-text-muted',
-            )} aria-live="polite">
+            <span className="truncate font-medium text-app-text" title={entry.name}>{entry.name}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 text-caption text-app-text-muted" aria-live="polite">
+              <span className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                availability === 'available' ? 'bg-app-success' : 'bg-app-warning',
+              )} />
               {toolAvailabilityLabel(entry)}
             </span>
           </span>
-          <span className="mt-1 block truncate pl-5 text-micro text-app-text-muted" title={`${toolMachineContextLabel(entry.source)}: ${machineLabel}; Task: ${toolTaskStatusLabel(entry.task.status)}`}>
-            {toolMachineContextLabel(entry.source)}: {machineLabel} · Task: {toolTaskStatusLabel(entry.task.status)}
-          </span>
-          <span className="mt-0.5 block truncate pl-5 text-micro text-app-text-muted" title={toolSourceDisplayLabel(entry.source)}>
-            {toolSourceDisplayLabel(entry.source)} · {entry.machine.version ? `Version ${entry.machine.version.slice(0, 40)}` : 'Version unknown'} · {toolTimeLabel(entry.machine.observedAt, 'Checked')}{entry.machine.stale ? ' · Stale' : ''}
+          <span className="mt-0.5 block truncate pl-5 text-caption text-app-text-muted" title={entry.description ?? undefined}>
+            {entry.description ?? 'No description available.'}
           </span>
         </button>
         <div className="flex items-center gap-0.5">
@@ -76,7 +67,7 @@ export function ToolRow({
           {probeCapable ? (
             <button
               type="button"
-              className={iconButton()}
+              className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
               disabled={busy}
               title="Test tool"
               aria-label={busy ? `Testing ${entry.name}` : `Test ${entry.name}`}
@@ -87,7 +78,7 @@ export function ToolRow({
           ) : (
             <button
               type="button"
-              className={iconButton()}
+              className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
               title="Open tool settings"
               aria-label={`Open settings for ${entry.name}`}
               onClick={openSettings}

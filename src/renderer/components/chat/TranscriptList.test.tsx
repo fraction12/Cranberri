@@ -61,6 +61,45 @@ describe('TranscriptList', () => {
     expect(html).toContain('Calling tool')
   })
 
+  it('only applies the latest run duration to the latest reasoning group', () => {
+    const html = renderTranscript(thread([
+      message('user-1', 'user', 'First request'),
+      message('reasoning-1', 'reasoning', 'First pass'),
+      message('assistant-1', 'assistant', 'First answer'),
+      message('user-2', 'user', 'Second request'),
+      message('reasoning-2', 'reasoning', 'Second pass'),
+      message('assistant-2', 'assistant', 'Second answer'),
+    ], { lastRunDurationMs: 95_000 }))
+
+    expect(html.match(/Worked for 95s/g)).toHaveLength(1)
+    expect(html.match(/>Worked</g)).toHaveLength(1)
+  })
+
+  it('does not repeat a duration when compaction splits the latest turn into multiple groups', () => {
+    const html = renderTranscript(thread([
+      message('user-1', 'user', 'Long request'),
+      message('reasoning-1', 'reasoning', 'Before compaction'),
+      message('compact-1', 'compact', 'Context compacted'),
+      message('reasoning-2', 'reasoning', 'After compaction'),
+      message('assistant-1', 'assistant', 'Done'),
+    ], { lastRunDurationMs: 95_000 }))
+
+    expect(html.match(/Worked for 95s/g)).toHaveLength(1)
+    expect(html.match(/>Worked</g)).toHaveLength(1)
+  })
+
+  it('renders turn failures as visible alerts outside collapsed reasoning', () => {
+    const html = renderTranscript(thread([
+      message('user-1', 'user', 'Run this'),
+      message('reasoning-1', 'reasoning', 'Working on it'),
+      message('error-1', 'system', 'Error: model unavailable'),
+    ]))
+
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Error: model unavailable')
+    expect(html).not.toContain('Working on it')
+  })
+
   it('renders pending and completed compact divider states', () => {
     const html = renderTranscript(
       thread([

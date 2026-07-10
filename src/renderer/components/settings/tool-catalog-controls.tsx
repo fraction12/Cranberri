@@ -50,7 +50,7 @@ export function ToolCatalogControls({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-1 rounded-md bg-app-bg p-1 sm:grid-cols-4" role="group" aria-label="Tool catalog filter">
+      <div className="grid grid-cols-4 gap-1 rounded-md bg-app-bg p-1" role="group" aria-label="Tool catalog filter">
         {TOOL_CATALOG_FILTER_OPTIONS.map((option) => (
           <button
             key={option.value}

@@ -3,6 +3,14 @@ import { renderSkillText } from './composer-text'
 import { memo, type ReactNode } from 'react'
 import type { CodexMessage, CodexSkillInfo, CodexThread } from '@/shared/codex'
 
+function isVisibleSystemError(message: CodexMessage): boolean {
+  return message.role === 'system' && /^Error:/i.test(message.content.trim())
+}
+
+function belongsInReasoningGroup(message: CodexMessage): boolean {
+  return message.role === 'reasoning' || (message.role === 'system' && !isVisibleSystemError(message))
+}
+
 function CompactMessage({ message }: { message: CodexMessage }) {
   const isPending = message.pending ?? false
   const [muted, bright] = isPending
@@ -47,7 +55,12 @@ export const TranscriptList = memo(function TranscriptList({
   let renderedRunningGroup = false
   const isRunning = thread?.isRunning ?? false
   const messages = thread?.messages ?? []
-  const lastUserIndex = isRunning ? messages.map((message) => message.role).lastIndexOf('user') : -1
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf('user')
+  const latestReasoningGroupStartIndex = messages.reduce((latest, message, index) => (
+    belongsInReasoningGroup(message) && (index === 0 || !belongsInReasoningGroup(messages[index - 1]))
+      ? index
+      : latest
+  ), -1)
 
   const renderWorkingGroup = (key = 'working') => {
     renderedRunningGroup = true
@@ -70,7 +83,10 @@ export const TranscriptList = memo(function TranscriptList({
   const flushReasoning = () => {
     if (reasoningBuffer.length === 0) return
     const group = reasoningBuffer
-    const groupIsRunning = isRunning && reasoningBufferStartIndex > lastUserIndex
+    const isLatestTurnGroup = lastUserIndex !== -1
+      && reasoningBufferStartIndex > lastUserIndex
+      && reasoningBufferStartIndex === latestReasoningGroupStartIndex
+    const groupIsRunning = isRunning && isLatestTurnGroup
     if (groupIsRunning) renderedRunningGroup = true
     reasoningBuffer = []
     reasoningBufferStartIndex = -1
@@ -84,25 +100,25 @@ export const TranscriptList = memo(function TranscriptList({
         onToggle={() => onToggleGroup(key)}
         isRunning={groupIsRunning}
         activity={thread?.currentActivity}
-        durationMs={thread?.lastRunDurationMs}
+        durationMs={isLatestTurnGroup ? thread?.lastRunDurationMs : undefined}
         runStartedAt={thread?.runStartedAt}
         renderSkillText={renderSkillText}
       />,
     )
   }
 
-  const hasRunningReasoning = lastUserIndex !== -1 && messages
+  const hasRunningReasoning = isRunning && lastUserIndex !== -1 && messages
     .slice(lastUserIndex + 1)
     .some((message) => message.role === 'reasoning' || message.role === 'system')
 
   messages.forEach((message, index) => {
-    if (message.role === 'reasoning' || message.role === 'system') {
+    if (belongsInReasoningGroup(message)) {
       if (reasoningBuffer.length === 0) reasoningBufferStartIndex = index
       reasoningBuffer.push(message)
       return
     }
     flushReasoning()
-    if (index === lastUserIndex && !renderedRunningGroup && !hasRunningReasoning) {
+    if (isRunning && index === lastUserIndex && !renderedRunningGroup && !hasRunningReasoning) {
       nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
       renderWorkingGroup(`working-after-${message.id}`)
       return

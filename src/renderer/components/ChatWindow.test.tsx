@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { NEW_THREAD_EMPTY_STATE, shouldRestoreDraftAfterSendError } from './chat/chat-window-state'
+import {
+  NEW_THREAD_EMPTY_STATE,
+  sessionThreadIdFromWindowId,
+  shouldRestoreDraftAfterSendError,
+  shouldSendComposerOnEnter,
+  shouldToastAfterSendError,
+} from './chat/chat-window-state'
 import { renderSkillText } from './chat/composer-text'
 import type { CodexSkillInfo } from '@/shared/codex'
 
@@ -27,9 +33,27 @@ describe('ChatWindow composer rendering', () => {
     expect(NEW_THREAD_EMPTY_STATE).toBe('Ask Codex to inspect, edit, or explain this repo.')
   })
 
+  it('recovers the Codex thread id from a persisted session window', () => {
+    expect(sessionThreadIdFromWindowId('session-thread-123')).toBe('thread-123')
+    expect(sessionThreadIdFromWindowId('win-123')).toBeNull()
+    expect(sessionThreadIdFromWindowId('session-')).toBeNull()
+  })
+
   it('restores a draft only when first send failed before a thread was created', () => {
     expect(shouldRestoreDraftAfterSendError(undefined, new Error('spawn failed'))).toBe(true)
     expect(shouldRestoreDraftAfterSendError('thread-1', new Error('turn failed'))).toBe(false)
     expect(shouldRestoreDraftAfterSendError(undefined, Object.assign(new Error('turn failed'), { threadCreated: true }))).toBe(false)
+  })
+
+  it('keeps Enter from submitting or clearing a follow-up while Codex is running', () => {
+    expect(shouldSendComposerOnEnter('Enter', false, false)).toBe(true)
+    expect(shouldSendComposerOnEnter('Enter', false, true)).toBe(false)
+    expect(shouldSendComposerOnEnter('Enter', true, false)).toBe(false)
+  })
+
+  it('avoids duplicating transcript send errors in a toast', () => {
+    expect(shouldToastAfterSendError('thread-1', 'normal message', new Error('turn failed'))).toBe(false)
+    expect(shouldToastAfterSendError('thread-1', '/compact', new Error('compact failed'))).toBe(true)
+    expect(shouldToastAfterSendError(undefined, 'first message', new Error('spawn failed'))).toBe(true)
   })
 })

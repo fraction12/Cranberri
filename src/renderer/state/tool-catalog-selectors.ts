@@ -8,7 +8,7 @@ import {
 } from '@/shared/tools'
 
 export type ToolCatalogSourceKind = ToolCatalogSource['kind']
-export type ToolAvailability = 'available' | 'needs-attention' | 'unknown'
+export type ToolAvailability = 'available' | 'needs-attention'
 
 export interface ToolCatalogGroup {
   source: ToolCatalogSourceKind
@@ -31,8 +31,8 @@ const SOURCE_LABELS: Record<ToolCatalogSourceKind, string> = {
 }
 
 const MACHINE_STATUS_LABELS: Record<ToolCatalogMachineStatus, string> = {
-  unknown: 'Unknown',
-  available: 'Available',
+  unknown: 'Unavailable',
+  available: 'Ready',
   installed: 'Installed',
   missing: 'Not installed',
   connected: 'Connected',
@@ -42,9 +42,9 @@ const MACHINE_STATUS_LABELS: Record<ToolCatalogMachineStatus, string> = {
 
 const TASK_STATUS_LABELS: Record<ToolCatalogTaskStatus, string> = {
   'no-active-task': 'No active task',
-  unknown: 'Unknown',
-  addressable: 'Addressable',
-  usable: 'Usable',
+  unknown: 'Unavailable',
+  addressable: 'Ready',
+  usable: 'Used successfully',
   unavailable: 'Unavailable',
   'authentication-required': 'Authentication required',
   'approval-required': 'Approval required',
@@ -96,6 +96,7 @@ export function toolTaskStatusLabel(status: ToolCatalogTaskStatus): string {
 export function toolAvailability(entry: ToolCatalogEntry): ToolAvailability {
   if (
     entry.isOrphan
+    || entry.machine.stale
     || ATTENTION_MACHINE_STATUSES.has(entry.machine.status)
     || ATTENTION_TASK_STATUSES.has(entry.task.status)
   ) return 'needs-attention'
@@ -103,16 +104,17 @@ export function toolAvailability(entry: ToolCatalogEntry): ToolAvailability {
     AVAILABLE_MACHINE_STATUSES.has(entry.machine.status)
     || AVAILABLE_TASK_STATUSES.has(entry.task.status)
   ) return 'available'
-  return 'unknown'
+  return 'needs-attention'
 }
 
 export function toolAvailabilityLabel(entry: ToolCatalogEntry): string {
   if (entry.isOrphan) return 'Provider unavailable'
+  if (entry.machine.stale) return 'Refresh needed'
   if (ATTENTION_MACHINE_STATUSES.has(entry.machine.status)) {
     return toolMachineStatusLabel(entry.machine.status)
   }
   if (ATTENTION_TASK_STATUSES.has(entry.task.status)) return toolTaskStatusLabel(entry.task.status)
-  return toolAvailability(entry) === 'available' ? 'Available' : 'Availability unknown'
+  return toolAvailability(entry) === 'available' ? 'Ready' : 'Unavailable'
 }
 
 export const toolMembership = sharedToolMembership

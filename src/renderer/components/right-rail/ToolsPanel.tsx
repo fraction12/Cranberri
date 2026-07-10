@@ -3,7 +3,13 @@ import { Loader2, RefreshCw, Settings2, Wrench } from 'lucide-react'
 import type { ToolCatalogId } from '@/shared/tools'
 import { useCodexWindows } from '../../state/codex'
 import { useSettings } from '../../state/settings'
-import { selectRailToolGroups, selectToolEntriesWithPreferences } from '../../state/tool-catalog-selectors'
+import { useWorkspace } from '../../state/workspace'
+import { codexThreadIdForActiveWindow } from '../../state/workspace-model'
+import {
+  selectRailToolGroups,
+  selectToolEntriesWithPreferences,
+  toolAvailability,
+} from '../../state/tool-catalog-selectors'
 import { toolDiagnosticDraft } from '../../state/tool-diagnostic'
 import { useToolCatalog } from '../../state/tools'
 import { iconButton } from '../../lib/ui'
@@ -17,8 +23,10 @@ interface ToolsPanelProps {
 
 export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
   const { activeThreadId } = useCodexWindows()
+  const { windows, activeWindowId } = useWorkspace()
   const { settings } = useSettings()
-  const catalog = useToolCatalog(activeThreadId)
+  const catalogThreadId = codexThreadIdForActiveWindow(windows, activeWindowId, activeThreadId)
+  const catalog = useToolCatalog(catalogThreadId)
   const [expandedToolId, setExpandedToolId] = useState<ToolCatalogId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const entries = useMemo(
@@ -26,6 +34,9 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
     [catalog.data?.entries, settings.tools],
   )
   const groups = useMemo(() => selectRailToolGroups(entries), [entries])
+  const railEntries = useMemo(() => groups.flatMap((group) => group.entries), [groups])
+  const readyCount = railEntries.filter((entry) => toolAvailability(entry) === 'available').length
+  const actionCount = railEntries.length - readyCount
   const catalogById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries])
 
   const runAction = useCallback(async (action: () => Promise<unknown>) => {
@@ -46,14 +57,14 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
   }, [catalogById])
 
   const statusLabel = catalog.isLoading && !catalog.data
-    ? 'Loading'
-    : catalog.data?.refresh.status === 'stale'
-      ? 'Saved status'
-      : catalog.data?.refresh.status === 'failed'
-        ? 'Health unavailable'
-      : activeThreadId ? 'Active task' : 'No active task'
+    ? 'Checking tools'
+    : [
+        `${readyCount} ready`,
+        actionCount ? `${actionCount} action${actionCount === 1 ? '' : 's'}` : null,
+        catalog.data?.refresh.status === 'stale' ? 'refresh needed' : null,
+      ].filter(Boolean).join(' · ')
   const refreshFailure = catalog.data?.refresh.status === 'failed'
-    ? `Tool health unavailable${catalog.data.refresh.errorCode ? ` (${catalog.data.refresh.errorCode.slice(0, 80)})` : ''}.`
+    ? `Tools unavailable${catalog.data.refresh.errorCode ? ` (${catalog.data.refresh.errorCode.slice(0, 80)})` : ''}.`
     : null
 
   return (
@@ -77,14 +88,14 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
       </div>
       {(actionError || refreshFailure || (catalog.isError && !catalog.data)) && (
         <div className="shrink-0 border-b border-app-danger/30 px-3 py-2 text-caption text-app-danger" role="alert">
-          {actionError ?? refreshFailure ?? 'Tool health unavailable. Try refreshing or open Settings.'}
+          {actionError ?? refreshFailure ?? 'Tools unavailable. Try refreshing or open Settings.'}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {catalog.isLoading && !catalog.data ? (
           <div className="flex items-center gap-2 px-3 py-4 text-xs text-app-text-muted" role="status">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading tool health...
+            Checking tools...
           </div>
         ) : groups.length ? groups.map((group) => (
           <ToolGroup key={group.source} label={group.label}>
@@ -102,7 +113,7 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
             ))}
           </ToolGroup>
         )) : (
-          <div className="px-3 py-5 text-center text-xs text-app-text-muted">No curated tools. Manage the rail in Settings.</div>
+          <div className="px-3 py-5 text-center text-xs text-app-text-muted">No tools in this rail. Choose them in Settings.</div>
         )}
       </div>
       <div className="sr-only" aria-live="polite">{catalog.refreshing ? 'Refreshing tool health.' : ''}</div>

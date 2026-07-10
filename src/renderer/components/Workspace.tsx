@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { useWorkspace } from '../state/workspace'
 import { useCodexActions } from '../state/codex'
 import { useRepos } from '../state/repos'
@@ -40,8 +41,13 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
       const archived = Boolean((event as CustomEvent).detail?.archived)
       if (!session) return
       const targetRepo = repoPath ? repos.find((repo) => repo.path === repoPath) : null
+      if (repoPath && !targetRepo) {
+        console.error(`Cannot open Codex session because its repo is unavailable: ${repoPath}`)
+        toast.error('That session\'s repo is no longer available.')
+        return
+      }
       const windowId = `session-${session.id}`
-      openSession(windowId, session, archived)
+      openSession(windowId, session, archived, targetRepo ?? undefined)
         .then((thread) => {
           openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId)
           if (targetRepo && targetRepo.id !== activeRepoId) return setActiveRepo(targetRepo.id)

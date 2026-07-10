@@ -90,7 +90,7 @@ let capabilityEpochCounter = 0
 const MAX_CATALOG_TASK_CONTEXTS = 100
 const MAX_PENDING_TOOL_APPROVALS = 100
 
-const catalogProjectRoots = new Set<string>([process.cwd()])
+const catalogProjectRoots = new Set<string>()
 const capabilityEpochByThread = new Map<string, string>()
 const registryFingerprintByThread = new Map<string, string>()
 const registryAppsByContext = new Map<string, ToolRegistryApp[]>()
@@ -103,6 +103,7 @@ const toolCatalogService = new ToolCatalogService({
 interface ToolRegistryLoadResult {
   snapshot: ToolRegistrySnapshot
   scope: ToolCatalogRegistryEvidence['scope']
+  runtimeConnected: boolean
 }
 
 function registryContextKey(threadId: string | null): string {
@@ -113,6 +114,7 @@ function retainLastRegistryEvidence(
   threadId: string | null,
   snapshot: ToolRegistrySnapshot,
   scope: ToolCatalogRegistryEvidence['scope'],
+  runtimeConnected = true,
 ): ToolRegistryLoadResult {
   const key = registryContextKey(threadId)
   let usedCachedEvidence = false
@@ -135,6 +137,7 @@ function retainLastRegistryEvidence(
     scope: usedCachedEvidence && scope !== 'stale-thread-fallback'
       ? 'stale-thread-fallback'
       : scope,
+    runtimeConnected,
   }
 }
 
@@ -198,7 +201,9 @@ function correlatedToolEvents(event: CodexEvent): ToolEventRecord[] {
 }
 
 function rememberCatalogProjectRoot(cwd: string): void {
-  if (path.isAbsolute(cwd)) catalogProjectRoots.add(path.resolve(cwd))
+  if (!path.isAbsolute(cwd)) return
+  const resolved = path.resolve(cwd)
+  if (path.dirname(resolved) !== resolved) catalogProjectRoots.add(resolved)
 }
 
 function advanceCapabilityEpoch(threadId: string): ToolCatalogTaskKey {
@@ -683,6 +688,7 @@ async function loadToolRegistry(
       threadId,
       snapshot,
       threadId ? 'stale-thread-fallback' : 'global',
+      false,
     )
   }
   const errors: string[] = []
@@ -774,6 +780,7 @@ async function loadToolCatalogContext(
 
   return {
     taskKey,
+    runtimeConnected: registry.runtimeConnected,
     preferences: readSettings().tools,
     registryEvidence,
     registryFailure: registry.snapshot.capabilities.errors.length
@@ -863,11 +870,13 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:threads:list', async (_, cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => {
+    rememberCatalogProjectRoot(cwd)
     const c = await getCodexClient()
     return c.listThreads(cwd, options ?? {})
   })
 
   ipcMain.handle('codex:threads:read', async (_, cwd: string, threadId: string, archived?: boolean) => {
+    rememberCatalogProjectRoot(cwd)
     const c = await getCodexClient()
     c.setCwd(cwd)
     return { thread: await c.readThread(threadId, archived) }

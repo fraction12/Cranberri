@@ -116,6 +116,13 @@ describe('tool catalog selectors', () => {
     expect(toolTaskStatusLabel(signedOut.task.status)).toBe('Authentication required')
     expect(toolAvailability(signedOut)).toBe('needs-attention')
     expect(toolAvailabilityLabel(orphan)).toBe('Provider unavailable')
+    expect(toolAvailabilityLabel(entry('codex:exec_command', 'exec_command', { kind: 'codex' }))).toBe('Unavailable')
+    expect(toolAvailabilityLabel(entry('cli:git', 'git', { kind: 'cli' }, {
+      machine: { ...signedOut.machine, status: 'installed', diagnosticCode: null },
+    }))).toBe('Ready')
+    expect(toolAvailabilityLabel(entry('cli:rg', 'rg', { kind: 'cli' }, {
+      machine: { ...signedOut.machine, status: 'installed', stale: true, diagnosticCode: 'probe-timeout' },
+    }))).toBe('Refresh needed')
   })
 
   it('applies default dismissal and explicit pin semantics without losing orphan intent', () => {

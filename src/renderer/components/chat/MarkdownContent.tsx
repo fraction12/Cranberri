@@ -7,14 +7,7 @@ import { CODE_INLINE_CLASS, MentionPill, classifyMentionLink } from './mention-p
 import { isValidElement, type ReactNode } from 'react'
 import { MermaidDiagram } from './MermaidDiagram'
 import { MarkdownMedia, markdownMediaSourceFromUrl } from './MarkdownMedia'
-
-function stripCodexAppDirectives(text: string): string {
-  return text
-    .split('\n')
-    .filter((line) => !/^::[a-z][a-z-]*\{.*\}\s*$/.test(line.trim()))
-    .join('\n')
-    .trim()
-}
+import { stripCodexAppDirectives } from './assistant-response-context'
 
 function isExternalUrl(href?: string): href is string {
   return Boolean(href?.startsWith('http://') || href?.startsWith('https://'))

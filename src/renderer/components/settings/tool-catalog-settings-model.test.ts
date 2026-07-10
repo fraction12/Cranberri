@@ -98,7 +98,7 @@ describe('tool catalog settings model', () => {
 
   it('filters by availability and current rail pin state', () => {
     expect(ids('', 'available')).toEqual(['codex:apply_patch'])
-    expect(ids('', 'needs-attention')).toEqual(['cli:gh', 'mcp:missing:lookup'])
+    expect(ids('', 'needs-attention')).toEqual(['cli:gh', 'mcp:missing:lookup', 'mcp:github-provider:search'])
     expect(ids('', 'pinned')).toEqual(['mcp:missing:lookup', 'mcp:github-provider:search'])
   })
 

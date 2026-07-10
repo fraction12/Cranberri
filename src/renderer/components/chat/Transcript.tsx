@@ -15,9 +15,11 @@ const USER_BUBBLE_CLASS = [
 ].join(' ')
 
 function MessageActions({ text }: { text: string }) {
+  const visibleText = stripCodexAppDirectives(text)
+  if (!visibleText) return null
   const sendToChat = () => {
     window.dispatchEvent(createSendChatContextEvent({
-      text: assistantResponseChatContext(text),
+      text: assistantResponseChatContext(visibleText),
     }))
   }
 
@@ -25,7 +27,7 @@ function MessageActions({ text }: { text: string }) {
     <div className="mt-4 flex items-center gap-3 text-[var(--app-text-muted)] opacity-80">
       <button
         type="button"
-        onClick={() => navigator.clipboard.writeText(text).catch((error) => console.error('Failed to copy response:', error))}
+        onClick={() => navigator.clipboard.writeText(visibleText).catch((error) => console.error('Failed to copy response:', error))}
         className="rounded p-0.5 hover:text-[var(--app-text)]"
         aria-label="Copy response"
         title="Copy response"
@@ -117,6 +119,14 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   skills?: CodexSkillInfo[]
   renderSkillText: SkillRenderer
 }) {
+  if (msg.role === 'system' && /^Error:/i.test(msg.content.trim())) {
+    return (
+      <div role="alert" className="border-l-2 border-app-danger bg-app-danger/5 px-3 py-2 text-sm leading-5 text-app-danger">
+        <div className="whitespace-pre-wrap">{formatInlineCodexText(msg.content)}</div>
+      </div>
+    )
+  }
+
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
       <div className="max-w-full text-sm leading-5 text-[var(--app-text-muted)]">
@@ -144,7 +154,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           <MarkdownContent text={msg.content} hideAppDirectives streaming={msg.pending} />
         </Suspense>
       </div>
-      <MessageActions text={msg.content} />
+      {!msg.pending && <MessageActions text={msg.content} />}
     </article>
   )
 })

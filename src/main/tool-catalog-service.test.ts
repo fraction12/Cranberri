@@ -407,6 +407,63 @@ describe('allowlisted CLI process boundary', () => {
     })
   })
 
+  it('ignores filesystem-root project entries and continues past rejected PATH entries', async () => {
+    if (process.platform === 'win32') return
+    const projectRoot = await fs.mkdtemp(path.join(path.dirname(process.cwd()), '.cranberri-probe-project-'))
+    const trustedBin = await fs.mkdtemp(path.join(path.dirname(process.cwd()), '.cranberri-probe-bin-'))
+    tempDirs.push(projectRoot, trustedBin)
+    for (const directory of [projectRoot, trustedBin]) {
+      const executable = path.join(directory, 'cranberri-tool')
+      await fs.writeFile(executable, '#!/bin/sh\nexit 0\n')
+      await fs.chmod(executable, 0o755)
+    }
+
+    await expect(resolveCatalogExecutable('cranberri-tool', {
+      PATH: `${projectRoot}${path.delimiter}relative/bin${path.delimiter}${trustedBin}`,
+    }, ['/', projectRoot])).resolves.toEqual({
+      path: await fs.realpath(path.join(trustedBin, 'cranberri-tool')),
+      errorCode: null,
+    })
+  })
+
+  it('accepts user-owned group-writable tool directories while rejecting world-writable ones', async () => {
+    if (process.platform === 'win32') return
+    const trustedBin = await fs.mkdtemp(path.join(path.dirname(process.cwd()), '.cranberri-probe-user-bin-'))
+    tempDirs.push(trustedBin)
+    const executable = path.join(trustedBin, 'cranberri-tool')
+    await fs.writeFile(executable, '#!/bin/sh\nexit 0\n')
+    await fs.chmod(executable, 0o755)
+    await fs.chmod(trustedBin, 0o775)
+
+    await expect(resolveCatalogExecutable('cranberri-tool', { PATH: trustedBin }, [])).resolves.toEqual({
+      path: await fs.realpath(executable),
+      errorCode: null,
+    })
+
+    await fs.chmod(trustedBin, 0o777)
+    await expect(resolveCatalogExecutable('cranberri-tool', { PATH: trustedBin }, [])).resolves.toEqual({
+      path: null,
+      errorCode: 'untrusted-path-permissions',
+    })
+  })
+
+  it('distinguishes a missing executable from a rejected executable', async () => {
+    const policy = CATALOG_PROBE_POLICIES.find((candidate) => candidate.catalogId === 'cli:rg')!
+    const rejected = await runAllowlistedCatalogProbe(policy, 'automatic', new AbortController().signal, {
+      environment: async () => ({ PATH: '/usr/bin' }),
+      projectRoots: () => [],
+      resolveExecutable: async () => ({ path: null, errorCode: 'untrusted-path-permissions' }),
+    })
+    const missing = await runAllowlistedCatalogProbe(policy, 'automatic', new AbortController().signal, {
+      environment: async () => ({ PATH: '/usr/bin' }),
+      projectRoots: () => [],
+      resolveExecutable: async () => ({ path: null, errorCode: 'executable-not-found' }),
+    })
+
+    expect(rejected).toMatchObject({ status: 'unknown', diagnosticCode: 'untrusted-path-permissions' })
+    expect(missing).toMatchObject({ status: 'missing', diagnosticCode: 'executable-not-found' })
+  })
+
   it('rejects executables beneath temporary path roots', async () => {
     if (process.platform === 'win32') return
     const shadowDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cranberri-probe-shadow-'))

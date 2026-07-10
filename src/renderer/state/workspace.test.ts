@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { renameWorkspaceWindow } from './workspace-model'
+import { codexThreadIdForActiveWindow, renameWorkspaceWindow } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -25,5 +25,20 @@ describe('renameWorkspaceWindow', () => {
     const windows = [chat, terminal]
 
     expect(renameWorkspaceWindow(windows, 'missing', 'New title')).toBe(windows)
+  })
+})
+
+describe('codexThreadIdForActiveWindow', () => {
+  const windows: WorkspaceWindowState[] = [
+    { id: 'chat-1', type: 'chat', title: 'Chat' },
+    { id: 'terminal-1', type: 'terminal', title: 'Terminal' },
+    { id: 'browser-1', type: 'browser', title: 'Browser', browser: { url: 'about:blank', profileId: 'default' } },
+  ]
+
+  it('scopes tool evidence to a thread only while a chat window is active', () => {
+    expect(codexThreadIdForActiveWindow(windows, 'chat-1', 'thread-1')).toBe('thread-1')
+    expect(codexThreadIdForActiveWindow(windows, 'terminal-1', 'thread-1')).toBeNull()
+    expect(codexThreadIdForActiveWindow(windows, 'browser-1', 'thread-1')).toBeNull()
+    expect(codexThreadIdForActiveWindow(windows, null, 'thread-1')).toBeNull()
   })
 })

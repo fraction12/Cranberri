@@ -44,6 +44,7 @@ const POLICY_BY_ID = new Map(CATALOG_PROBE_POLICIES.map((policy) => [policy.cata
 
 export interface ToolCatalogRequestContext {
   taskKey: ToolCatalogTaskKey | null
+  runtimeConnected?: boolean
   preferences: ToolCatalogPreferences
   registryEvidence: ToolCatalogRegistryEvidence[]
   registryFailure?: { code: string; observedAt: string } | null
@@ -172,12 +173,14 @@ async function executableCandidates(directory: string, executableName: string, e
   return extensions.map((extension) => path.join(directory, `${executableName}${extension.toLowerCase()}`))
 }
 
-async function hasGroupOrWorldWritableAncestor(candidate: string): Promise<boolean> {
+async function hasUntrustedWritableAncestor(candidate: string): Promise<boolean> {
   if (process.platform === 'win32') return false
+  const currentUserId = process.getuid?.()
   let current = path.resolve(candidate)
   while (true) {
     const stats = await fs.stat(current)
-    if ((stats.mode & 0o022) !== 0) return true
+    if ((stats.mode & 0o002) !== 0) return true
+    if ((stats.mode & 0o020) !== 0 && stats.uid !== currentUserId) return true
     const parent = path.dirname(current)
     if (parent === current) return false
     current = parent
@@ -193,10 +196,20 @@ export async function resolveCatalogExecutable(
     return { path: null, errorCode: 'untrusted-executable-name' }
   }
 
+  const trustedProjectRoots = projectRoots
+    .filter((root) => path.isAbsolute(root))
+    .map((root) => path.resolve(root))
+    .filter((root) => path.dirname(root) !== root)
+  let firstRejectionCode: string | null = null
+  const reject = (code: string): void => {
+    firstRejectionCode ??= code
+  }
+
   const pathEntries = env.PATH?.split(path.delimiter) ?? []
   for (const pathEntry of pathEntries) {
     if (!pathEntry || !path.isAbsolute(pathEntry)) {
-      return { path: null, errorCode: 'untrusted-path-entry' }
+      reject('untrusted-path-entry')
+      continue
     }
 
     const candidates = await executableCandidates(pathEntry, executableName, env)
@@ -207,19 +220,23 @@ export async function resolveCatalogExecutable(
         if (!stats.isFile()) continue
         const realCandidate = await fs.realpath(candidate)
         if (!path.isAbsolute(realCandidate)) {
-          return { path: null, errorCode: 'untrusted-executable-path' }
+          reject('untrusted-executable-path')
+          continue
         }
-        if (projectRoots.some((root) => sameOrDescendant(candidate, root) || sameOrDescendant(realCandidate, root))) {
-          return { path: null, errorCode: 'project-local-executable' }
+        if (trustedProjectRoots.some((root) => sameOrDescendant(candidate, root) || sameOrDescendant(realCandidate, root))) {
+          reject('project-local-executable')
+          continue
         }
         if (await isTemporaryExecutablePath(candidate) || await isTemporaryExecutablePath(realCandidate)) {
-          return { path: null, errorCode: 'untrusted-temporary-path' }
+          reject('untrusted-temporary-path')
+          continue
         }
         if (
-          await hasGroupOrWorldWritableAncestor(candidate)
-          || await hasGroupOrWorldWritableAncestor(realCandidate)
+          await hasUntrustedWritableAncestor(candidate)
+          || await hasUntrustedWritableAncestor(realCandidate)
         ) {
-          return { path: null, errorCode: 'untrusted-path-permissions' }
+          reject('untrusted-path-permissions')
+          continue
         }
         return { path: realCandidate, errorCode: null }
       } catch {
@@ -228,7 +245,7 @@ export async function resolveCatalogExecutable(
     }
   }
 
-  return { path: null, errorCode: 'executable-not-found' }
+  return { path: null, errorCode: firstRejectionCode ?? 'executable-not-found' }
 }
 
 function minimalProbeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -321,7 +338,7 @@ function extractVersion(safeOutput: string): string | null {
 function resolutionObservation(resolution: CatalogExecutableResolution): CatalogProbeObservation | null {
   if (resolution.path) return null
   return {
-    status: 'missing',
+    status: resolution.errorCode === 'executable-not-found' ? 'missing' : 'unknown',
     version: null,
     diagnosticCode: resolution.errorCode ?? 'executable-not-found',
     safeOutput: '',
@@ -614,6 +631,7 @@ export class ToolCatalogService {
     const common = {
       now,
       activeTask: context.taskKey,
+      runtimeConnected: context.runtimeConnected ?? false,
       preferences: context.preferences,
       registryEvidence: context.registryEvidence,
       registryFailure: context.registryFailure,

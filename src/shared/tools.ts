@@ -130,6 +130,7 @@ export const toolCatalogTaskStatusSchema = z.enum([
 
 export const toolCatalogMachineProvenanceSchema = z.enum([
   'none',
+  'runtime-connection',
   'local-probe',
   'global-registry',
   'active-task-inventory',

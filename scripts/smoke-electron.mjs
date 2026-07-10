@@ -977,22 +977,22 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('apply_patch', { exact: true }).first().waitFor({ timeout: 10_000 })
       const applyPatchToolRow = page.locator('article').filter({ hasText: 'apply_patch' }).first()
       await applyPatchToolRow.locator('button[aria-expanded]').click()
-      await applyPatchToolRow.getByText('Recent activity').waitFor({ timeout: 10_000 })
-      await applyPatchToolRow.getByText(/Succeeded/).waitFor({ timeout: 10_000 })
+      await applyPatchToolRow.getByText('Recent use').waitFor({ timeout: 10_000 })
+      await applyPatchToolRow.getByText(/Used successfully/).waitFor({ timeout: 10_000 })
       const visibleToolText = await applyPatchToolRow.textContent()
       if (!visibleToolText?.includes('apply_patch') || visibleToolText.includes('cranberri-approval-smoke-request')) {
         throw new Error(`Curated tool activity leaked or omitted data:\n${visibleToolText}`)
       }
       const execCommandToolRow = page.locator('article').filter({ hasText: 'exec_command' }).first()
       await execCommandToolRow.locator('button[aria-expanded]').click()
-      await execCommandToolRow.getByText(/Succeeded/).waitFor({ timeout: 10_000 })
+      await execCommandToolRow.getByText(/Used successfully/).waitFor({ timeout: 10_000 })
       const execCommandText = await execCommandToolRow.textContent()
       if (!execCommandText?.includes('exec_command') || execCommandText.includes('cranberri-shell-private-sentinel')) {
         throw new Error(`Shell activity attribution leaked or omitted data:\n${execCommandText}`)
       }
       const rgToolRow = page.locator('article').filter({ hasText: /^rg/ }).first()
       await rgToolRow.locator('button[aria-expanded]').click()
-      if (await rgToolRow.getByText('Recent activity').count()) {
+      if (await rgToolRow.getByText('Recent use').count()) {
         throw new Error('Shell command activity was incorrectly attributed to rg')
       }
       const telemetryLeakedShellText = await page.evaluate(async () => {
@@ -1508,7 +1508,7 @@ async function runRepoWorkspaceSmoke() {
       await page.locator('[cmdk-item]').filter({ hasText: 'Show tools' }).first().click()
       await page.getByText('Tools', { exact: true }).waitFor({ timeout: 10_000 })
       await page.getByText('rg', { exact: true }).first().waitFor({ timeout: 10_000 })
-      const toolsPanel = page.getByText('Active task', { exact: true }).locator('..').locator('..')
+      const toolsPanel = page.getByLabel('Manage tools').locator('..').locator('..')
       const toolsPanelText = await toolsPanel.textContent()
       if (toolsPanelText?.includes('observe-only') || toolsPanelText?.includes('apps')) {
         throw new Error(`Tools panel still contains registry noise:\n${toolsPanelText}`)
@@ -1516,11 +1516,12 @@ async function runRepoWorkspaceSmoke() {
       const rgRow = page.locator('article').filter({ hasText: /^rg/ }).first()
       await rgRow.getByLabel('Test rg').click()
       await rgRow.getByLabel('Test rg').waitFor({ timeout: 10_000 })
+      await rgRow.getByText('Ready', { exact: true }).first().waitFor({ timeout: 10_000 })
       await page.getByLabel('Manage tools').click()
       await page.getByPlaceholder('Search tools').fill('inspect_fixture')
       const inspectToolRow = page.getByLabel('Tool catalog').locator('article').filter({ hasText: 'inspect_fixture' }).first()
-      await inspectToolRow.getByLabel('Pin inspect_fixture to Tools rail').click()
-      await inspectToolRow.getByLabel('Unpin inspect_fixture from Tools rail').waitFor({ timeout: 10_000 })
+      await inspectToolRow.getByLabel('Show inspect_fixture in Tools rail').click()
+      await inspectToolRow.getByLabel('Hide inspect_fixture from Tools rail').waitFor({ timeout: 10_000 })
       await page.getByLabel('Close settings').click()
       await page.getByText('inspect_fixture', { exact: true }).waitFor({ timeout: 10_000 })
 

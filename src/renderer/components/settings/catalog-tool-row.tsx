@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { Loader2, Pin, PinOff } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import type { ToolCatalogEntry, ToolCatalogId } from '@/shared/tools'
 import { iconButton } from '../../lib/ui'
 import { ToolRow } from '../right-rail/tool-row'
@@ -28,7 +28,7 @@ export function CatalogToolRow({
   onSendDiagnostic,
 }: CatalogToolRowProps) {
   const togglePin = useCallback(() => onPinChange(entry.id, !entry.inRail), [entry.id, entry.inRail, onPinChange])
-  const pinLabel = entry.inRail ? `Unpin ${entry.name} from Tools rail` : `Pin ${entry.name} to Tools rail`
+  const pinLabel = entry.inRail ? `Hide ${entry.name} from Tools rail` : `Show ${entry.name} in Tools rail`
   const pinAction = (
     <button
       type="button"
@@ -41,7 +41,7 @@ export function CatalogToolRow({
     >
       {pinning
         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        : entry.inRail ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+        : entry.inRail ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
     </button>
   )
   return (

@@ -4,6 +4,7 @@ import { formatCodexText } from './MarkdownContent'
 import { formatInlineCodexText } from './mention-pill'
 import { markdownMediaChatContext, markdownMediaImageInput, markdownMediaSourceFromUrl } from './MarkdownMedia'
 import { assistantResponseChatContext, latestReusableAssistantMessage, latestReusableUserMessage, userPromptChatContext } from './assistant-response-context'
+import { TranscriptMessage } from './Transcript'
 
 describe('Transcript markdown rendering', () => {
   it('renders assistant markdown while hiding Codex app directives', () => {
@@ -17,6 +18,13 @@ describe('Transcript markdown rendering', () => {
             '- PR state: `MERGED`',
             '- Working tree is clean',
             '',
+            '<promise>DONE</promise>',
+            '<promise>',
+            'HIDDEN MULTILINE RESULT',
+            '</promise>',
+            '<oai-mem-citation>',
+            '<citation_entries>hidden</citation_entries>',
+            '</oai-mem-citation>',
             '::git-create-pr{cwd="/repo" branch="codex/example" url="https://github.com/fraction12/Cranberri/pull/1" isDraft=false}',
           ].join('\n'),
           { hideAppDirectives: true },
@@ -29,6 +37,9 @@ describe('Transcript markdown rendering', () => {
     expect(html).toContain('<code')
     expect(html).toContain('origin/main')
     expect(html).not.toContain('::git-create-pr')
+    expect(html).not.toContain('&lt;promise&gt;')
+    expect(html).not.toContain('HIDDEN MULTILINE RESULT')
+    expect(html).not.toContain('oai-mem-citation')
   })
 
   it('keeps composer text inline', () => {
@@ -97,6 +108,24 @@ describe('Transcript markdown rendering', () => {
     expect(html).toContain('data-streaming-markdown="true"')
     expect(html).toContain('const value = 1')
     expect(html).not.toContain('data-code-preview="true"')
+  })
+
+  it('hides response actions until streaming completes', () => {
+    const pending = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'pending', role: 'assistant', content: 'Still working', timestamp: 1, pending: true }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+    const completed = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'completed', role: 'assistant', content: 'Done', timestamp: 1 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+
+    expect(pending).not.toContain('Copy response')
+    expect(completed).toContain('Copy response')
   })
 
   it('renders Mermaid code blocks through the diagram surface', () => {
@@ -174,12 +203,17 @@ describe('Transcript markdown rendering', () => {
   it('formats assistant responses as bounded reusable chat context', () => {
     const context = assistantResponseChatContext([
       'Here is the useful answer.',
+      '<promise>',
+      'HIDDEN MULTILINE RESULT',
+      '</promise>',
       '::git-stage{cwd="/repo"}',
     ].join('\n'))
 
     expect(context).toContain('Assistant response context:')
     expect(context).toContain('Here is the useful answer.')
     expect(context).not.toContain('::git-stage')
+    expect(context).not.toContain('<promise>')
+    expect(context).not.toContain('HIDDEN MULTILINE RESULT')
 
     const longContext = assistantResponseChatContext('x'.repeat(12_050))
     expect(longContext).toContain('truncated 50 more characters')

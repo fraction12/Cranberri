@@ -4,8 +4,8 @@ import {
   ArrowUp,
   Check,
   Image,
-  Loader2,
   Package,
+  Square,
   X,
 } from 'lucide-react'
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
@@ -15,7 +15,13 @@ import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
 import { INSERT_CHAT_CONTEXT_EVENT, insertChatContextDetailFromEvent } from './chat/chat-context-events'
-import { NEW_THREAD_EMPTY_STATE, shouldRestoreDraftAfterSendError } from './chat/chat-window-state'
+import {
+  NEW_THREAD_EMPTY_STATE,
+  sessionThreadIdFromWindowId,
+  shouldRestoreDraftAfterSendError,
+  shouldSendComposerOnEnter,
+  shouldToastAfterSendError,
+} from './chat/chat-window-state'
 import {
   contextInputLabel,
   imageInputFromClipboardFile,
@@ -127,11 +133,14 @@ export function ChatWindow({ id }: { id: string }) {
     sendMessage,
     compactThread,
     approve,
+    abort,
+    restoreSessionWindow,
+    switchThread,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
-  const { renameWindow } = useWorkspace()
+  const { activeWindowId, renameWindow } = useWorkspace()
   const threadId = getThreadForWindow(id)
   const thread = threadId ? getThread(threadId) : undefined
 
@@ -159,6 +168,31 @@ export function ChatWindow({ id }: { id: string }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottomRef = useRef(true)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const restoredSessionRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const persistedThreadId = sessionThreadIdFromWindowId(id)
+    if (threadId || !persistedThreadId || restoredSessionRef.current === persistedThreadId) return
+    restoredSessionRef.current = persistedThreadId
+    let cancelled = false
+
+    void restoreSessionWindow(id, persistedThreadId)
+      .then((restored) => {
+        if (!cancelled) renameWindow(id, restored.title)
+      })
+      .catch((error) => {
+        restoredSessionRef.current = null
+        console.error('Failed to restore Codex session window:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, renameWindow, restoreSessionWindow, threadId])
+
+  useEffect(() => {
+    if (activeWindowId === id) switchThread(threadId ?? null)
+  }, [activeWindowId, id, switchThread, threadId])
 
   const scrollTranscriptToBottom = useCallback(() => {
     const container = scrollContainerRef.current
@@ -379,6 +413,7 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const handleSend = async () => {
+    if (isRunning) return
     const text = input.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
     const draftInput = input
@@ -408,7 +443,9 @@ export function ChatWindow({ id }: { id: string }) {
         setAttachments(draftAttachments)
         setContextInputParts(draftContextInputParts)
       }
-      toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
+      if (shouldToastAfterSendError(threadId, draftInput, error)) {
+        toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
+      }
     } finally {
       requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
     }
@@ -485,6 +522,18 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const isRunning = thread?.isRunning ?? false
+  const handlePrimaryAction = async () => {
+    if (!isRunning) {
+      await handleSend()
+      return
+    }
+    if (!threadId) return
+    try {
+      await abort(threadId)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to stop Codex.')
+    }
+  }
   const estimatedTokens = useMemo(
     () => Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4),
     [thread?.messages],
@@ -751,9 +800,9 @@ export function ChatWindow({ id }: { id: string }) {
                     return
                   }
                 }
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (shouldSendComposerOnEnter(e.key, e.shiftKey, isRunning)) {
                   e.preventDefault()
-                  handleSend()
+                  void handleSend()
                 }
               }}
               placeholder={
@@ -793,12 +842,12 @@ export function ChatWindow({ id }: { id: string }) {
                 <VoiceDictationButton listening={voiceListening} onClick={toggleVoiceDictation} />
                 <button
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleSend}
-                  disabled={isRunning || (!input.trim() && attachments.length === 0 && contextInputParts.length === 0)}
+                  onClick={() => void handlePrimaryAction()}
+                  disabled={isRunning ? !threadId : (!input.trim() && attachments.length === 0 && contextInputParts.length === 0)}
                   className={SEND_BUTTON_CLASS}
-                  aria-label="Send message"
+                  aria-label={isRunning ? 'Stop Codex' : 'Send message'}
                 >
-                  {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                  {isRunning ? <Square className="h-3 w-3 fill-current" /> : <ArrowUp className="h-4 w-4" />}
                 </button>
               </div>
             </div>

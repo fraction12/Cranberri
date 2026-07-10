@@ -81,12 +81,14 @@ export const CURATED_CLI_TOOLS: readonly CuratedCliToolSpec[] = [
   { name: 'curl', description: 'HTTP and data-transfer client.', versionArgv: ['--version'] },
 ]
 
+const DEFAULT_RAIL_CLI_TOOLS = new Set(['git', 'rg'])
+
 const CLI_DEFAULTS = CURATED_CLI_TOOLS.map(({ name, description, manualResult }) =>
   descriptor(
     { kind: 'cli' },
     name,
     description,
-    true,
+    DEFAULT_RAIL_CLI_TOOLS.has(name),
     manualResult === 'authentication'
       ? { kind: 'manual-only', reason: 'Authentication checks run only when requested.' }
       : { kind: 'automatic' },
@@ -111,6 +113,7 @@ export interface AssembleToolCatalogInput {
   now: string
   descriptors?: ToolCatalogDescriptor[]
   activeTask?: ToolCatalogTaskKey | null
+  runtimeConnected?: boolean
   preferences?: ToolCatalogPreferences
   probeResults?: ToolCatalogProbeResult[]
   registryEvidence?: ToolCatalogRegistryEvidence[]
@@ -257,6 +260,7 @@ function orphanDescriptor(id: string): ToolCatalogDescriptor | null {
 
 export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalogSnapshot {
   const activeTask = input.activeTask ?? null
+  const runtimeConnected = input.runtimeConnected ?? false
   const preferences = input.preferences ?? EMPTY_PREFERENCES
   const evidence = input.registryEvidence ?? []
   const baseDescriptors = input.descriptors ?? DEFAULT_TOOL_CATALOG_DESCRIPTORS
@@ -343,6 +347,16 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
     const refreshFailure = refreshFailureById.get(entry.id)
     let machine = emptyMachineState()
 
+    if (runtimeConnected && (entry.source.kind === 'codex' || entry.source.kind === 'browser')) {
+      machine = {
+        status: 'connected',
+        version: null,
+        observedAt: input.now,
+        stale: false,
+        provenance: 'runtime-connection',
+        diagnosticCode: null,
+      }
+    }
     if (registry) {
       machine = {
         status: registry.status,

@@ -5,8 +5,14 @@ const USER_PROMPT_CONTEXT_MAX_CHARS = 12000
 
 export function stripCodexAppDirectives(text: string): string {
   return text
+    .replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gi, '')
+    .replace(/<promise>[\s\S]*?<\/promise>/gi, '')
     .split('\n')
-    .filter((line) => !/^::[a-z][a-z-]*\{.*\}\s*$/.test(line.trim()))
+    .filter((line) => {
+      const trimmed = line.trim()
+      return !/^::[a-z][a-z-]*\{.*\}\s*$/.test(trimmed)
+        && !/^<promise>[\s\S]*<\/promise>$/i.test(trimmed)
+    })
     .join('\n')
     .trim()
 }

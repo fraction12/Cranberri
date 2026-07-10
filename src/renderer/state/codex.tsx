@@ -24,9 +24,15 @@ interface CodexActionsApi {
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
   abort: (threadId: string) => Promise<void>
-  switchThread: (threadId: string) => void
+  switchThread: (threadId: string | null) => void
   closeThreadWindow: (windowId: string) => void
-  openSession: (windowId: string, session: CodexSessionSummary, archived?: boolean) => Promise<CodexThread>
+  openSession: (
+    windowId: string,
+    session: CodexSessionSummary,
+    archived?: boolean,
+    repo?: { id: string; path: string },
+  ) => Promise<CodexThread>
+  restoreSessionWindow: (windowId: string, threadId: string) => Promise<CodexThread>
   archiveSession: (threadId: string) => Promise<void>
   unarchiveSession: (threadId: string) => Promise<void>
   deleteSession: (threadId: string) => Promise<void>
@@ -478,16 +484,42 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [activeRepo])
 
-  const switchThread = useCallback((threadId: string) => {
+  const switchThread = useCallback((threadId: string | null) => {
     setActiveThreadId(threadId)
   }, [])
 
-  const openSession = useCallback(async (windowId: string, session: CodexSessionSummary, archived = false): Promise<CodexThread> => {
-    if (!activeRepo) throw new Error('No active repo')
-    const { thread } = await window.cranberri.codex.readThread(activeRepo.path, session.id, archived)
-    const hydrated = { ...hydrateThread(thread, activeRepo.id), isHistorical: true }
+  const openSession = useCallback(async (
+    windowId: string,
+    session: CodexSessionSummary,
+    archived = false,
+    repo: { id: string; path: string } | undefined = activeRepo ?? undefined,
+  ): Promise<CodexThread> => {
+    if (!repo) throw new Error('No active repo')
+    const { thread } = await window.cranberri.codex.readThread(repo.path, session.id, archived)
+    const hydrated = { ...hydrateThread(thread, repo.id), isHistorical: true }
     setThreads((prev) => [...prev.filter((item) => item.id !== hydrated.id), hydrated])
     setActiveThreadId(hydrated.id)
+    setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
+    return hydrated
+  }, [activeRepo])
+
+  const restoreSessionWindow = useCallback(async (windowId: string, threadId: string): Promise<CodexThread> => {
+    if (!activeRepo) throw new Error('No active repo')
+    const existing = threadsRef.current.find((thread) => thread.id === threadId && thread.repoId === activeRepo.id)
+    if (existing) {
+      setWindowToThread((prev) => ({ ...prev, [windowId]: existing.id }))
+      return existing
+    }
+
+    let restored: CodexSessionThread
+    try {
+      restored = (await window.cranberri.codex.readThread(activeRepo.path, threadId, false)).thread
+    } catch {
+      restored = (await window.cranberri.codex.readThread(activeRepo.path, threadId, true)).thread
+    }
+
+    const hydrated = { ...hydrateThread(restored, activeRepo.id), isHistorical: true }
+    setThreads((prev) => [...prev.filter((thread) => thread.id !== hydrated.id), hydrated])
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
     return hydrated
   }, [activeRepo])
@@ -543,6 +575,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     switchThread,
     closeThreadWindow,
     openSession,
+    restoreSessionWindow,
     archiveSession,
     unarchiveSession,
     deleteSession,
@@ -558,6 +591,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     getThreadSnapshot,
     openSession,
     renameSession,
+    restoreSessionWindow,
     sendMessage,
     switchThread,
     unarchiveSession,
