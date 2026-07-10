@@ -297,7 +297,7 @@ export function ToolsPanel() {
         ) : newestFirst.length ? (
           <ul className="border-t border-app-border">
             {newestFirst.map((event) => (
-              <ToolRow key={`${event.telemetryId}:${event.eventId}`} event={event} />
+              <ToolRow key={event.eventId} event={event} />
             ))}
           </ul>
         ) : (

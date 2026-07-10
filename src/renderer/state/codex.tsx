@@ -3,6 +3,7 @@ import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread,
 import { useRepos } from './repos'
 import { applyCodexSendFailure } from './codex-send-failure'
 import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
+import { recordToolActivityEvent } from './tools'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
@@ -175,6 +176,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       }
       const threadId = (e as { threadId?: string }).threadId
       if (!threadId) return
+      if (e.type === 'tool_event') recordToolActivityEvent(e.event)
 
       if (e.type === 'agent_message_delta') {
         const role = agentMessageRole(e.phase)

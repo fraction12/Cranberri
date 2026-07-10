@@ -316,7 +316,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     staleTime: 10000,
   })
   const registry = registryQuery.data ?? null
-  const toolEventsQuery = useRecentToolEvents(80, open)
+  const toolEventsQuery = useRecentToolEvents(activeThread?.id ?? null, 80, open)
   const toolEvents = useMemo(() => toolEventsQuery.data ?? [], [toolEventsQuery.data])
   const repoFileSearchQuery = useQuery({
     queryKey: ['command-palette', 'repo-file-search', activeRepo?.path, trimmedQuery],
