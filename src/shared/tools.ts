@@ -320,6 +320,40 @@ export type ToolCatalogDirectEvent = z.infer<typeof toolCatalogDirectEventSchema
 export type ToolCatalogPreferences = z.infer<typeof toolCatalogPreferencesSchema>
 export type ToolCatalogRefreshFailure = z.infer<typeof toolCatalogRefreshFailureSchema>
 
+function encodeToolCatalogIdComponent(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
+}
+
+function decodeToolCatalogIdComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
+export function createToolCatalogId(source: ToolCatalogSource, name: string): ToolCatalogId {
+  const encodedName = encodeToolCatalogIdComponent(name)
+  if (source.kind === 'codex' || source.kind === 'cli') return `${source.kind}:${encodedName}`
+  return `${source.kind}:${encodeToolCatalogIdComponent(source.providerId)}:${encodedName}`
+}
+
+export function parseToolCatalogId(id: string): { source: ToolCatalogSource; name: string } | null {
+  const parts = id.split(':')
+  if (parts.length === 2 && (parts[0] === 'codex' || parts[0] === 'cli')) {
+    const name = decodeToolCatalogIdComponent(parts[1])
+    return name ? { source: { kind: parts[0] }, name } : null
+  }
+  if (parts.length === 3 && (parts[0] === 'browser' || parts[0] === 'mcp')) {
+    const providerId = decodeToolCatalogIdComponent(parts[1])
+    const name = decodeToolCatalogIdComponent(parts[2])
+    return providerId && name ? { source: { kind: parts[0], providerId }, name } : null
+  }
+  return null
+}
+
 export function parseToolEvent(value: unknown): ToolEventRecord | null {
   const parsed = toolEventSchema.safeParse(value)
   return parsed.success ? parsed.data : null

@@ -43,7 +43,7 @@ function getDiffMenuPosition(button: HTMLButtonElement | null) {
   }
 }
 
-export function RightRail() {
+export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => void }) {
   const [selectedFile, setSelectedFile] = useState<GitFileStatus | null>(null)
   const [activeTab, setActiveTab] = useState<RightRailTab>('files')
   const [bottomPanel, setBottomPanel] = useState<BottomPanelKind | null>(null)
@@ -599,7 +599,7 @@ export function RightRail() {
         )}
 
       </div>
-      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} />}
+      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} onOpenToolsSettings={onOpenToolsSettings} />}
       <BottomPanelNav bottomPanel={bottomPanel} onTogglePanel={(panel) => setBottomPanel((current) => current === panel ? null : panel)} />
     </div>
   )

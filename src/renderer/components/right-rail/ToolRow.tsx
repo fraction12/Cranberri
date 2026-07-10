@@ -1,0 +1,181 @@
+import { useCallback, useId, type ReactNode } from 'react'
+import { ChevronRight, Loader2, MessageSquare, Settings2, TestTube2 } from 'lucide-react'
+import type { ToolCatalogEntry, ToolCatalogId } from '@/shared/tools'
+import { cn, iconButton } from '../../lib/ui'
+import {
+  toolAvailability,
+  toolAvailabilityLabel,
+  toolMachineContextLabel,
+  toolMachineStatusLabel,
+  toolSourceDisplayLabel,
+  toolTaskStatusLabel,
+} from '../../state/tool-catalog-selectors'
+
+const ACTIVITY_LABELS: Record<NonNullable<ToolCatalogEntry['activity']>['outcome'], string> = {
+  started: 'Started',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  denied: 'Denied',
+  'authentication-required': 'Authentication required',
+  'approval-required': 'Approval required',
+}
+
+export interface ToolRowProps {
+  entry: ToolCatalogEntry
+  expanded: boolean
+  busy?: boolean
+  endAction?: ReactNode
+  onExpandedChange: (toolId: ToolCatalogId, expanded: boolean) => void
+  onTest: (toolId: ToolCatalogId) => void
+  onOpenSettings: (toolId: ToolCatalogId) => void
+  onSendDiagnostic?: (toolId: ToolCatalogId) => void
+}
+
+function timeLabel(value: string | null, prefix: string): string {
+  if (!value) return `${prefix} unavailable`
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return `${prefix} unavailable`
+  return `${prefix} ${date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+}
+
+function activityLabel(activity: NonNullable<ToolCatalogEntry['activity']>): string {
+  const parts = [ACTIVITY_LABELS[activity.outcome], timeLabel(activity.observedAt, 'at')]
+  if (activity.durationMs !== null) parts.push(`${Math.round(activity.durationMs)} ms`)
+  if (activity.callId) parts.push(`call ${activity.callId.slice(0, 12)}`)
+  return parts.join(' · ')
+}
+
+function probeLabel(entry: ToolCatalogEntry): string {
+  if (entry.probeCapability.kind === 'automatic') return 'Automatic safe check'
+  const prefix = entry.probeCapability.kind === 'manual-only' ? 'Manual safe check' : 'No safe check'
+  return `${prefix}: ${entry.probeCapability.reason.slice(0, 120)}`
+}
+
+function ToolDetails({ entry, onSend }: { entry: ToolCatalogEntry; onSend?: () => void }) {
+  const canSend = Boolean(onSend && (entry.machine.diagnosticCode || toolAvailability(entry) === 'needs-attention'))
+  return (
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-1 bg-app-bg/40 px-3 py-2 text-micro text-app-text-muted">
+      <span>Machine evidence</span>
+      <span className="truncate text-app-text">{entry.machine.provenance}</span>
+      <span />
+      <span>Task evidence</span>
+      <span className="truncate text-app-text">{entry.task.provenance}</span>
+      <span />
+      <span>Check</span>
+      <span className="min-w-0 break-words text-app-text">{probeLabel(entry)}</span>
+      <span />
+      {entry.machine.diagnosticCode && (
+        <>
+          <span>Diagnostic</span>
+          <span className="truncate font-mono text-app-text" title={entry.machine.diagnosticCode}>
+            {entry.machine.diagnosticCode.slice(0, 80)}
+          </span>
+          <span />
+        </>
+      )}
+      {entry.activity && (
+        <>
+          <span>Recent activity</span>
+          <span className="min-w-0 break-words text-app-text">{activityLabel(entry.activity)}</span>
+          <span />
+        </>
+      )}
+      {canSend && (
+        <>
+          <span>Failure context</span>
+          <span className="text-app-text">Ready for chat</span>
+          <button
+            type="button"
+            className={iconButton()}
+            title="Send failure context to chat"
+            aria-label={`Send ${entry.name} failure context to chat`}
+            onClick={onSend}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function ToolRow({
+  entry,
+  expanded,
+  busy = false,
+  endAction,
+  onExpandedChange,
+  onTest,
+  onOpenSettings,
+  onSendDiagnostic,
+}: ToolRowProps) {
+  const detailsId = useId()
+  const availability = toolAvailability(entry)
+  const machineLabel = entry.isOrphan ? toolAvailabilityLabel(entry) : toolMachineStatusLabel(entry.machine.status)
+  const probeCapable = entry.probeCapability.kind !== 'unsupported'
+  const toggleExpanded = useCallback(() => onExpandedChange(entry.id, !expanded), [entry.id, expanded, onExpandedChange])
+  const testTool = useCallback(() => onTest(entry.id), [entry.id, onTest])
+  const openSettings = useCallback(() => onOpenSettings(entry.id), [entry.id, onOpenSettings])
+  const sendDiagnostic = useCallback(() => onSendDiagnostic?.(entry.id), [entry.id, onSendDiagnostic])
+
+  return (
+    <article aria-busy={busy || undefined}>
+      <div className="grid min-h-[66px] grid-cols-[minmax(0,1fr)_auto] items-start gap-1 px-2 py-2">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={toggleExpanded}
+          className="min-w-0 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-app-text-muted transition-transform', expanded && 'rotate-90')} />
+            <span className="truncate text-xs font-medium text-app-text" title={entry.name}>{entry.name}</span>
+            <span className={cn(
+              'ml-auto shrink-0 text-micro',
+              availability === 'available' && 'text-app-success',
+              availability === 'needs-attention' && 'text-app-warning',
+              availability === 'unknown' && 'text-app-text-muted',
+            )} aria-live="polite">
+              {toolAvailabilityLabel(entry)}
+            </span>
+          </span>
+          <span className="mt-1 block truncate pl-5 text-micro text-app-text-muted" title={`${toolMachineContextLabel(entry.source)}: ${machineLabel}; Task: ${toolTaskStatusLabel(entry.task.status)}`}>
+            {toolMachineContextLabel(entry.source)}: {machineLabel} · Task: {toolTaskStatusLabel(entry.task.status)}
+          </span>
+          <span className="mt-0.5 block truncate pl-5 text-micro text-app-text-muted" title={toolSourceDisplayLabel(entry.source)}>
+            {toolSourceDisplayLabel(entry.source)} · {entry.machine.version ? `Version ${entry.machine.version.slice(0, 40)}` : 'Version unknown'} · {timeLabel(entry.machine.observedAt, 'Checked')}{entry.machine.stale ? ' · Stale' : ''}
+          </span>
+        </button>
+        <div className="flex items-center gap-0.5">
+          {endAction}
+          {probeCapable ? (
+            <button
+              type="button"
+              className={iconButton()}
+              disabled={busy}
+              title="Test tool"
+              aria-label={busy ? `Testing ${entry.name}` : `Test ${entry.name}`}
+              onClick={testTool}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TestTube2 className="h-3.5 w-3.5" />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={iconButton()}
+              title="Open tool settings"
+              aria-label={`Open settings for ${entry.name}`}
+              onClick={openSettings}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      <div id={detailsId} role="region" aria-label={`${entry.name} details`} hidden={!expanded}>
+        {expanded && <ToolDetails entry={entry} onSend={onSendDiagnostic ? sendDiagnostic : undefined} />}
+      </div>
+    </article>
+  )
+}

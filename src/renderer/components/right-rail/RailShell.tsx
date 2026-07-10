@@ -14,6 +14,7 @@ interface RightRailTabsProps {
 interface BottomPanelContentProps {
   bottomPanel: BottomPanelKind
   repoPath: string | null
+  onOpenToolsSettings: () => void
 }
 
 interface BottomPanelNavProps {
@@ -40,7 +41,7 @@ export function RightRailTabs({ activeTab, onSelectTab }: RightRailTabsProps) {
   )
 }
 
-export function BottomPanelContent({ bottomPanel, repoPath }: BottomPanelContentProps) {
+export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings }: BottomPanelContentProps) {
   return (
     <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
       <div className="flex h-8 shrink-0 items-center border-b border-app-border bg-app-surface-2 px-3">
@@ -61,7 +62,7 @@ export function BottomPanelContent({ bottomPanel, repoPath }: BottomPanelContent
       ) : bottomPanel === 'github' ? (
         <GitHubPanel repoPath={repoPath} />
       ) : (
-        <ToolsPanel />
+        <ToolsPanel onOpenSettings={onOpenToolsSettings} />
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  parseToolCatalogId,
   toolCatalogSnapshotSchema,
   toolRegistrySnapshotSchema,
   type ToolCatalogActivitySummary,
@@ -102,28 +103,74 @@ export function overlayToolCatalogActivity(
   }
   if (latestByCatalogId.size === 0) return snapshot
 
+  const existingIds = new Set(snapshot.entries.map((entry) => entry.id))
+  const entries = snapshot.entries.map((entry) => {
+    const event = latestByCatalogId.get(entry.id)
+    if (!event) return entry
+    const state = activityOutcome(event)
+    return {
+      ...entry,
+      task: {
+        status: state.taskStatus,
+        taskKey,
+        observedAt: event.timestamp,
+        provenance: state.provenance,
+      },
+      activity: {
+        outcome: state.outcome,
+        observedAt: event.timestamp,
+        callId: event.toolCallId ?? null,
+        durationMs: event.durationMs ?? null,
+      },
+    }
+  })
+
+  for (const [catalogId, event] of latestByCatalogId) {
+    if (existingIds.has(catalogId)) continue
+    const parsed = parseToolCatalogId(catalogId)
+    if (!parsed) continue
+    const state = activityOutcome(event)
+    entries.push({
+      id: catalogId,
+      name: parsed.name,
+      source: parsed.source,
+      description: 'Directly observed in the active Codex task.',
+      isDefault: false,
+      probeCapability: { kind: 'unsupported', reason: 'Readiness comes from direct task activity.' },
+      isPinned: false,
+      isDismissedDefault: false,
+      inRail: false,
+      isOrphan: false,
+      machine: {
+        status: parsed.source.kind === 'mcp'
+          ? 'connected'
+          : parsed.source.kind === 'codex' || parsed.source.kind === 'browser'
+            ? 'available'
+            : 'unknown',
+        version: null,
+        observedAt: event.timestamp,
+        stale: false,
+        provenance: 'active-task-inventory',
+        diagnosticCode: event.errorCode ?? null,
+      },
+      task: {
+        status: state.taskStatus,
+        taskKey,
+        observedAt: event.timestamp,
+        provenance: state.provenance,
+      },
+      activity: {
+        outcome: state.outcome,
+        observedAt: event.timestamp,
+        callId: event.toolCallId ?? null,
+        durationMs: event.durationMs ?? null,
+      },
+    })
+  }
+
   return {
     ...snapshot,
-    entries: snapshot.entries.map((entry) => {
-      const event = latestByCatalogId.get(entry.id)
-      if (!event) return entry
-      const state = activityOutcome(event)
-      return {
-        ...entry,
-        task: {
-          status: state.taskStatus,
-          taskKey,
-          observedAt: event.timestamp,
-          provenance: state.provenance,
-        },
-        activity: {
-          outcome: state.outcome,
-          observedAt: event.timestamp,
-          callId: event.toolCallId ?? null,
-          durationMs: event.durationMs ?? null,
-        },
-      }
-    }),
+    entries,
   }
 }
 

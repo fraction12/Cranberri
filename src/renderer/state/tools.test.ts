@@ -118,6 +118,26 @@ describe('task-scoped tool activity', () => {
     })
     expect(JSON.stringify(result.entries[0]?.activity)).not.toContain('must not survive')
   })
+
+  it('adds a directly observed literal tool to full discovery without pinning it', () => {
+    const observed = event({
+      eventId: 'custom-tool',
+      toolCallId: 'custom-call',
+      catalogId: 'codex:view_image',
+      name: 'view_image',
+    })
+    const result = overlayToolCatalogActivity(snapshot(), [observed])
+
+    expect(result.entries).toContainEqual(expect.objectContaining({
+      id: 'codex:view_image',
+      name: 'view_image',
+      source: { kind: 'codex' },
+      isDefault: false,
+      inRail: false,
+      task: expect.objectContaining({ status: 'usable' }),
+    }))
+    expect(result.railToolIds).not.toContain('codex:view_image')
+  })
 })
 
 describe('catalog query lifecycle', () => {

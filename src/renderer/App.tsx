@@ -103,6 +103,7 @@ function AppShell() {
     setSettingsTab(tab)
     setSettingsOpen(true)
   }, [])
+  const openToolsSettings = useCallback(() => openSettings('tools'), [openSettings])
 
   const clampRailsToLayout = useCallback(() => {
     const layoutWidth = layoutRef.current?.clientWidth ?? window.innerWidth
@@ -216,7 +217,7 @@ function AppShell() {
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-border group-hover:bg-app-text-muted" />
         </div>
         <div className="h-full overflow-hidden border-l border-app-border bg-app-surface shrink-0" style={{ width: rightRailWidth }}>
-          <StableRightRail />
+          <StableRightRail onOpenToolsSettings={openToolsSettings} />
         </div>
       </div>
       {settingsOpen && (

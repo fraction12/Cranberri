@@ -1,11 +1,12 @@
 import {
+  createToolCatalogId,
+  parseToolCatalogId,
   toolCatalogSnapshotSchema,
   type ToolCatalogActivitySummary,
   type ToolCatalogCapabilityEvidence,
   type ToolCatalogDescriptor,
   type ToolCatalogDirectEvent,
   type ToolCatalogEntry,
-  type ToolCatalogId,
   type ToolCatalogMachineState,
   type ToolCatalogPreferences,
   type ToolCatalogProbeResult,
@@ -18,43 +19,11 @@ import {
   type ToolCatalogTaskState,
 } from '../shared/tools'
 
+export { createToolCatalogId, parseToolCatalogId } from '../shared/tools'
+
 const EMPTY_PREFERENCES: ToolCatalogPreferences = {
   pinnedToolIds: [],
   dismissedDefaultToolIds: [],
-}
-
-function encodeIdComponent(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  )
-}
-
-function decodeIdComponent(value: string): string | null {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return null
-  }
-}
-
-export function createToolCatalogId(source: ToolCatalogSource, name: string): ToolCatalogId {
-  const encodedName = encodeIdComponent(name)
-  if (source.kind === 'codex' || source.kind === 'cli') return `${source.kind}:${encodedName}`
-  return `${source.kind}:${encodeIdComponent(source.providerId)}:${encodedName}`
-}
-
-export function parseToolCatalogId(id: string): { source: ToolCatalogSource; name: string } | null {
-  const parts = id.split(':')
-  if (parts.length === 2 && (parts[0] === 'codex' || parts[0] === 'cli')) {
-    const name = decodeIdComponent(parts[1])
-    return name ? { source: { kind: parts[0] }, name } : null
-  }
-  if (parts.length === 3 && (parts[0] === 'browser' || parts[0] === 'mcp')) {
-    const providerId = decodeIdComponent(parts[1])
-    const name = decodeIdComponent(parts[2])
-    return providerId && name ? { source: { kind: parts[0], providerId }, name } : null
-  }
-  return null
 }
 
 function descriptor(

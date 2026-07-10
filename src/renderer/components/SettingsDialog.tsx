@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { X, Command, Keyboard, Palette, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen, Activity, PlugZap } from 'lucide-react'
+import { X, Command, Keyboard, Palette, Bot, FileJson, RotateCw, Download, AlertCircle, CheckCircle2, PackageOpen, Activity, PlugZap, Wrench } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { CodexResourcesSection } from './CodexResourcesSection'
 import { AppearanceSettings } from './settings/AppearanceSettings'
+import { ToolsSettingsPane } from './settings/ToolsSettingsPane'
 import {
   CODEX_MODELS,
   CODEX_APPROVAL_MODES,
@@ -23,7 +24,7 @@ interface SettingsDialogProps {
   initialTab?: SettingsTabValue
 }
 
-export type SettingsTabValue = 'general' | 'appearance' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
+export type SettingsTabValue = 'general' | 'appearance' | 'tools' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
 
 function codexConnectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating…' : 'Connecting…'
@@ -78,6 +79,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
         <div className="flex w-44 shrink-0 flex-col border-r border-app-border bg-app-bg p-2">
           <SidebarButton active={activeTab} value="general" icon={Command} label="General" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="appearance" icon={Palette} label="Appearance" onClick={setActiveTab} />
+          <SidebarButton active={activeTab} value="tools" icon={Wrench} label="Tools" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="apps" icon={PlugZap} label="Apps" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="updates" icon={Download} label="Updates" onClick={setActiveTab} />
           <SidebarButton active={activeTab} value="diagnostics" icon={Activity} label="Diagnostics" onClick={setActiveTab} />
@@ -190,6 +192,8 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                 )}
 
                 {activeTab === 'appearance' && <AppearanceSettings />}
+
+                {activeTab === 'tools' && <ToolsSettingsPane onNavigate={setActiveTab} />}
 
                 {activeTab === 'shortcuts' && (
                   <Section title="Keyboard shortcuts" icon={Keyboard}>
