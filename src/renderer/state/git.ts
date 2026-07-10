@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useRepos } from './repos'
 import type { GitFileStatus, DiffResult } from '@/shared/git'
 
-export function useGitStatus() {
+export function useGitStatus(enabled = true) {
   const { activeRepo } = useRepos()
   return useQuery<GitFileStatus[]>({
     queryKey: ['git-status', activeRepo?.id],
@@ -10,12 +10,12 @@ export function useGitStatus() {
       if (!activeRepo) return []
       return window.cranberri.git.status(activeRepo.path)
     },
-    enabled: !!activeRepo,
-    refetchInterval: 2000,
+    enabled: enabled && !!activeRepo,
+    refetchInterval: enabled ? 3_000 : false,
   })
 }
 
-export function useGitFiles() {
+export function useGitFiles(enabled = true) {
   const { activeRepo } = useRepos()
   return useQuery<import('@/shared/git').FileTreeNode[]>({
     queryKey: ['git-files', activeRepo?.id],
@@ -23,8 +23,7 @@ export function useGitFiles() {
       if (!activeRepo) return []
       return window.cranberri.git.files(activeRepo.path)
     },
-    enabled: !!activeRepo,
-    refetchInterval: 5000,
+    enabled: enabled && !!activeRepo,
   })
 }
 

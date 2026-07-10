@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, Pin, PinOff, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
 import { useRepos } from '../state/repos'
-import { useCodex } from '../state/codex'
+import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useAppState } from '../state/appState'
 import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
 import { codexThreadSummary } from '../state/session-search'
@@ -134,7 +134,8 @@ function SessionRow({
 }
 
 function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRepo: boolean }) {
-  const { openThreadIds, archiveSession, unarchiveSession, deleteSession, renameSession } = useCodex()
+  const { openThreadIds } = useCodexWindows()
+  const { archiveSession, unarchiveSession, deleteSession, renameSession } = useCodexActions()
   const { state: appState, updateAppState } = useAppState()
   const [recent, setRecent] = useState<CodexSessionSummary[]>([])
   const [archived, setArchived] = useState<CodexSessionSummary[]>([])

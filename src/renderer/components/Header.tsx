@@ -1,7 +1,13 @@
 import { Command, Settings } from 'lucide-react'
 import { useRepos } from '../state/repos'
 
-export function Header({ onOpenSettings, onOpenCommandPalette }: { onOpenSettings: () => void; onOpenCommandPalette: () => void }) {
+interface HeaderProps {
+  commandPaletteOpen: boolean
+  onOpenSettings: () => void
+  onOpenCommandPalette: () => void
+}
+
+export function Header({ commandPaletteOpen, onOpenSettings, onOpenCommandPalette }: HeaderProps) {
   const { activeRepo } = useRepos()
 
   return (
@@ -22,6 +28,8 @@ export function Header({ onOpenSettings, onOpenCommandPalette }: { onOpenSetting
           className="no-drag rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
           title="Command palette (⌘K)"
           aria-label="Open command palette"
+          aria-haspopup="dialog"
+          aria-expanded={commandPaletteOpen}
         >
           <Command className="w-4 h-4" />
         </button>

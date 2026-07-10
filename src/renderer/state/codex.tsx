@@ -1,21 +1,29 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import { useRepos } from './repos'
 import { applyCodexSendFailure } from './codex-send-failure'
+import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
 
-interface CodexApi {
+interface CodexThreadStateApi {
   threads: CodexThread[]
-  activeThreadId: string | null
   activeThread: CodexThread | null
-  openThreadIds: string[]
   getThread: (threadId: string) => CodexThread | undefined
+}
+
+interface CodexWindowStateApi {
+  activeThreadId: string | null
+  openThreadIds: string[]
+  getThreadForWindow: (windowId: string) => string | undefined
+}
+
+interface CodexActionsApi {
+  getThreadSnapshot: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string, settings?: CodexTurnSettings, initialInput?: CodexUserInput[]) => Promise<CodexThread>
   sendMessage: (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings) => Promise<void>
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
   abort: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => void
-  getThreadForWindow: (windowId: string) => string | undefined
   closeThreadWindow: (windowId: string) => void
   openSession: (windowId: string, session: CodexSessionSummary, archived?: boolean) => Promise<CodexThread>
   archiveSession: (threadId: string) => Promise<void>
@@ -24,7 +32,11 @@ interface CodexApi {
   renameSession: (threadId: string, name: string) => Promise<void>
 }
 
-const CodexContext = createContext<CodexApi | null>(null)
+type CodexApi = CodexThreadStateApi & CodexWindowStateApi & CodexActionsApi
+
+const CodexThreadStateContext = createContext<CodexThreadStateApi | null>(null)
+const CodexWindowStateContext = createContext<CodexWindowStateApi | null>(null)
+const CodexActionsContext = createContext<CodexActionsApi | null>(null)
 
 function itemText(item: { content?: Array<{ text?: string }> }): string {
   return item.content?.map((part) => part.text).filter(Boolean).join('\n') ?? ''
@@ -94,49 +106,68 @@ function logRendererTelemetry(type: string, payload: unknown): void {
 export function CodexProvider({ children }: { children: React.ReactNode }) {
   const { activeRepo } = useRepos()
   const [threads, setThreads] = useState<CodexThread[]>([])
+  const threadsRef = useRef(threads)
+  threadsRef.current = threads
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [windowToThread, setWindowToThread] = useState<Record<string, string>>({})
   const streamingBuffersRef = useRef<Record<string, string>>({})
+  const pendingStreamingUpdatesRef = useRef<Map<string, StreamingMessageUpdate>>(new Map())
+  const streamingFrameRef = useRef<number | null>(null)
   const pendingThreadTitlesRef = useRef<Record<string, string>>({})
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
-  const openThreadIds = [...new Set(Object.values(windowToThread))]
+  const openThreadIds = useMemo(() => [...new Set(Object.values(windowToThread))], [windowToThread])
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
+  const getThreadSnapshot = useCallback((threadId: string) => threadsRef.current.find((thread) => thread.id === threadId), [])
 
-  const updateStreamingMessage = useCallback((threadId: string, itemId: string, delta: string, role: 'assistant' | 'reasoning') => {
-    streamingBuffersRef.current[itemId] = (streamingBuffersRef.current[itemId] ?? '') + delta
-    const text = streamingBuffersRef.current[itemId]
-    setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === threadId)
-      if (idx === -1) return prev
-      const next = [...prev]
-      const thread = { ...next[idx] }
-      const existing = thread.messages.find((message) => message.id === itemId)
-      thread.messages = existing
-        ? thread.messages.map((message) => message.id === itemId ? { ...message, role, content: text } : message)
-        : [...thread.messages, { id: itemId, role, content: text, timestamp: Date.now(), pending: true }]
-      next[idx] = thread
-      return next
-    })
+  const flushStreamingMessages = useCallback(() => {
+    streamingFrameRef.current = null
+    const updates = [...pendingStreamingUpdatesRef.current.values()]
+    pendingStreamingUpdatesRef.current.clear()
+    if (updates.length === 0) return
+
+    setThreads((current) => applyStreamingMessageUpdates(current, updates))
+    for (const update of updates) {
+      if (!update.pending) delete streamingBuffersRef.current[streamingMessageKey(update.threadId, update.itemId)]
+    }
   }, [])
 
-  const finalizeStreamingMessage = useCallback((threadId: string, itemId: string, role?: 'assistant' | 'reasoning') => {
-    setThreads((prev) => {
-      const idx = prev.findIndex((t) => t.id === threadId)
-      if (idx === -1) return prev
-      const next = [...prev]
-      const thread = { ...next[idx] }
-      const finalText = streamingBuffersRef.current[itemId] ?? ''
-      thread.messages = thread.messages.map((m) => {
-        if (m.id !== itemId) return m
-        return { ...m, content: finalText || m.content, pending: false, ...(role ? { role } : {}) }
-      })
-      next[idx] = thread
-      return next
+  const flushStreamingMessagesNow = useCallback(() => {
+    if (streamingFrameRef.current !== null) {
+      cancelAnimationFrame(streamingFrameRef.current)
+      streamingFrameRef.current = null
+    }
+    flushStreamingMessages()
+  }, [flushStreamingMessages])
+
+  const queueStreamingMessage = useCallback((
+    threadId: string,
+    itemId: string,
+    role: 'assistant' | 'reasoning',
+    pending: boolean,
+    flushNow = false,
+  ) => {
+    const key = streamingMessageKey(threadId, itemId)
+    pendingStreamingUpdatesRef.current.set(key, {
+      threadId,
+      itemId,
+      role,
+      text: streamingBuffersRef.current[key] ?? '',
+      pending,
     })
-  }, [])
+
+    if (flushNow) {
+      flushStreamingMessagesNow()
+      return
+    }
+    if (streamingFrameRef.current === null) {
+      streamingFrameRef.current = requestAnimationFrame(flushStreamingMessages)
+    }
+  }, [flushStreamingMessages, flushStreamingMessagesNow])
+
   useEffect(() => {
-    return window.cranberri.codex.onEvent((event) => {
+    const pendingStreamingUpdates = pendingStreamingUpdatesRef.current
+    const unsubscribe = window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
       if (e.type === 'log') {
         if (window.location.protocol === 'http:') console.debug(`[codex ${e.level}]`, e.text)
@@ -147,9 +178,20 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
       if (e.type === 'agent_message_delta') {
         const role = agentMessageRole(e.phase)
-        queueMicrotask(() => updateStreamingMessage(threadId, e.itemId, e.delta, role))
+        const key = streamingMessageKey(threadId, e.itemId)
+        streamingBuffersRef.current[key] = (streamingBuffersRef.current[key] ?? '') + e.delta
+        queueStreamingMessage(threadId, e.itemId, role, true)
         return
       }
+
+      if (e.type === 'agent_message_completed') {
+        const key = streamingMessageKey(threadId, e.itemId)
+        if (e.text) streamingBuffersRef.current[key] = e.text
+        queueStreamingMessage(threadId, e.itemId, agentMessageRole(e.phase), false, true)
+        return
+      }
+
+      if (pendingStreamingUpdatesRef.current.size > 0) flushStreamingMessagesNow()
 
       setThreads((prev) => {
         const idx = prev.findIndex((t) => t.id === threadId)
@@ -164,13 +206,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           case 'thread_name_updated':
             thread.title = e.title
             delete pendingThreadTitlesRef.current[threadId]
-            break
-          case 'agent_message_completed':
-            if (e.text) {
-              thread.currentActivity = 'Writing'
-              streamingBuffersRef.current[e.itemId] = e.text
-            }
-            queueMicrotask(() => finalizeStreamingMessage(threadId, e.itemId, agentMessageRole(e.phase)))
             break
           case 'tool_call':
             thread.currentActivity = `Calling ${e.tool.function}`
@@ -280,7 +315,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         return next
       })
     })
-  }, [updateStreamingMessage, finalizeStreamingMessage])
+    return () => {
+      unsubscribe()
+      if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current)
+      streamingFrameRef.current = null
+      pendingStreamingUpdates.clear()
+    }
+  }, [flushStreamingMessagesNow, queueStreamingMessage])
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 
@@ -385,7 +426,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   const approve = useCallback(async (threadId: string, approvalId: string, action: 'approve' | 'deny' = 'approve'): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
-    const approval = threads.find((t) => t.id === threadId)?.pendingApprovals.find((a) => a.id === approvalId)
+    const approval = threadsRef.current.find((t) => t.id === threadId)?.pendingApprovals.find((a) => a.id === approvalId)
     logRendererTelemetry('chat:user:approval', { threadId, approvalId, action, hasEvent: !!approval })
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
@@ -405,7 +446,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     } else {
       await window.cranberri.codex.interrupt(activeRepo.path, threadId)
     }
-  }, [activeRepo, threads])
+  }, [activeRepo])
 
   const abort = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
@@ -463,17 +504,78 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, title: name } : thread))
   }, [activeRepo])
 
+  const threadState = useMemo<CodexThreadStateApi>(() => ({
+    threads,
+    activeThread,
+    getThread,
+  }), [activeThread, getThread, threads])
+  const windowState = useMemo<CodexWindowStateApi>(() => ({
+    activeThreadId,
+    openThreadIds,
+    getThreadForWindow,
+  }), [activeThreadId, getThreadForWindow, openThreadIds])
+  const actions = useMemo<CodexActionsApi>(() => ({
+    getThreadSnapshot,
+    createThread,
+    sendMessage,
+    compactThread,
+    approve,
+    abort,
+    switchThread,
+    closeThreadWindow,
+    openSession,
+    archiveSession,
+    unarchiveSession,
+    deleteSession,
+    renameSession,
+  }), [
+    abort,
+    approve,
+    archiveSession,
+    closeThreadWindow,
+    compactThread,
+    createThread,
+    deleteSession,
+    getThreadSnapshot,
+    openSession,
+    renameSession,
+    sendMessage,
+    switchThread,
+    unarchiveSession,
+  ])
+
   return (
-    <CodexContext.Provider
-      value={{ threads, activeThreadId, activeThread, openThreadIds, getThread, createThread, sendMessage, compactThread, approve, abort, switchThread, getThreadForWindow, closeThreadWindow, openSession, archiveSession, unarchiveSession, deleteSession, renameSession }}
-    >
-      {children}
-    </CodexContext.Provider>
+    <CodexActionsContext.Provider value={actions}>
+      <CodexWindowStateContext.Provider value={windowState}>
+        <CodexThreadStateContext.Provider value={threadState}>
+          {children}
+        </CodexThreadStateContext.Provider>
+      </CodexWindowStateContext.Provider>
+    </CodexActionsContext.Provider>
   )
 }
 
+export function useCodexThreads(): CodexThreadStateApi {
+  const context = useContext(CodexThreadStateContext)
+  if (!context) throw new Error('useCodexThreads must be used inside CodexProvider')
+  return context
+}
+
+export function useCodexWindows(): CodexWindowStateApi {
+  const context = useContext(CodexWindowStateContext)
+  if (!context) throw new Error('useCodexWindows must be used inside CodexProvider')
+  return context
+}
+
+export function useCodexActions(): CodexActionsApi {
+  const context = useContext(CodexActionsContext)
+  if (!context) throw new Error('useCodexActions must be used inside CodexProvider')
+  return context
+}
+
 export function useCodex(): CodexApi {
-  const ctx = useContext(CodexContext)
-  if (!ctx) throw new Error('useCodex must be used inside CodexProvider')
-  return ctx
+  const threadState = useCodexThreads()
+  const windowState = useCodexWindows()
+  const actions = useCodexActions()
+  return useMemo(() => ({ ...threadState, ...windowState, ...actions }), [actions, threadState, windowState])
 }

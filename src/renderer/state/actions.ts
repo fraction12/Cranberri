@@ -16,6 +16,7 @@ import type { LatestSessionContext, SessionSearchResult } from './session-search
 import type { DiagnosticsPathKey } from '../components/diagnostics-paths'
 import type { NativeHelperSettingsTarget } from '@/shared/nativeHelpers'
 import { latestReusableAssistantMessage, latestReusableUserMessage } from '../components/chat/assistant-response-context'
+import { sessionSummaryPreview } from './session-search'
 
 export type AppActionGroup = 'workspace' | 'windows' | 'files' | 'rail' | 'processes' | 'sessions' | 'repos' | 'system'
 export type AppActionIcon = 'activity' | 'browser' | 'chat' | 'diff' | 'file' | 'github' | 'repo' | 'session' | 'settings' | 'terminal' | 'tools' | 'window'
@@ -995,7 +996,7 @@ export function buildAppActions({
           sessionContext.thread.id,
           sessionContext.thread.sessionId ?? '',
           sessionContext.thread.title ?? '',
-          sessionContext.thread.preview ?? '',
+          sessionContext.thread.preview ? sessionSummaryPreview(sessionContext.thread.preview) : '',
           sessionContext.thread.cwd ?? '',
           sessionContext.result.repoPath,
           ...((sessionContext.result.transcriptMatches ?? []).flatMap((match) => [match.role, match.preview])),
@@ -2072,7 +2073,8 @@ export function buildAppActions({
 
   for (const result of sessions) {
     const { session, repoPath, archived, transcriptMatches = [] } = result
-    const title = session.title || session.preview || 'Untitled session'
+    const preview = session.preview ? sessionSummaryPreview(session.preview) : ''
+    const title = session.title || preview || 'Untitled session'
     const active = activeSessionIds.includes(session.id)
     const pinned = pinnedSessionIds.includes(session.id)
     const matchKeywords = transcriptMatches.flatMap((match) => [match.role, match.preview])
@@ -2081,8 +2083,8 @@ export function buildAppActions({
       group: 'sessions',
       icon: 'session',
       label: `${active ? 'Switch to' : 'Open'} ${title}${archived ? ' (archived)' : ''}`,
-      description: [active ? 'Open' : null, archived ? 'Archived' : null, transcriptMatches.length ? `${transcriptMatches.length} transcript match${transcriptMatches.length === 1 ? '' : 'es'}` : null, session.preview || repoPath].filter(Boolean).join(' - '),
-      keywords: ['session', 'thread', 'history', archived ? 'archived' : 'recent', active ? 'open' : '', title, session.preview, session.id, repoPath, ...matchKeywords],
+      description: [active ? 'Open' : null, archived ? 'Archived' : null, transcriptMatches.length ? `${transcriptMatches.length} transcript match${transcriptMatches.length === 1 ? '' : 'es'}` : null, preview || repoPath].filter(Boolean).join(' - '),
+      keywords: ['session', 'thread', 'history', archived ? 'archived' : 'recent', active ? 'open' : '', title, preview, session.id, repoPath, ...matchKeywords],
       run: () => openSession(session, repoPath, archived),
     })
     if (sendSessionContext) {
@@ -2091,8 +2093,8 @@ export function buildAppActions({
         group: 'sessions',
         icon: 'chat',
         label: transcriptMatches.length ? `Send session match: ${title}` : `Send session context: ${title}`,
-        description: transcriptMatches[0]?.preview ?? session.preview ?? repoPath,
-        keywords: ['session', 'thread', 'history', 'chat', 'context', 'codex', archived ? 'archived' : 'recent', title, session.preview, session.id, repoPath, ...matchKeywords],
+        description: (transcriptMatches[0]?.preview ?? preview) || repoPath,
+        keywords: ['session', 'thread', 'history', 'chat', 'context', 'codex', archived ? 'archived' : 'recent', title, preview, session.id, repoPath, ...matchKeywords],
         run: () => sendSessionContext(result),
       })
     }
@@ -2102,8 +2104,8 @@ export function buildAppActions({
         group: 'sessions',
         icon: 'session',
         label: transcriptMatches.length ? `Copy session match: ${title}` : `Copy session context: ${title}`,
-        description: transcriptMatches[0]?.preview ?? session.preview ?? repoPath,
-        keywords: ['session', 'thread', 'history', 'copy', 'clipboard', 'context', 'codex', archived ? 'archived' : 'recent', title, session.preview, session.id, repoPath, ...matchKeywords],
+        description: (transcriptMatches[0]?.preview ?? preview) || repoPath,
+        keywords: ['session', 'thread', 'history', 'copy', 'clipboard', 'context', 'codex', archived ? 'archived' : 'recent', title, preview, session.id, repoPath, ...matchKeywords],
         run: () => copySessionContext(result),
       })
     }

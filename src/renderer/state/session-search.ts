@@ -31,6 +31,7 @@ interface TranscriptItem {
 const MAX_SESSION_CONTEXT_CHARS = 14_000
 const MAX_MATCH_PREVIEW_CHARS = 220
 const MAX_TRANSCRIPT_ITEM_CHARS = 1_600
+const MAX_SESSION_SUMMARY_PREVIEW_CHARS = 240
 
 export function searchSessionTranscript(thread: CodexSessionThread, query: string, maxMatches = 5): TranscriptSearchMatch[] {
   const terms = normalizeTerms(query)
@@ -61,7 +62,17 @@ export function sessionThreadMatchesSummary(session: CodexSessionSummary, query:
 export function codexThreadSummary(thread: CodexSessionThread): CodexSessionSummary {
   const { turns, ...summary } = thread
   void turns
-  return summary
+  return compactSessionSummary(summary)
+}
+
+export function compactSessionSummary(session: CodexSessionSummary): CodexSessionSummary {
+  if (!session.preview) return session
+  const preview = sessionSummaryPreview(session.preview)
+  return preview === session.preview ? session : { ...session, preview }
+}
+
+export function sessionSummaryPreview(preview: string): string {
+  return truncateMiddle(oneLine(preview), MAX_SESSION_SUMMARY_PREVIEW_CHARS)
 }
 
 export function sessionChatContext(thread: CodexSessionThread, matches: TranscriptSearchMatch[] = []): string {

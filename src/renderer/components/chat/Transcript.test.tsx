@@ -87,6 +87,18 @@ describe('Transcript markdown rendering', () => {
     expect(html).toContain('const value = 1')
   })
 
+  it('keeps streaming code blocks lightweight until the message completes', () => {
+    const html = renderToStaticMarkup(
+      <>
+        {formatCodexText(['```ts', 'const value = 1', '```'].join('\n'), { streaming: true })}
+      </>,
+    )
+
+    expect(html).toContain('data-streaming-markdown="true"')
+    expect(html).toContain('const value = 1')
+    expect(html).not.toContain('data-code-preview="true"')
+  })
+
   it('renders Mermaid code blocks through the diagram surface', () => {
     const html = renderToStaticMarkup(
       <>

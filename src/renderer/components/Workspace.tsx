@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { useWorkspace } from '../state/workspace'
-import { useCodex } from '../state/codex'
+import { useCodexActions } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
 import { BrowserWindow as BrowserPane } from './BrowserWindow'
@@ -30,7 +30,7 @@ interface WorkspaceProps {
 export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
-  const { openSession, closeThreadWindow } = useCodex()
+  const { openSession, closeThreadWindow } = useCodexActions()
   const [terminalCloseTarget, setTerminalCloseTarget] = useState<{ windowId: string; termId: string } | null>(null)
 
   useEffect(() => {

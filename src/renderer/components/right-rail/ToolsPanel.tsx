@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, Clock3, Copy, Info, Loader2, MessageSquare, PlugZap, ShieldQuestion, Wrench, XCircle } from 'lucide-react'
-import { useCodex } from '../../state/codex'
+import { useCodexWindows } from '../../state/codex'
 import { useRecentToolEvents, useToolRegistry, type ToolTimelineEvent } from '../../state/tools'
 import { cn } from '../../lib/ui'
 import { createSendChatContextEvent } from '../chat/chat-context-events'
@@ -228,7 +228,7 @@ function RegistrySection({ registry, isLoading }: { registry: ToolRegistrySnapsh
 }
 
 export function ToolsPanel() {
-  const { activeThreadId } = useCodex()
+  const { activeThreadId } = useCodexWindows()
   const { data: events = [], isLoading } = useRecentToolEvents()
   const { data: registry, isLoading: registryLoading } = useToolRegistry(activeThreadId)
   const newestFirst = [...events].reverse()

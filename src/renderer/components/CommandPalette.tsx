@@ -1,11 +1,11 @@
 import { CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot } from 'cmdk'
 import { Activity, FileDiff, FileText, FolderGit2, Github, Globe, LayoutPanelTop, MessageSquare, PlugZap, Settings, Terminal } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useRepos } from '../state/repos'
 import { useWorkspace } from '../state/workspace'
-import { useCodex } from '../state/codex'
+import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
 import { useAppState } from '../state/appState'
 import { useRecentToolEvents } from '../state/tools'
 import { pinnedSessionIds as pinnedIdsFromState, pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
@@ -39,10 +39,10 @@ import { createSessionContextCapturedEvent, SESSION_CONTEXT_CAPTURED_EVENT, sess
 import { createTerminalWindowCommandEvent } from './terminal-window-command-events'
 import { assistantResponseChatContext, userPromptChatContext } from './chat/assistant-response-context'
 import { activeThreadExportFileName, activeThreadMarkdownExport } from './chat/transcript-export'
-import { codexThreadSummary, searchSessionTranscript, sessionChatContext, sessionThreadMatchesSummary, type LatestSessionContext, type SessionSearchResult } from '../state/session-search'
+import { codexThreadSummary, compactSessionSummary, searchSessionTranscript, sessionChatContext, sessionThreadMatchesSummary, type LatestSessionContext, type SessionSearchResult } from '../state/session-search'
 import { repoAbsolutePath } from '../lib/repo-path'
 import { ConfirmDialog } from './ConfirmDialog'
-import type { CodexMessage, CodexSessionSummary, CodexSessionThread } from '@/shared/codex'
+import type { CodexMessage, CodexSessionSummary, CodexSessionThread, CodexThread } from '@/shared/codex'
 import type { BrowserElementInspection, BrowserSnapshot } from '@/shared/browser'
 import type { GitFileStatus, GitHubPanelData, GitHubPanelItem, GitHubPanelKind } from '@/shared/git'
 import type { AgentProcessInfo } from '@/shared/processes'
@@ -68,11 +68,23 @@ interface CommandPaletteProps {
   onOpenSettings: (tab?: SettingsTabValue) => void
 }
 
+function ActiveThreadSync({ onThread }: { onThread: (thread: CodexThread | null) => void }) {
+  const { activeThread } = useCodexThreads()
+
+  useEffect(() => onThread(activeThread), [activeThread, onThread])
+  return null
+}
+
 export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPaletteProps) {
   const queryClient = useQueryClient()
   const { repos, activeRepoId, activeRepo, setActiveRepo } = useRepos()
   const { windows, activeWindowId, openChat, openTerminal, openBrowser, updateBrowserState, setActiveWindow } = useWorkspace()
-  const { activeThread, openThreadIds, compactThread, archiveSession, unarchiveSession, deleteSession, renameSession, approve, abort } = useCodex()
+  const { activeThreadId, openThreadIds } = useCodexWindows()
+  const { getThreadSnapshot, compactThread, archiveSession, unarchiveSession, deleteSession, renameSession, approve, abort } = useCodexActions()
+  const activeThreadSnapshot = activeThreadId ? getThreadSnapshot(activeThreadId) ?? null : null
+  const [liveActiveThread, setLiveActiveThread] = useState<CodexThread | null>(null)
+  const actionQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const activeThread = open && liveActiveThread?.id === activeThreadId ? liveActiveThread : activeThreadSnapshot
   const { state: appState, updateAppState } = useAppState()
   const [query, setQuery] = useState('')
   const [selectedRightRailFile, setSelectedRightRailFile] = useState<GitFileStatus | null>(null)
@@ -95,6 +107,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   const [confirmationBusy, setConfirmationBusy] = useState(false)
   const [confirmationError, setConfirmationError] = useState<string | null>(null)
   const trimmedQuery = query.trim()
+
+  useEffect(() => {
+    if (!open) setLiveActiveThread(null)
+  }, [open])
 
   useEffect(() => {
     const onActiveRailFile = (event: Event) => {
@@ -201,8 +217,8 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         searchTerm ? window.cranberri.codex.listThreads(activeRepo.path, { archived: true, limit: 20 }) : Promise.resolve(null),
       ])
       const baseItems: SessionSearchResult[] = [
-        ...recentResult.sessions.map((session) => ({ session, repoPath: activeRepo.path, archived: false })),
-        ...archivedResult.sessions.map((session) => ({ session, repoPath: activeRepo.path, archived: true })),
+        ...recentResult.sessions.map((session) => ({ session: compactSessionSummary(session), repoPath: activeRepo.path, archived: false })),
+        ...archivedResult.sessions.map((session) => ({ session: compactSessionSummary(session), repoPath: activeRepo.path, archived: true })),
       ]
       const listedIds = new Set(baseItems.map((item) => item.session.id))
       const pinnedItems = await Promise.all(pinnedSessionIds
@@ -232,8 +248,8 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       const byId = new Map<string, SessionSearchResult>()
       for (const item of [
         ...sessionItems,
-        ...(broadRecentResult?.sessions ?? []).map((session) => ({ session, repoPath: activeRepo.path, archived: false })),
-        ...(broadArchivedResult?.sessions ?? []).map((session) => ({ session, repoPath: activeRepo.path, archived: true })),
+        ...(broadRecentResult?.sessions ?? []).map((session) => ({ session: compactSessionSummary(session), repoPath: activeRepo.path, archived: false })),
+        ...(broadArchivedResult?.sessions ?? []).map((session) => ({ session: compactSessionSummary(session), repoPath: activeRepo.path, archived: true })),
       ]) {
         byId.set(`${item.archived ? 'archived' : 'recent'}:${item.session.id}`, item)
       }
@@ -1463,11 +1479,14 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       toast.error(action.disabledReason)
       return
     }
-    void Promise.resolve(action.run()).then((result) => {
-      if (result !== false) toast.success(action.label)
-    }).catch((error) => {
-      toast.error(error instanceof Error ? error.message : `Failed to run ${action.label}`)
-    })
+    actionQueueRef.current = actionQueueRef.current
+      .then(async () => {
+        const result = await action.run()
+        if (result !== false) toast.success(action.label)
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : `Failed to run ${action.label}`)
+      })
     onOpenChange(false)
   }
 
@@ -1544,6 +1563,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   return (
     <>
+      <ActiveThreadSync onThread={setLiveActiveThread} />
       {modalDialogs}
       <div
         className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[12vh]"

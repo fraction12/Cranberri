@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexSessionThread } from '@/shared/codex'
-import { codexThreadSummary, searchSessionTranscript, sessionChatContext, sessionThreadMatchesSummary } from './session-search'
+import { codexThreadSummary, compactSessionSummary, searchSessionTranscript, sessionChatContext, sessionThreadMatchesSummary } from './session-search'
 
 function thread(overrides: Partial<CodexSessionThread> = {}): CodexSessionThread {
   return {
@@ -62,6 +62,14 @@ describe('session transcript search', () => {
       turnCount: 2,
     })
     expect('turns' in summary).toBe(false)
+  })
+
+  it('bounds session previews before they reach command search UI', () => {
+    const summary = compactSessionSummary(thread({ preview: `diagnostics ${'x'.repeat(10_000)} tail` }))
+
+    expect(summary.preview?.length).toBeLessThanOrEqual(240)
+    expect(summary.preview).toContain('diagnostics')
+    expect(summary.preview).toContain('tail')
   })
 
   it('formats bounded session context with match previews and transcript', () => {

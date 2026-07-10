@@ -1,6 +1,6 @@
 import { ReasoningGroup, TranscriptMessage } from './Transcript'
 import { renderSkillText } from './composer-text'
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 import type { CodexMessage, CodexSkillInfo, CodexThread } from '@/shared/codex'
 
 function CompactMessage({ message }: { message: CodexMessage }) {
@@ -30,7 +30,7 @@ function CompactMessage({ message }: { message: CodexMessage }) {
   )
 }
 
-export function TranscriptList({
+export const TranscriptList = memo(function TranscriptList({
   thread,
   skills,
   expandedGroupIds,
@@ -120,4 +120,4 @@ export function TranscriptList({
   }
 
   return <>{nodes}</>
-}
+})

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
+import { Suspense, lazy, memo, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
 import { createSendChatContextEvent } from './chat-context-events'
@@ -108,7 +108,7 @@ export function ReasoningGroup({
   )
 }
 
-export function TranscriptMessage({
+export const TranscriptMessage = memo(function TranscriptMessage({
   msg,
   skills = [],
   renderSkillText,
@@ -141,10 +141,10 @@ export function TranscriptMessage({
     <article className="max-w-full text-base leading-7 text-[var(--app-text)]">
       <div className="break-words">
         <Suspense fallback={<div className="whitespace-pre-wrap text-sm leading-5">{formatInlineCodexText(fallbackText)}</div>}>
-          <MarkdownContent text={msg.content} hideAppDirectives />
+          <MarkdownContent text={msg.content} hideAppDirectives streaming={msg.pending} />
         </Suspense>
       </div>
       <MessageActions text={msg.content} />
     </article>
   )
-}
+})

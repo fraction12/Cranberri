@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { toast } from 'sonner'
 import {
   ArrowUp,
@@ -8,7 +8,7 @@ import {
   Package,
   X,
 } from 'lucide-react'
-import { useCodex } from '../state/codex'
+import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
@@ -127,9 +127,9 @@ export function ChatWindow({ id }: { id: string }) {
     sendMessage,
     compactThread,
     approve,
-    getThread,
-    getThreadForWindow,
-  } = useCodex()
+  } = useCodexActions()
+  const { getThread } = useCodexThreads()
+  const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
   const { renameWindow } = useWorkspace()
   const threadId = getThreadForWindow(id)
@@ -485,7 +485,10 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const isRunning = thread?.isRunning ?? false
-  const estimatedTokens = Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4)
+  const estimatedTokens = useMemo(
+    () => Math.ceil((thread?.messages.reduce((total, message) => total + message.content.length, 0) ?? 0) / 4),
+    [thread?.messages],
+  )
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }
 
   const skillTrigger = getSkillTrigger(input, selectionRef.current.start)

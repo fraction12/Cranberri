@@ -1,5 +1,4 @@
 import ReactMarkdown, { type Components } from 'react-markdown'
-import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import { ExternalLink, Github } from 'lucide-react'
 import { CodePreview } from '../editor/CodePreview'
@@ -135,14 +134,25 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 }
 
-export function formatCodexText(text: string, options: { hideAppDirectives?: boolean } = {}) {
+interface FormatCodexTextOptions {
+  hideAppDirectives?: boolean
+  streaming?: boolean
+}
+
+export function formatCodexText(text: string, options: FormatCodexTextOptions = {}) {
   const markdown = options.hideAppDirectives ? stripCodexAppDirectives(text) : text
   if (!markdown) return null
+  if (options.streaming) {
+    return (
+      <div data-streaming-markdown="true" className="whitespace-pre-wrap break-words">
+        {markdown}
+      </div>
+    )
+  }
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
       components={MARKDOWN_COMPONENTS}
     >
       {markdown}
@@ -150,6 +160,14 @@ export function formatCodexText(text: string, options: { hideAppDirectives?: boo
   )
 }
 
-export function MarkdownContent({ text, hideAppDirectives = false }: { text: string; hideAppDirectives?: boolean }) {
-  return <>{formatCodexText(text, { hideAppDirectives })}</>
+export function MarkdownContent({
+  text,
+  hideAppDirectives = false,
+  streaming = false,
+}: {
+  text: string
+  hideAppDirectives?: boolean
+  streaming?: boolean
+}) {
+  return <>{formatCodexText(text, { hideAppDirectives, streaming })}</>
 }

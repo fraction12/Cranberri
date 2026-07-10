@@ -116,7 +116,16 @@ async function smokePage(electronApp, run) {
   await page.waitForLoadState('domcontentloaded')
   await page.locator('header').getByText('Cranberri', { exact: true }).waitFor({ timeout: 10_000 })
 
-  await run(page)
+  try {
+    await run(page)
+  } catch (error) {
+    const diagnostics = [
+      pageErrors.length > 0 ? `Renderer page errors:\n${pageErrors.join('\n')}` : null,
+      consoleErrors.length > 0 ? `Renderer console errors:\n${consoleErrors.join('\n')}` : null,
+    ].filter(Boolean).join('\n')
+    if (diagnostics) throw new Error(`${error instanceof Error ? error.message : String(error)}\n${diagnostics}`, { cause: error })
+    throw error
+  }
 
   if (pageErrors.length > 0) {
     throw new Error(`Renderer page errors:\n${pageErrors.join('\n')}`)
@@ -138,16 +147,37 @@ async function closeElectronApp(electronApp) {
 }
 
 async function clickCommandItemByText(page, text, timeout = 10_000) {
-  await page.waitForFunction((label) => {
-    return [...document.querySelectorAll('[cmdk-item]')]
-      .some((item) => item.textContent?.includes(label))
-  }, text, { timeout })
+  try {
+    await page.waitForFunction((label) => {
+      return [...document.querySelectorAll('[cmdk-item]')]
+        .some((item) => item.textContent?.includes(label))
+    }, text, { timeout })
+  } catch (error) {
+    const visibleItems = await page.locator('[cmdk-item]').allTextContents()
+    const paletteText = await page.locator('[cmdk-list]').textContent().catch(() => null)
+    throw new Error(`Command item did not appear: ${text}. Items: ${JSON.stringify(visibleItems)}. Palette: ${paletteText}`, { cause: error })
+  }
   await page.evaluate((label) => {
     const item = [...document.querySelectorAll('[cmdk-item]')]
       .find((node) => node.textContent?.includes(label))
     if (!item) throw new Error(`Command item not found: ${label}`)
     item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
   }, text)
+}
+
+async function runClipboardCommand(page, action, label, expectedParts, timeout = 10_000) {
+  const sentinel = `cranberri-smoke-pending-${Date.now()}-${Math.random()}`
+  await page.evaluate((text) => navigator.clipboard.writeText(text), sentinel)
+  await action.click()
+  await page.locator('[data-sonner-toast][data-type="success"] [data-title]')
+    .filter({ hasText: label })
+    .last()
+    .waitFor({ timeout })
+  await page.waitForFunction(async (parts) => {
+    const text = await navigator.clipboard.readText()
+    return parts.every((part) => text.includes(part))
+  }, expectedParts, { timeout })
+  return page.evaluate(() => navigator.clipboard.readText())
 }
 
 async function clickButtonByTitle(page, title, timeout = 10_000) {
@@ -173,25 +203,26 @@ async function waitForAssistantArticleText(page, text, minimumCount = 1, timeout
 
 async function openCommandPalette(page) {
   const input = page.getByPlaceholder('Run command or switch repo...')
-  if (await input.isVisible().catch(() => false)) {
-    await input.focus()
-    return
+  if (await input.count()) {
+    const alreadyClosing = await input.waitFor({ state: 'detached', timeout: 250 })
+      .then(() => true)
+      .catch(() => false)
+    if (!alreadyClosing && await input.isVisible().catch(() => false)) await page.keyboard.press('Escape')
+    await input.waitFor({ state: 'detached', timeout: 10_000 })
   }
-  await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }))
+  const trigger = page.getByLabel('Open command palette')
+  await trigger.evaluate((button) => {
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Open command palette button not found')
+    button.click()
   })
-  if (await input.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await input.focus()
-    return
+  await page.waitForFunction(() => {
+    return document.querySelector('button[aria-label="Open command palette"]')?.getAttribute('aria-expanded') === 'true'
+  }, undefined, { timeout: 10_000 })
+  await input.waitFor({ state: 'visible', timeout: 10_000 })
+  await page.waitForTimeout(50)
+  if (await trigger.getAttribute('aria-expanded') !== 'true') {
+    throw new Error('Command palette closed again before it became interactive')
   }
-  await page.evaluate(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((node) => node.getAttribute('aria-label') === 'Open command palette')
-    if (!button) throw new Error('Open command palette button not found')
-    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-  })
-  await input.waitFor({ timeout: 10_000 })
 }
 
 async function submitGoToLine(page, action, value) {
@@ -450,7 +481,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Fake Codex received: cranberri fake codex smoke').last().waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('copy latest prompt')
-      await page.locator('[cmdk-item]').filter({ hasText: 'Copy latest prompt' }).first().click()
+      await clickCommandItemByText(page, 'Copy latest prompt')
       await page.getByText('Copy latest prompt').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('send latest prompt to chat')
@@ -765,7 +796,13 @@ async function runRepoWorkspaceSmoke() {
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('README')
       const attachSearchedFileAction = page.locator('[cmdk-item]').filter({ hasText: 'Attach file to active chat: README.md' }).first()
-      await attachSearchedFileAction.waitFor({ timeout: 10_000 })
+      try {
+        await attachSearchedFileAction.waitFor({ timeout: 10_000 })
+      } catch (error) {
+        const visibleItems = await page.locator('[cmdk-item]').allTextContents()
+        const paletteText = await page.locator('[cmdk-list]').textContent()
+        throw new Error(`Repo search action did not appear. Items: ${JSON.stringify(visibleItems)}. Palette: ${paletteText}`, { cause: error })
+      }
       if (await attachSearchedFileAction.getAttribute('aria-disabled') === 'true') {
         throw new Error(`Attach searched file action was disabled: ${await attachSearchedFileAction.textContent()}`)
       }
@@ -1350,8 +1387,12 @@ async function runRepoWorkspaceSmoke() {
       if (await copyLatestGitHubAction.getAttribute('aria-disabled') === 'true') {
         throw new Error(`Copy latest GitHub context action was disabled: ${await copyLatestGitHubAction.textContent()}`)
       }
-      await copyLatestGitHubAction.click()
-      const copiedGitHubContext = await page.evaluate(() => navigator.clipboard.readText())
+      const copiedGitHubContext = await runClipboardCommand(
+        page,
+        copyLatestGitHubAction,
+        'Copy latest GitHub context',
+        ['GitHub item context:', 'Title: smoke/context'],
+      )
       if (!copiedGitHubContext.includes('GitHub item context:') || !copiedGitHubContext.includes('Title: smoke/context')) {
         throw new Error(`Latest GitHub context clipboard was wrong:\n${copiedGitHubContext}`)
       }
@@ -1372,8 +1413,12 @@ async function runRepoWorkspaceSmoke() {
       if (await copyWorkspaceBriefAction.getAttribute('aria-disabled') === 'true') {
         throw new Error(`Copy workspace brief action was disabled: ${await copyWorkspaceBriefAction.textContent()}`)
       }
-      await copyWorkspaceBriefAction.click()
-      const copiedWorkspaceBrief = await page.evaluate(() => navigator.clipboard.readText())
+      const copiedWorkspaceBrief = await runClipboardCommand(
+        page,
+        copyWorkspaceBriefAction,
+        'Copy workspace brief',
+        ['Workspace brief:', 'GitHub: fraction12/Cranberri'],
+      )
       if (!copiedWorkspaceBrief.includes('Workspace brief:') || !copiedWorkspaceBrief.includes('GitHub: fraction12/Cranberri')) {
         throw new Error(`Direct workspace brief clipboard was wrong:\n${copiedWorkspaceBrief}`)
       }
@@ -1400,8 +1445,12 @@ async function runRepoWorkspaceSmoke() {
       if (await copyLatestAppContextAction.getAttribute('aria-disabled') === 'true') {
         throw new Error(`Copy latest app context action was disabled: ${await copyLatestAppContextAction.textContent()}`)
       }
-      await copyLatestAppContextAction.click()
-      const copiedAppContext = await page.evaluate(() => navigator.clipboard.readText())
+      const copiedAppContext = await runClipboardCommand(
+        page,
+        copyLatestAppContextAction,
+        'Copy latest app context',
+        ['Workspace brief:', 'GitHub: fraction12/Cranberri'],
+      )
       if (!copiedAppContext.includes('Workspace brief:') || !copiedAppContext.includes('GitHub: fraction12/Cranberri')) {
         throw new Error(`Latest app context clipboard was wrong:\n${copiedAppContext}`)
       }
@@ -1473,8 +1522,12 @@ async function runRepoWorkspaceSmoke() {
       if (await copyLatestCodexResourceAction.getAttribute('aria-disabled') === 'true') {
         throw new Error(`Copy latest Codex resource context action was disabled: ${await copyLatestCodexResourceAction.textContent()}`)
       }
-      await copyLatestCodexResourceAction.click()
-      const copiedCodexResourceContext = await page.evaluate(() => navigator.clipboard.readText())
+      const copiedCodexResourceContext = await runClipboardCommand(
+        page,
+        copyLatestCodexResourceAction,
+        'Copy latest Codex resource context',
+        ['MCP tool context:', 'inspect_fixture'],
+      )
       if (!copiedCodexResourceContext.includes('MCP tool context:') || !copiedCodexResourceContext.includes('inspect_fixture')) {
         throw new Error(`Latest Codex resource context clipboard was wrong:\n${copiedCodexResourceContext}`)
       }

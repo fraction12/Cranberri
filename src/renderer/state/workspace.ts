@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useRepos } from './repos'
 import { useAppState } from './appState'
+import { renameWorkspaceWindow } from './workspace-model'
 import type { WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
 
 export type WorkspaceWindow = WorkspaceWindowState
@@ -40,10 +41,6 @@ export function useWorkspace(): WorkspaceApi {
     return state.workspacesByRepoId[activeRepoId] ?? defaultWorkspace()
   }, [activeRepoId, state.workspacesByRepoId])
 
-  const getWorkspaceForRepo = useCallback((repoId: string) => {
-    return state.workspacesByRepoId[repoId] ?? defaultWorkspace()
-  }, [state.workspacesByRepoId])
-
   useEffect(() => {
     if (!activeRepoId || state.workspacesByRepoId[activeRepoId]) return
     updateAppState((current) => {
@@ -62,16 +59,23 @@ export function useWorkspace(): WorkspaceApi {
     const targetRepoId = repoId ?? activeRepoId
     if (!targetRepoId) return
     updateAppState((current) => {
-      const currentWorkspace = current.workspacesByRepoId[targetRepoId] ?? getWorkspaceForRepo(targetRepoId)
+      const currentWorkspace = current.workspacesByRepoId[targetRepoId] ?? defaultWorkspace()
+      const nextWorkspace = mutator(currentWorkspace.windows, currentWorkspace.activeWindowId)
+      if (
+        nextWorkspace.windows === currentWorkspace.windows
+        && nextWorkspace.activeWindowId === currentWorkspace.activeWindowId
+      ) {
+        return current
+      }
       return {
         ...current,
         workspacesByRepoId: {
           ...current.workspacesByRepoId,
-          [targetRepoId]: mutator(currentWorkspace.windows, currentWorkspace.activeWindowId),
+          [targetRepoId]: nextWorkspace,
         },
       }
     })
-  }, [activeRepoId, getWorkspaceForRepo, updateAppState])
+  }, [activeRepoId, updateAppState])
 
   const openChat = useCallback((id?: string, title?: string, repoId?: string | null) => {
     const windowId = id ?? generateId()
@@ -161,7 +165,7 @@ export function useWorkspace(): WorkspaceApi {
 
   const renameWindow = useCallback((id: string, title: string) => {
     mutateWorkspace(null, (windows, activeWindowId) => ({
-      windows: windows.map((w) => (w.id === id ? { ...w, title } : w)),
+      windows: renameWorkspaceWindow(windows, id, title),
       activeWindowId,
     }))
   }, [mutateWorkspace])

@@ -1,5 +1,5 @@
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { useGitDiffForFile, useGitRawContent } from '../../state/git'
+import { useGitRawContent } from '../../state/git'
 import { preloadCodePreview } from '../editor/CodePreview'
 import { CodeEditor } from '../editor/CodeEditor'
 import type { GitFileStatus } from '@/shared/git'
@@ -52,19 +52,6 @@ export function DiffViewer({ filePath, status, wrapContent, focusLine, searchReq
         disableWordDiff
         styles={getDiffStyles(wrapContent)}
       />
-    </div>
-  )
-}
-
-export function DiffStats({ filePath }: { filePath: string; status: GitFileStatus['status'] }) {
-  const { data: fileDiff } = useGitDiffForFile(filePath)
-  if (!fileDiff?.files.length) return null
-  const { additions, deletions } = fileDiff.files[0]
-  if (additions === 0 && deletions === 0) return null
-  return (
-    <div className="ml-auto flex items-center gap-2 text-micro font-medium">
-      {additions > 0 && <span className="text-app-success">+{additions}</span>}
-      {deletions > 0 && <span className="text-app-danger">−{deletions}</span>}
     </div>
   )
 }

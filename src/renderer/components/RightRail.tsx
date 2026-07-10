@@ -1,11 +1,11 @@
-import { type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronLeft, Copy, ExternalLink, FileDiff, FolderOpen, Hash, Loader2, Menu, MessageSquare, Search } from 'lucide-react'
 import { useGitStatus, useGitFiles } from '../state/git'
 import { useRepos } from '../state/repos'
 import { ChangeList } from './right-rail/ChangeList'
 import { CommitDialog, type CommitDraftState, type CommitState } from './right-rail/CommitDialog'
 import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
-import { DiffStats, DiffViewer, preloadDiffRenderer } from './right-rail/DiffViewer'
+import { DiffStats } from './right-rail/DiffStats'
 import { FileTree } from './right-rail/FileTree'
 import { createRightRailActiveFileEvent } from './right-rail/right-rail-active-file-events'
 import { OPEN_RIGHT_RAIL_COMMAND_EVENT, rightRailCommandFromEvent } from './right-rail/right-rail-command-events'
@@ -25,6 +25,11 @@ import type { GitFileStatus } from '@/shared/git'
 
 const DIFF_MENU_WIDTH = 176
 const VIEWPORT_PADDING = 8
+const DiffViewer = lazy(() => import('./right-rail/DiffViewer').then((module) => ({ default: module.DiffViewer })))
+
+function preloadDiffRenderer(): void {
+  void import('./right-rail/DiffViewer').then((module) => module.preloadDiffRenderer())
+}
 
 function getDiffMenuPosition(button: HTMLButtonElement | null) {
   const rect = button?.getBoundingClientRect()
@@ -59,8 +64,10 @@ export function RightRail() {
   const [lineError, setLineError] = useState<string | null>(null)
   const diffMenuButtonRef = useRef<HTMLButtonElement>(null)
 
-  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useGitStatus()
-  const { data: allFiles, isLoading: filesLoading } = useGitFiles()
+  const showChanges = activeTab === 'files' && filesMode === 'changes'
+  const showAllFiles = activeTab === 'files' && filesMode === 'all'
+  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
+  const { data: allFiles, isLoading: filesLoading } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
 
   useEffect(() => {
@@ -427,7 +434,7 @@ export function RightRail() {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <span className="min-w-0 flex-1 truncate text-xs font-medium" title={selectedFile.path}>{selectedFile.path}</span>
-                  <DiffStats filePath={selectedFile.path} status={selectedFile.status} />
+                  <DiffStats filePath={selectedFile.path} />
                   {selectedFile.status === 'tracked' && (
                     <>
                       <button
@@ -571,13 +578,15 @@ export function RightRail() {
                   </form>
                 )}
                 <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">
-                  <DiffViewer
-                    filePath={selectedFile.path}
-                    status={selectedFile.status}
-                    wrapContent={wrapDiffContent}
-                    focusLine={selectedLine}
-                    searchRequest={editorSearchRequest}
-                  />
+                  <Suspense fallback={<div className="p-3 text-sm text-app-text-muted">Loading diff...</div>}>
+                    <DiffViewer
+                      filePath={selectedFile.path}
+                      status={selectedFile.status}
+                      wrapContent={wrapDiffContent}
+                      focusLine={selectedLine}
+                      searchRequest={editorSearchRequest}
+                    />
+                  </Suspense>
                 </div>
               </div>
             ) : (
