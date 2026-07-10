@@ -25,6 +25,11 @@ const themeSchema = z.enum(APP_THEME_VALUES)
 const accentSchema = z.enum(APP_ACCENT_VALUES)
 const reducedMotionSchema = z.enum(APP_REDUCED_MOTION_VALUES)
 const updaterChannelSchema = z.enum(['stable', 'beta'])
+const toolIdListSchema = z.array(z.string().min(1))
+const toolCurationSettingsSchema = z.object({
+  pinnedToolIds: toolIdListSchema.default([]),
+  dismissedDefaultToolIds: toolIdListSchema.default([]),
+})
 
 const codexSpeedSchema = z.enum(['standard', 'fast'])
 
@@ -52,6 +57,7 @@ const settingsSchema = z.object({
       uiFontSize: z.number().int().min(APP_UI_FONT_SIZE_RANGE.min).max(APP_UI_FONT_SIZE_RANGE.max),
       reducedMotion: reducedMotionSchema,
     }),
+    tools: toolCurationSettingsSchema.default(DEFAULT_APP_SETTINGS.tools),
     updater: z.object({
       channel: updaterChannelSchema,
       sourceRepoPath: z.string().optional(),
@@ -102,6 +108,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
   const editor = getSection(incoming, 'editor')
   const terminal = getSection(incoming, 'terminal')
   const appearance = getSection(incoming, 'appearance')
+  const tools = getSection(incoming, 'tools')
   const updater = getSection(incoming, 'updater')
 
   const data: AppSettings = {
@@ -127,6 +134,14 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
       reducedMotion: reducedMotionSchema.safeParse(appearance.reducedMotion).success
         ? (appearance.reducedMotion as AppSettings['appearance']['reducedMotion'])
         : DEFAULT_APP_SETTINGS.appearance.reducedMotion,
+    },
+    tools: {
+      pinnedToolIds: toolIdListSchema.safeParse(tools.pinnedToolIds).success
+        ? (tools.pinnedToolIds as string[])
+        : DEFAULT_APP_SETTINGS.tools.pinnedToolIds,
+      dismissedDefaultToolIds: toolIdListSchema.safeParse(tools.dismissedDefaultToolIds).success
+        ? (tools.dismissedDefaultToolIds as string[])
+        : DEFAULT_APP_SETTINGS.tools.dismissedDefaultToolIds,
     },
     updater: {
       channel: updaterChannelSchema.safeParse(updater.channel).success ? (updater.channel as AppSettings['updater']['channel']) : DEFAULT_APP_SETTINGS.updater.channel,

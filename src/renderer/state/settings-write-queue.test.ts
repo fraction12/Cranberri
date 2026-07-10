@@ -56,4 +56,49 @@ describe('SettingsWriteQueue', () => {
       codex: expect.objectContaining({ defaultModel: 'gpt-5.5', defaultEffort: 'medium' }),
     }))
   })
+
+  it('serializes tools and unrelated section writes without losing either update', async () => {
+    const orphanToolId = 'mcp:provider%3Aalpha:custom%3Atool'
+    const writes: AppSettings[] = []
+    const persist = vi.fn(async (settings: AppSettings) => {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      writes.push(settings)
+      return settings
+    })
+    const queue = new SettingsWriteQueue(DEFAULT_APP_SETTINGS, persist, vi.fn())
+
+    await Promise.all([
+      queue.enqueue((current) => ({
+        ...current,
+        tools: {
+          ...current.tools,
+          pinnedToolIds: [...current.tools.pinnedToolIds, orphanToolId],
+        },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        appearance: { ...current.appearance, accent: 'rose' },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        tools: {
+          ...current.tools,
+          dismissedDefaultToolIds: [...current.tools.dismissedDefaultToolIds, 'cli:rg'],
+        },
+      })),
+    ])
+
+    expect(writes).toHaveLength(3)
+    expect(writes[1]).toMatchObject({
+      appearance: { accent: 'rose' },
+      tools: { pinnedToolIds: [orphanToolId], dismissedDefaultToolIds: [] },
+    })
+    expect(writes[2]).toMatchObject({
+      appearance: { accent: 'rose' },
+      tools: {
+        pinnedToolIds: [orphanToolId],
+        dismissedDefaultToolIds: ['cli:rg'],
+      },
+    })
+  })
 })

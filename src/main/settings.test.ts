@@ -141,3 +141,52 @@ describe('Codex settings persistence', () => {
     expect(electron.themeSource).toBe('light')
   })
 })
+
+describe('Tool curation settings persistence', () => {
+  it('migrates pre-tools settings without disturbing existing sections', () => {
+    const preToolsSettings = {
+      codex: {
+        ...DEFAULT_APP_SETTINGS.codex,
+        defaultApprovalMode: 'ask' as const,
+        streamTokens: false,
+      },
+      editor: { fontSize: 16, lineWrap: false },
+      terminal: { fontSize: 18, defaultShell: '/bin/zsh' },
+      appearance: {
+        theme: 'dark' as const,
+        accent: 'rose' as const,
+        uiFontSize: 15,
+        reducedMotion: 'on' as const,
+      },
+      updater: { channel: 'beta' as const, sourceRepoPath: '/tmp/cranberri-source' },
+    }
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 2,
+      data: preToolsSettings,
+    }))
+
+    expect(readSettings()).toEqual({
+      ...preToolsSettings,
+      tools: {
+        pinnedToolIds: [],
+        dismissedDefaultToolIds: [],
+      },
+    })
+  })
+
+  it('persists pins and default dismissals independently while retaining orphan IDs', () => {
+    const tools = {
+      pinnedToolIds: [
+        'mcp:provider%3Aalpha:custom%3Atool',
+        'browser:provider%2Fid:open',
+      ],
+      dismissedDefaultToolIds: ['cli:rg', 'codex:apply_patch'],
+    }
+
+    writeSettings({ ...DEFAULT_APP_SETTINGS, tools })
+
+    expect(readSettings().tools).toEqual(tools)
+    const persisted = JSON.parse(fs.readFileSync(path.join(electron.userDataPath, 'settings.json'), 'utf8'))
+    expect(persisted).toMatchObject({ version: 3, data: { tools } })
+  })
+})

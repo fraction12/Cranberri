@@ -13,6 +13,11 @@ export const APP_UI_FONT_SIZE_RANGE = { min: 11, max: 16 } as const
 export const APP_CODE_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 export const APP_TERMINAL_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 
+export interface ToolCurationSettings {
+  pinnedToolIds: string[]
+  dismissedDefaultToolIds: string[]
+}
+
 export interface AppSettings {
   codex: {
     defaultModel: string
@@ -35,13 +40,14 @@ export interface AppSettings {
     uiFontSize: number
     reducedMotion: AppReducedMotion
   }
+  tools: ToolCurationSettings
   updater: {
     channel: 'stable' | 'beta'
     sourceRepoPath?: string
   }
 }
 
-export const APP_SETTINGS_VERSION = 2
+export const APP_SETTINGS_VERSION = 3
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   codex: {
@@ -62,6 +68,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     accent: 'green',
     uiFontSize: 14,
     reducedMotion: 'system',
+  },
+  tools: {
+    pinnedToolIds: [],
+    dismissedDefaultToolIds: [],
   },
   updater: {
     channel: 'stable',
