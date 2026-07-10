@@ -3,13 +3,26 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { z } from 'zod'
 import { CodexClient } from './client'
 import { makeCodexEnv } from './env'
 import { FakeCodexClient } from './fakeClient'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
+import {
+  toolCatalogIdSchema,
+  type ToolCatalogRegistryEvidence,
+  type ToolCatalogTaskKey,
+  type ToolRegistrySnapshot,
+} from '../../shared/tools'
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
 import { normalizeToolRegistrySnapshot, recordToolEventsForCodexEvent } from '../tools'
+import { readSettings } from '../settings'
+import {
+  ToolCatalogService,
+  isTrustedCatalogIpcSender,
+  type ToolCatalogRequestContext,
+} from '../tool-catalog-service'
 import { shouldForwardCodexEventToRenderer, shouldPersistCodexEventTelemetry } from './eventPolicy'
 import {
   MINIMUM_GPT_56_CODEX_VERSION,
@@ -63,6 +76,74 @@ let client: CodexClientLike | null = null
 let clientStarting = false
 let clientEventHandlerAttached = false
 let codexEventBroadcast: ((event: CodexEvent) => void) | null = null
+let capabilityEpochCounter = 0
+
+const catalogProjectRoots = new Set<string>([process.cwd()])
+const capabilityEpochByThread = new Map<string, string>()
+const registryFingerprintByThread = new Map<string, string>()
+const toolCatalogService = new ToolCatalogService({
+  projectRoots: () => [...catalogProjectRoots],
+})
+const catalogListRequestSchema = z.object({
+  activeThreadId: z.string().min(1).nullable(),
+}).strict()
+const catalogTestRequestSchema = catalogListRequestSchema.extend({
+  catalogId: toolCatalogIdSchema,
+}).strict()
+
+interface ToolRegistryLoadResult {
+  snapshot: ToolRegistrySnapshot
+  scope: ToolCatalogRegistryEvidence['scope']
+}
+
+function rememberCatalogProjectRoot(cwd: string): void {
+  if (path.isAbsolute(cwd)) catalogProjectRoots.add(path.resolve(cwd))
+}
+
+function advanceCapabilityEpoch(threadId: string): ToolCatalogTaskKey {
+  capabilityEpochCounter += 1
+  const capabilityEpoch = `local-${capabilityEpochCounter}`
+  capabilityEpochByThread.set(threadId, capabilityEpoch)
+  return { threadId, capabilityEpoch }
+}
+
+function catalogTaskKey(threadId: string | null): ToolCatalogTaskKey | null {
+  if (!threadId) return null
+  const capabilityEpoch = capabilityEpochByThread.get(threadId)
+  return capabilityEpoch
+    ? { threadId, capabilityEpoch }
+    : advanceCapabilityEpoch(threadId)
+}
+
+function advanceKnownCapabilityEpochs(): void {
+  for (const threadId of capabilityEpochByThread.keys()) advanceCapabilityEpoch(threadId)
+}
+
+function catalogRegistryFingerprint(snapshot: ToolRegistrySnapshot): string {
+  return JSON.stringify({
+    apps: snapshot.apps.map((app) => app.id).sort(),
+    mcpServers: snapshot.mcpServers
+      .map((server) => ({
+        name: server.name,
+        authStatus: server.authStatus,
+        tools: server.tools.map((tool) => tool.name).sort(),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  })
+}
+
+function expectedRendererEntryUrl(): string {
+  return process.env.ELECTRON_VITE_DEV_SERVER_URL ?? 'cranberri://renderer/index.html'
+}
+
+function authorizeCatalogIpc(
+  event: Electron.IpcMainInvokeEvent,
+  mainWindowGetter: () => Electron.BrowserWindow | null,
+): void {
+  if (!isTrustedCatalogIpcSender(event, mainWindowGetter(), expectedRendererEntryUrl())) {
+    throw new Error('Unauthorized tool catalog IPC sender')
+  }
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
@@ -482,6 +563,96 @@ export async function getCodexClient(): Promise<CodexClientLike> {
   }
 }
 
+async function loadToolRegistry(
+  threadId: string | null,
+  forceRefetch = false,
+): Promise<ToolRegistryLoadResult> {
+  const c = await getCodexClient()
+  const errors: string[] = []
+  let appsResult: unknown
+  let mcpResult: unknown
+  let appListAvailable = false
+  let mcpServerStatusAvailable = false
+  let usedStaleThreadFallback = false
+
+  try {
+    appsResult = await c.listApps({ threadId, forceRefetch })
+    appListAvailable = true
+  } catch (error) {
+    if (threadId && isThreadNotFoundError(error)) {
+      usedStaleThreadFallback = true
+      try {
+        appsResult = await c.listApps({ threadId: null, forceRefetch })
+        appListAvailable = true
+      } catch (fallbackError) {
+        errors.push(registryErrorMessage(fallbackError, 'App list unavailable'))
+      }
+    } else {
+      errors.push(registryErrorMessage(error, 'App list unavailable'))
+    }
+  }
+
+  try {
+    mcpResult = await c.listMcpServerStatus({ threadId })
+    mcpServerStatusAvailable = true
+  } catch (error) {
+    if (threadId && isThreadNotFoundError(error)) {
+      usedStaleThreadFallback = true
+      try {
+        mcpResult = await c.listMcpServerStatus({ threadId: null })
+        mcpServerStatusAvailable = true
+      } catch (fallbackError) {
+        errors.push(registryErrorMessage(fallbackError, 'MCP server status unavailable'))
+      }
+    } else {
+      errors.push(registryErrorMessage(error, 'MCP server status unavailable'))
+    }
+  }
+
+  return {
+    snapshot: normalizeToolRegistrySnapshot({
+      appsResult,
+      mcpResult,
+      appListAvailable,
+      mcpServerStatusAvailable,
+      errors,
+    }),
+    scope: threadId
+      ? usedStaleThreadFallback ? 'stale-thread-fallback' : 'active-task'
+      : 'global',
+  }
+}
+
+async function loadToolCatalogContext(
+  activeThreadId: string | null,
+  forceRefetch: boolean,
+): Promise<ToolCatalogRequestContext> {
+  const registry = await loadToolRegistry(activeThreadId, forceRefetch)
+  let taskKey = catalogTaskKey(activeThreadId)
+
+  if (activeThreadId && registry.scope === 'active-task') {
+    const fingerprint = catalogRegistryFingerprint(registry.snapshot)
+    const previousFingerprint = registryFingerprintByThread.get(activeThreadId)
+    if (previousFingerprint && previousFingerprint !== fingerprint) {
+      taskKey = advanceCapabilityEpoch(activeThreadId)
+    }
+    registryFingerprintByThread.set(activeThreadId, fingerprint)
+  }
+
+  const observedAt = new Date().toISOString()
+  const registryEvidence: ToolCatalogRegistryEvidence[] = registry.scope === 'active-task'
+    ? taskKey
+      ? [{ scope: 'active-task', taskKey, observedAt, snapshot: registry.snapshot }]
+      : []
+    : [{ scope: registry.scope, taskKey: null, observedAt, snapshot: registry.snapshot }]
+
+  return {
+    taskKey,
+    preferences: readSettings().tools,
+    registryEvidence,
+  }
+}
+
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   codexEventBroadcast = (event: CodexEvent) => {
     if (shouldPersistCodexEventTelemetry(event)) {
@@ -525,6 +696,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     client?.stop()
     client = null
     clientEventHandlerAttached = false
+    advanceKnownCapabilityEpochs()
     return getCodexConnectionStatus()
   })
 
@@ -540,14 +712,17 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:start', async (_, cwd: string) => {
+    rememberCatalogProjectRoot(cwd)
     const c = await getCodexClient()
     c.setCwd(cwd)
     return { started: true }
   })
 
   ipcMain.handle('codex:create-thread', async (_, cwd: string, settings?: CodexTurnSettings) => {
+    rememberCatalogProjectRoot(cwd)
     const c = await getCodexClient()
     const thread = await c.createThread(cwd, settings)
+    advanceCapabilityEpoch(thread.id)
     return { threadId: thread.id, title: thread.name ?? null }
   })
 
@@ -563,8 +738,11 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:threads:resume', async (_, cwd: string, threadId: string, settings?: CodexTurnSettings) => {
+    rememberCatalogProjectRoot(cwd)
     const c = await getCodexClient()
-    return { thread: await c.resumeThread(threadId, cwd, settings) }
+    const thread = await c.resumeThread(threadId, cwd, settings)
+    advanceCapabilityEpoch(threadId)
+    return { thread }
   })
 
   ipcMain.handle('codex:threads:archive', async (_, cwd: string, threadId: string) => {
@@ -638,63 +816,41 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('tools:registry', async (_, threadId?: string | null, forceRefetch?: boolean) => {
-    const c = await getCodexClient()
-    const errors: string[] = []
-    let appsResult: unknown
-    let mcpResult: unknown
-    let appListAvailable = false
-    let mcpServerStatusAvailable = false
+    return (await loadToolRegistry(threadId ?? null, forceRefetch)).snapshot
+  })
 
-    try {
-      appsResult = await c.listApps({ threadId: threadId ?? null, forceRefetch })
-      appListAvailable = true
-    } catch (error) {
-      if (threadId && isThreadNotFoundError(error)) {
-        try {
-          appsResult = await c.listApps({ threadId: null, forceRefetch })
-          appListAvailable = true
-        } catch (fallbackError) {
-          errors.push(registryErrorMessage(fallbackError, 'App list unavailable'))
-        }
-      } else {
-        errors.push(registryErrorMessage(error, 'App list unavailable'))
-      }
-    }
+  ipcMain.handle('tools:catalog:list', async (event, input: unknown) => {
+    authorizeCatalogIpc(event, mainWindowGetter)
+    const request = catalogListRequestSchema.parse(input)
+    const context = await loadToolCatalogContext(request.activeThreadId, false)
+    return toolCatalogService.list(context)
+  })
 
-    try {
-      mcpResult = await c.listMcpServerStatus({ threadId: threadId ?? null })
-      mcpServerStatusAvailable = true
-    } catch (error) {
-      if (threadId && isThreadNotFoundError(error)) {
-        try {
-          mcpResult = await c.listMcpServerStatus({ threadId: null })
-          mcpServerStatusAvailable = true
-        } catch (fallbackError) {
-          errors.push(registryErrorMessage(fallbackError, 'MCP server status unavailable'))
-        }
-      } else {
-        errors.push(registryErrorMessage(error, 'MCP server status unavailable'))
-      }
-    }
+  ipcMain.handle('tools:catalog:refresh', async (event, input: unknown) => {
+    authorizeCatalogIpc(event, mainWindowGetter)
+    const request = catalogListRequestSchema.parse(input)
+    const context = await loadToolCatalogContext(request.activeThreadId, true)
+    return toolCatalogService.refresh(context)
+  })
 
-    return normalizeToolRegistrySnapshot({
-      appsResult,
-      mcpResult,
-      appListAvailable,
-      mcpServerStatusAvailable,
-      errors,
-    })
+  ipcMain.handle('tools:catalog:test', async (event, input: unknown) => {
+    authorizeCatalogIpc(event, mainWindowGetter)
+    const request = catalogTestRequestSchema.parse(input)
+    const context = await loadToolCatalogContext(request.activeThreadId, false)
+    return toolCatalogService.test(request.catalogId, context)
   })
 
   ipcMain.handle('codex:stop', async () => {
     client?.stop()
     client = null
     clientEventHandlerAttached = false
+    advanceKnownCapabilityEpochs()
     return { stopped: true }
   })
 }
 
 export function stopCodexClient(): void {
+  toolCatalogService.dispose()
   client?.stop()
   client = null
   clientEventHandlerAttached = false

@@ -152,6 +152,20 @@ const api = {
   },
   tools: {
     registry: (threadId?: string | null, forceRefetch?: boolean) => ipcRenderer.invoke('tools:registry', threadId, forceRefetch),
+    catalog: {
+      list: (activeThreadId: string | null = null): Promise<import('@/shared/tools').ToolCatalogSnapshot> => (
+        ipcRenderer.invoke('tools:catalog:list', { activeThreadId })
+      ),
+      refresh: (activeThreadId: string | null = null): Promise<import('@/shared/tools').ToolCatalogSnapshot> => (
+        ipcRenderer.invoke('tools:catalog:refresh', { activeThreadId })
+      ),
+      test: (
+        catalogId: import('@/shared/tools').ToolCatalogId,
+        activeThreadId: string | null = null,
+      ): Promise<import('@/shared/tools').ToolCatalogSnapshot> => (
+        ipcRenderer.invoke('tools:catalog:test', { catalogId, activeThreadId })
+      ),
+    },
   },
 }
 

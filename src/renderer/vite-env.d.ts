@@ -142,6 +142,14 @@ declare global {
       }
       tools: {
         registry: (threadId?: string | null, forceRefetch?: boolean) => Promise<import('@/shared/tools').ToolRegistrySnapshot>
+        catalog: {
+          list: (activeThreadId?: string | null) => Promise<import('@/shared/tools').ToolCatalogSnapshot>
+          refresh: (activeThreadId?: string | null) => Promise<import('@/shared/tools').ToolCatalogSnapshot>
+          test: (
+            catalogId: import('@/shared/tools').ToolCatalogId,
+            activeThreadId?: string | null,
+          ) => Promise<import('@/shared/tools').ToolCatalogSnapshot>
+        }
       }
     }
   }
