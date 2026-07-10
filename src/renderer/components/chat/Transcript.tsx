@@ -8,9 +8,10 @@ import type { CodexMessage, CodexSkillInfo } from '@/shared/codex'
 type SkillRenderer = (text: string, skills: CodexSkillInfo[]) => ReactNode[]
 const MarkdownContent = lazy(() => import('./MarkdownContent').then((module) => ({ default: module.MarkdownContent })))
 const PING_DOT_CLASS = 'absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40'
+const CHAT_MESSAGE_TYPOGRAPHY_CLASS = 'text-base leading-7'
 const USER_BUBBLE_CLASS = [
   'max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5',
-  'text-sm leading-5 text-[var(--app-text)]',
+  `${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`,
   'shadow-[inset_0_0_0_1px_var(--app-inset)]',
 ].join(' ')
 
@@ -148,9 +149,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const fallbackText = stripCodexAppDirectives(msg.content)
 
   return (
-    <article className="max-w-full text-base leading-7 text-[var(--app-text)]">
+    <article className={`max-w-full ${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`}>
       <div className="break-words">
-        <Suspense fallback={<div className="whitespace-pre-wrap text-sm leading-5">{formatInlineCodexText(fallbackText)}</div>}>
+        <Suspense fallback={<div className="whitespace-pre-wrap">{formatInlineCodexText(fallbackText)}</div>}>
           <MarkdownContent text={msg.content} hideAppDirectives streaming={msg.pending} />
         </Suspense>
       </div>

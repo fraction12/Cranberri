@@ -128,6 +128,26 @@ describe('Transcript markdown rendering', () => {
     expect(completed).toContain('Copy response')
   })
 
+  it('uses the same typography for user and assistant messages', () => {
+    const user = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'user', role: 'user', content: 'Please inspect this', timestamp: 1 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+    const assistant = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'assistant', role: 'assistant', content: 'I inspected it', timestamp: 2 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+
+    expect(user).toContain('text-base leading-7')
+    expect(assistant).toContain('text-base leading-7')
+    expect(user).not.toContain('text-sm leading-5')
+    expect(assistant).not.toContain('text-sm leading-5')
+  })
+
   it('renders Mermaid code blocks through the diagram surface', () => {
     const html = renderToStaticMarkup(
       <>
