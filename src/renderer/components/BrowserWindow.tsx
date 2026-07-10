@@ -57,6 +57,8 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   const [captureOpen, setCaptureOpen] = useState(false)
   const [inspectActive, setInspectActive] = useState(false)
   const [availableViewport, setAvailableViewport] = useState({ width: 1, height: 1 })
+  const addressInputRef = useRef<HTMLInputElement>(null)
+  const addressEditingRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
 
@@ -79,7 +81,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
       }
       if (event.type !== 'state' || event.state.windowId !== windowState.id) return
       setState(event.state)
-      setAddress(event.state.url)
+      if (!addressEditingRef.current) setAddress(event.state.url)
       onPageState(event.state)
     })
   }, [onPageState, windowState.id])
@@ -100,7 +102,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
       window.cranberri.browser.attach({ ...attachParams, bounds })
         .then((nextState) => {
           setState(nextState)
-          setAddress(nextState.url)
+          if (!addressEditingRef.current) setAddress(nextState.url)
         })
         .catch((error) => setNotice(error instanceof Error ? error.message : 'Failed to attach browser'))
     }
@@ -325,18 +327,32 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
           onSubmit={(event) => {
             event.preventDefault()
             const input = event.currentTarget.elements.namedItem('browser-address')
-            navigate(input instanceof HTMLInputElement ? input.value : address)
+            const target = input instanceof HTMLInputElement ? input.value : address
+            addressEditingRef.current = false
+            addressInputRef.current?.blur()
+            navigate(target)
           }}
         >
           <Globe className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
           <input
+            ref={addressInputRef}
             value={address}
             name="browser-address"
-            onChange={(event) => setAddress(event.target.value)}
+            onFocus={() => { addressEditingRef.current = true }}
+            onBlur={() => { addressEditingRef.current = false }}
+            onChange={(event) => {
+              addressEditingRef.current = true
+              setAddress(event.target.value)
+            }}
             className="h-7 min-w-0 flex-1 bg-transparent text-xs text-app-text outline-none"
             placeholder="https://localhost:5173"
           />
-          <button type="submit" className="rounded p-1 text-app-text-muted hover:text-app-text" title="Navigate">
+          <button
+            type="submit"
+            className="rounded p-1 text-app-text-muted hover:text-app-text"
+            title="Navigate"
+            onMouseDown={(event) => event.preventDefault()}
+          >
             <Search className="h-3.5 w-3.5" />
           </button>
         </form>
