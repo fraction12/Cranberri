@@ -31,7 +31,7 @@ import { diagnosticsChatContext } from './diagnostics-chat-context'
 import { diagnosticsPathRowByKey, type DiagnosticsPathKey } from './diagnostics-paths'
 import { usageChatContext } from './usage-chat-context'
 import { activeChatContext } from './active-chat-context'
-import { appChatContext, mcpServerChatContext, mcpToolChatContext, skillChatContext, toolRegistryChatContext, type LatestCodexResourceContext } from './codex-resources'
+import { appChatContext, mcpServerChatContext, mcpToolChatContext, skillChatContext, type LatestCodexResourceContext } from './codex-resources'
 import { codexResourceContextFromEvent, CODEX_RESOURCE_CONTEXT_CAPTURED_EVENT, createCodexResourceContextCapturedEvent } from './codex-resource-context-events'
 import { toolEventChatContext } from './tool-chat-context'
 import { createToolEventContextCapturedEvent, TOOL_EVENT_CONTEXT_CAPTURED_EVENT, toolEventContextFromEvent } from './tool-event-context-events'
@@ -918,24 +918,6 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     }))
   }, [activeThread])
 
-  const sendToolRegistryContext = useCallback(async () => {
-    const snapshot = await window.cranberri.tools.registry(activeThread?.id ?? null, true)
-    sendCodexResourceContext({
-      kind: 'tool-registry',
-      label: 'Codex tool registry',
-      text: toolRegistryChatContext(snapshot),
-    })
-  }, [activeThread?.id, sendCodexResourceContext])
-
-  const copyToolRegistryContext = useCallback(async () => {
-    const snapshot = await window.cranberri.tools.registry(activeThread?.id ?? null, true)
-    await copyCodexResourceContext({
-      kind: 'tool-registry',
-      label: 'Codex tool registry',
-      text: toolRegistryChatContext(snapshot),
-    })
-  }, [activeThread?.id, copyCodexResourceContext])
-
   const renameSessionFromCommand = useCallback((threadId: string, title: string): false => {
     setRenameTarget({ threadId, title })
     setRenameInput(title)
@@ -1364,8 +1346,6 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         inputParts: [{ type: 'skill', name: skill.name, path: skill.path }],
       })
     },
-    sendToolRegistryContext,
-    copyToolRegistryContext,
     sendAppContext: (app) => {
       sendCodexResourceContext({ kind: 'app', label: app.name, text: appChatContext(app) })
     },
@@ -1442,7 +1422,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     openRightRail: (command) => window.dispatchEvent(createOpenRightRailCommandEvent(command)),
     setActiveRepo,
     setActiveWindow,
-  }), [abort, activeRepoId, activeThread, activeWindowId, approve, archiveSession, attachFilesToActiveChat, attachRepoFileToActiveChat, changedFileCount, clearDiagnosticsTelemetryFromCommand, compactThread, controlActiveBrowser, controlActiveTerminal, copyActiveChatContext, copyActiveThreadMarkdown, copyActiveWindowContext, copyCodexResourceContext, copyDiagnosticsContext, copyDiagnosticsPath, copyGitHubContext, copyLatestAppContext, copyLatestAssistantResponse, copyLatestBrowserInspection, copyLatestBrowserScreenshotPath, copyLatestBrowserSnapshot, copyLatestCodexResourceContext, copyLatestGitHubContext, copyLatestProcessContext, copyLatestRepoChangesContext, copyLatestRepoFileContext, copyLatestSessionContext, copyLatestTerminalContext, copyLatestToolEventContext, copyLatestUserPrompt, copyRepoChangesContext, copySelectedFileAbsolutePath, copySessionContext, copyToolRegistryContext, copyUsageContext, copyWorkspaceBrief, deleteSessionFromCommand, draftPullRequestContext, explainRepoChangesContext, exportActiveThreadMarkdown, installPluginFromCommand, latestAppContext, latestBrowserInspection, latestBrowserScreenshot, latestBrowserSnapshot, latestCodexResourceContext, latestGitHubContext, latestProcessContext, latestRepoChangesContext, latestRepoFileContext, latestSessionContext, latestTerminalContext, latestToolEventContext, onOpenSettings, openBrowser, openChat, openDiagnosticsPath, openLatestBrowserScreenshot, openNativeHelperSettings, openSelectedFileExternal, openTerminal, openThreadIds, pinnedSessionIds, plugins, processes, registry, renameSessionFromCommand, repos, revealDiagnosticsPath, revealLatestBrowserScreenshot, revealSelectedFileInFolder, reviewRepoChangesContext, selectedRightRailFile, sendActiveChatContext, sendActiveWindowContext, sendCodexResourceContext, sendLatestAppContextToChat, sendLatestAssistantResponseToChat, sendLatestBrowserInspectionToChat, sendLatestBrowserScreenshotToChat, sendLatestBrowserSnapshotToChat, sendLatestCodexResourceContextToChat, sendLatestGitHubContextToChat, sendLatestProcessContextToChat, sendLatestRepoChangesContextToChat, sendLatestRepoFileContextToChat, sendLatestSessionContextToChat, sendLatestTerminalContextToChat, sendLatestToolEventContextToChat, sendLatestUserPromptToChat, sendProcessContext, sendToolEventContext, setActiveBrowserViewport, sendDiagnosticsContext, sendGitHubContext, sendRepoChangesContext, sendSessionContext, sendToolRegistryContext, sendUsageContext, sendWorkspaceBrief, sessions, setActiveRepo, setActiveWindow, skills, testRepoChangesContext, toggleSessionPinnedFromCommand, toolEvents, unarchiveSession, upgradePluginMarketplaces, windows])
+  }), [abort, activeRepoId, activeThread, activeWindowId, approve, archiveSession, attachFilesToActiveChat, attachRepoFileToActiveChat, changedFileCount, clearDiagnosticsTelemetryFromCommand, compactThread, controlActiveBrowser, controlActiveTerminal, copyActiveChatContext, copyActiveThreadMarkdown, copyActiveWindowContext, copyCodexResourceContext, copyDiagnosticsContext, copyDiagnosticsPath, copyGitHubContext, copyLatestAppContext, copyLatestAssistantResponse, copyLatestBrowserInspection, copyLatestBrowserScreenshotPath, copyLatestBrowserSnapshot, copyLatestCodexResourceContext, copyLatestGitHubContext, copyLatestProcessContext, copyLatestRepoChangesContext, copyLatestRepoFileContext, copyLatestSessionContext, copyLatestTerminalContext, copyLatestToolEventContext, copyLatestUserPrompt, copyRepoChangesContext, copySelectedFileAbsolutePath, copySessionContext, copyUsageContext, copyWorkspaceBrief, deleteSessionFromCommand, draftPullRequestContext, explainRepoChangesContext, exportActiveThreadMarkdown, installPluginFromCommand, latestAppContext, latestBrowserInspection, latestBrowserScreenshot, latestBrowserSnapshot, latestCodexResourceContext, latestGitHubContext, latestProcessContext, latestRepoChangesContext, latestRepoFileContext, latestSessionContext, latestTerminalContext, latestToolEventContext, onOpenSettings, openBrowser, openChat, openDiagnosticsPath, openLatestBrowserScreenshot, openNativeHelperSettings, openSelectedFileExternal, openTerminal, openThreadIds, pinnedSessionIds, plugins, processes, registry, renameSessionFromCommand, repos, revealDiagnosticsPath, revealLatestBrowserScreenshot, revealSelectedFileInFolder, reviewRepoChangesContext, selectedRightRailFile, sendActiveChatContext, sendActiveWindowContext, sendCodexResourceContext, sendLatestAppContextToChat, sendLatestAssistantResponseToChat, sendLatestBrowserInspectionToChat, sendLatestBrowserScreenshotToChat, sendLatestBrowserSnapshotToChat, sendLatestCodexResourceContextToChat, sendLatestGitHubContextToChat, sendLatestProcessContextToChat, sendLatestRepoChangesContextToChat, sendLatestRepoFileContextToChat, sendLatestSessionContextToChat, sendLatestTerminalContextToChat, sendLatestToolEventContextToChat, sendLatestUserPromptToChat, sendProcessContext, sendToolEventContext, setActiveBrowserViewport, sendDiagnosticsContext, sendGitHubContext, sendRepoChangesContext, sendSessionContext, sendUsageContext, sendWorkspaceBrief, sessions, setActiveRepo, setActiveWindow, skills, testRepoChangesContext, toggleSessionPinnedFromCommand, toolEvents, unarchiveSession, upgradePluginMarketplaces, windows])
 
   const activeThreadMessageActions = useMemo(() => buildActiveThreadMessageActions({
     activeThread,

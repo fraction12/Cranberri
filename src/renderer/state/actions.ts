@@ -160,8 +160,6 @@ export interface BuildAppActionsInput {
   upgradePluginMarketplaces?: () => void | Promise<void>
   sendSkillContext?: (skill: CodexSkillInfo) => void | Promise<void>
   copySkillContext?: (skill: CodexSkillInfo) => void | Promise<void>
-  sendToolRegistryContext?: () => void | Promise<void>
-  copyToolRegistryContext?: () => void | Promise<void>
   sendAppContext?: (app: ToolRegistryApp) => void | Promise<void>
   copyAppContext?: (app: ToolRegistryApp) => void | Promise<void>
   sendMcpServerContext?: (server: ToolRegistryMcpServer) => void | Promise<void>
@@ -343,8 +341,6 @@ export function buildAppActions({
   upgradePluginMarketplaces,
   sendSkillContext,
   copySkillContext,
-  sendToolRegistryContext,
-  copyToolRegistryContext,
   sendAppContext,
   copyAppContext,
   sendMcpServerContext,
@@ -550,28 +546,6 @@ export function buildAppActions({
       description: 'Copy Codex rate limits, reset credits, and account usage history',
       keywords: ['usage', 'account usage', 'history', 'daily', 'rate limit', 'limits', 'credits', 'reset', 'context', 'codex', 'copy', 'clipboard'],
       run: copyUsageContext,
-    }] : []),
-    ...(sendToolRegistryContext ? [{
-      id: 'context:tool-registry',
-      group: 'system' as const,
-      icon: 'tools' as const,
-      label: 'Send Codex tool registry context',
-      description: registry
-        ? `Send ${registry.apps.length} apps, ${registry.mcpServers.length} MCP servers, and ${registry.mcpServers.reduce((sum, server) => sum + server.toolCount, 0)} tools to chat`
-        : 'Fetch and send connected app and MCP registry context to chat',
-      keywords: ['codex', 'tool', 'tools', 'registry', 'mcp', 'apps', 'connectors', 'capabilities', 'context', 'chat'],
-      run: sendToolRegistryContext,
-    }] : []),
-    ...(copyToolRegistryContext ? [{
-      id: 'context:tool-registry:copy',
-      group: 'system' as const,
-      icon: 'tools' as const,
-      label: 'Copy Codex tool registry context',
-      description: registry
-        ? `Copy ${registry.apps.length} apps, ${registry.mcpServers.length} MCP servers, and ${registry.mcpServers.reduce((sum, server) => sum + server.toolCount, 0)} tools`
-        : 'Fetch and copy connected app and MCP registry context',
-      keywords: ['codex', 'tool', 'tools', 'registry', 'mcp', 'apps', 'connectors', 'capabilities', 'context', 'copy', 'clipboard'],
-      run: copyToolRegistryContext,
     }] : []),
     ...(upgradePluginMarketplaces ? [{
       id: 'system:plugins:marketplaces:upgrade',

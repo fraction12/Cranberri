@@ -348,8 +348,10 @@ describe('app actions', () => {
   it('builds skill, app, and MCP context actions', () => {
     const sendSkillContext = vi.fn()
     const copySkillContext = vi.fn()
-    const sendToolRegistryContext = vi.fn()
-    const copyToolRegistryContext = vi.fn()
+    const legacyRegistryActions = {
+      sendToolRegistryContext: vi.fn(),
+      copyToolRegistryContext: vi.fn(),
+    } as unknown as Partial<Parameters<typeof buildAppActions>[0]>
     const sendAppContext = vi.fn()
     const copyAppContext = vi.fn()
     const sendMcpServerContext = vi.fn()
@@ -403,8 +405,7 @@ describe('app actions', () => {
       openSession: vi.fn(),
       sendSkillContext,
       copySkillContext,
-      sendToolRegistryContext,
-      copyToolRegistryContext,
+      ...legacyRegistryActions,
       sendAppContext,
       copyAppContext,
       sendMcpServerContext,
@@ -425,18 +426,8 @@ describe('app actions', () => {
       group: 'system',
       icon: 'tools',
     })
-    expect(actions.find((action) => action.id === 'context:tool-registry')).toMatchObject({
-      label: 'Send Codex tool registry context',
-      description: 'Send 1 apps, 1 MCP servers, and 1 tools to chat',
-      group: 'system',
-      icon: 'tools',
-    })
-    expect(actions.find((action) => action.id === 'context:tool-registry:copy')).toMatchObject({
-      label: 'Copy Codex tool registry context',
-      description: 'Copy 1 apps, 1 MCP servers, and 1 tools',
-      group: 'system',
-      icon: 'tools',
-    })
+    expect(actions.find((action) => action.id === 'context:tool-registry')).toBeUndefined()
+    expect(actions.find((action) => action.id === 'context:tool-registry:copy')).toBeUndefined()
     expect(actions.find((action) => action.id === 'app:github:context')).toMatchObject({
       label: 'Send app context: GitHub',
       description: 'Repository automation',
@@ -463,15 +454,13 @@ describe('app actions', () => {
     })
     expect(filterAppActions(actions, 'compound skill context').map((action) => action.id)).toContain('skill:plugin/ce-work:context')
     expect(filterAppActions(actions, 'copy compound skill context').map((action) => action.id)).toContain('skill:plugin/ce-work:copy-context')
-    expect(filterAppActions(actions, 'tool registry capabilities').map((action) => action.id)).toContain('context:tool-registry')
-    expect(filterAppActions(actions, 'copy tool registry capabilities').map((action) => action.id)).toContain('context:tool-registry:copy')
+    expect(filterAppActions(actions, 'tool registry capabilities').map((action) => action.id)).not.toContain('context:tool-registry')
+    expect(filterAppActions(actions, 'copy tool registry capabilities').map((action) => action.id)).not.toContain('context:tool-registry:copy')
     expect(filterAppActions(actions, 'mcp pull requests').map((action) => action.id)).toContain('mcp:github:tool:list_pull_requests:context')
     expect(filterAppActions(actions, 'copy mcp pull requests').map((action) => action.id)).toContain('mcp:github:tool:list_pull_requests:copy-context')
 
     actions.find((action) => action.id === 'skill:plugin/ce-work:context')?.run()
     actions.find((action) => action.id === 'skill:plugin/ce-work:copy-context')?.run()
-    actions.find((action) => action.id === 'context:tool-registry')?.run()
-    actions.find((action) => action.id === 'context:tool-registry:copy')?.run()
     actions.find((action) => action.id === 'app:github:context')?.run()
     actions.find((action) => action.id === 'app:github:copy-context')?.run()
     actions.find((action) => action.id === 'mcp:github:context')?.run()
@@ -481,8 +470,6 @@ describe('app actions', () => {
 
     expect(sendSkillContext).toHaveBeenCalledWith(skill)
     expect(copySkillContext).toHaveBeenCalledWith(skill)
-    expect(sendToolRegistryContext).toHaveBeenCalled()
-    expect(copyToolRegistryContext).toHaveBeenCalled()
     expect(sendAppContext).toHaveBeenCalledWith(registry.apps[0])
     expect(copyAppContext).toHaveBeenCalledWith(registry.apps[0])
     expect(sendMcpServerContext).toHaveBeenCalledWith(registry.mcpServers[0])
