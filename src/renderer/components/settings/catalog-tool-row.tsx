@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { Loader2, Pin, PinOff } from 'lucide-react'
 import type { ToolCatalogEntry, ToolCatalogId } from '@/shared/tools'
 import { iconButton } from '../../lib/ui'
-import { ToolRow } from '../right-rail/ToolRow'
+import { ToolRow } from '../right-rail/tool-row'
 
 interface CatalogToolRowProps {
   entry: ToolCatalogEntry

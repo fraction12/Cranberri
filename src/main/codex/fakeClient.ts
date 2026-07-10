@@ -9,6 +9,9 @@ import type {
   CodexUserInput,
 } from '../../shared/codex'
 import type { ToolEventRecord } from '../../shared/tools'
+import { createToolEventFromItem } from '../tools'
+
+const FAKE_SHELL_SENTINEL = 'cranberri-shell-private-sentinel'
 
 interface FakeThreadRecord {
   id: string
@@ -54,6 +57,19 @@ function fakeToolEvent(threadId: string, turnId: string, status: 'running' | 'co
     timestamp: new Date().toISOString(),
     durationMs: status === 'completed' ? 42 : null,
   }
+}
+
+function fakeCommandEvent(threadId: string, turnId: string, status: 'running' | 'completed'): ToolEventRecord {
+  const event = createToolEventFromItem(threadId, {
+    type: 'commandExecution',
+    id: `${turnId}-command`,
+    command: `rg ${FAKE_SHELL_SENTINEL}`,
+    status,
+    exitCode: status === 'completed' ? 0 : undefined,
+    durationMs: status === 'completed' ? 31 : null,
+  }, status === 'running' ? 'started' : 'completed')
+  if (!event) throw new Error('Fake command event did not normalize')
+  return event
 }
 
 function fakeApproval(threadId: string, turnId: string): CodexEvent {
@@ -140,6 +156,7 @@ export class FakeCodexClient extends EventEmitter {
     this.emit('event', { type: 'run_start', threadId } satisfies CodexEvent)
     this.emit('event', { type: 'item_started', threadId, itemId, itemType: 'agentMessage' } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running') } satisfies CodexEvent)
+    this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'running') } satisfies CodexEvent)
     if (userText.includes('cranberri-approval-smoke-request')) {
       setTimeout(() => {
         this.emit('event', fakeApproval(threadId, turnId))
@@ -164,6 +181,7 @@ export class FakeCodexClient extends EventEmitter {
       }
       this.emit('event', { type: 'agent_message_completed', threadId, itemId, text: response, phase: 'final_answer' } satisfies CodexEvent)
       this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
+      this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
       this.emit('event', { type: 'context_usage', threadId, usedTokens: 128, contextWindow: 258400 } satisfies CodexEvent)
       this.emit('event', { type: 'final_answer', threadId, text: response } satisfies CodexEvent)
       this.emit('event', { type: 'run_end', threadId } satisfies CodexEvent)

@@ -52,28 +52,42 @@ const CODEX_DEFAULTS: ToolCatalogDescriptor[] = [
   descriptor({ kind: 'codex' }, 'apply_patch', 'Applies a structured patch to workspace files.'),
 ]
 
-const CLI_DESCRIPTIONS: Record<string, string> = {
-  rg: 'Fast recursive text search.',
-  grep: 'Pattern search for text streams and files.',
-  find: 'Filesystem path discovery.',
-  git: 'Version control command-line client.',
-  gh: 'GitHub command-line client.',
-  node: 'Node.js JavaScript runtime.',
-  npm: 'Node.js package manager.',
-  npx: 'Runs commands from npm packages.',
-  python3: 'Python 3 runtime.',
-  pip: 'Python package installer.',
-  jq: 'JSON query and transformation tool.',
-  curl: 'HTTP and data-transfer client.',
+export interface CuratedCliToolSpec {
+  name: string
+  description: string
+  versionArgv: readonly string[]
+  manualArgv?: readonly string[]
+  manualResult?: 'authentication'
 }
 
-const CLI_DEFAULTS = Object.entries(CLI_DESCRIPTIONS).map(([name, description]) =>
+export const CURATED_CLI_TOOLS: readonly CuratedCliToolSpec[] = [
+  { name: 'rg', description: 'Fast recursive text search.', versionArgv: ['--version'] },
+  { name: 'grep', description: 'Pattern search for text streams and files.', versionArgv: ['--version'] },
+  { name: 'find', description: 'Filesystem path discovery.', versionArgv: ['--version'] },
+  { name: 'git', description: 'Version control command-line client.', versionArgv: ['--version'] },
+  {
+    name: 'gh',
+    description: 'GitHub command-line client.',
+    versionArgv: ['--version'],
+    manualArgv: ['auth', 'status'],
+    manualResult: 'authentication',
+  },
+  { name: 'node', description: 'Node.js JavaScript runtime.', versionArgv: ['--version'] },
+  { name: 'npm', description: 'Node.js package manager.', versionArgv: ['--version'] },
+  { name: 'npx', description: 'Runs commands from npm packages.', versionArgv: ['--version'] },
+  { name: 'python3', description: 'Python 3 runtime.', versionArgv: ['--version'] },
+  { name: 'pip', description: 'Python package installer.', versionArgv: ['--version'] },
+  { name: 'jq', description: 'JSON query and transformation tool.', versionArgv: ['--version'] },
+  { name: 'curl', description: 'HTTP and data-transfer client.', versionArgv: ['--version'] },
+]
+
+const CLI_DEFAULTS = CURATED_CLI_TOOLS.map(({ name, description, manualResult }) =>
   descriptor(
     { kind: 'cli' },
     name,
     description,
     true,
-    name === 'gh'
+    manualResult === 'authentication'
       ? { kind: 'manual-only', reason: 'Authentication checks run only when requested.' }
       : { kind: 'automatic' },
   ),
@@ -84,11 +98,6 @@ const BROWSER_DEFAULTS: ToolCatalogDescriptor[] = [
     { kind: 'browser', providerId: 'codex-runtime', providerName: 'Codex runtime' },
     'web_search',
     'Searches the web through the Codex runtime.',
-  ),
-  descriptor(
-    { kind: 'browser', providerId: 'cranberri-browser', providerName: 'Cranberri browser' },
-    'browser',
-    'Controls Cranberri browser tabs and page inspection.',
   ),
 ]
 
@@ -108,7 +117,8 @@ export interface AssembleToolCatalogInput {
   capabilityEvidence?: ToolCatalogCapabilityEvidence[]
   directEvents?: ToolCatalogDirectEvent[]
   lastGood?: ToolCatalogSnapshot | null
-  refreshFailure?: ToolCatalogRefreshFailure | null
+  refreshFailures?: ToolCatalogRefreshFailure[]
+  registryFailure?: { code: string; observedAt: string } | null
 }
 
 function sameTask(left: ToolCatalogTaskKey | null | undefined, right: ToolCatalogTaskKey | null | undefined): boolean {
@@ -323,12 +333,14 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
   }
 
   const lastGoodById = new Map(input.lastGood?.entries.map((entry) => [entry.id, entry]) ?? [])
+  const refreshFailureById = new Map((input.refreshFailures ?? []).map((failure) => [failure.catalogId, failure]))
   const pinnedIds = new Set(preferences.pinnedToolIds)
 
   const entries: ToolCatalogEntry[] = [...descriptorMap.values()].map((entry) => {
     const probe = latestProbe.get(entry.id)
     const registry = registryById.get(entry.id)
     const lastGood = lastGoodById.get(entry.id)
+    const refreshFailure = refreshFailureById.get(entry.id)
     let machine = emptyMachineState()
 
     if (registry) {
@@ -355,12 +367,12 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
         diagnosticCode: probe.diagnosticCode,
       }
     }
-    if (input.refreshFailure && machine.observedAt === null && lastGood) {
+    if (refreshFailure && machine.observedAt === null && lastGood) {
       machine = {
         ...lastGood.machine,
         stale: true,
         provenance: 'last-good',
-        diagnosticCode: input.refreshFailure.code,
+        diagnosticCode: refreshFailure.code,
       }
     }
 
@@ -425,11 +437,17 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
     }
   })
 
-  const refresh = input.refreshFailure
+  const latestProbeFailure = [...(input.refreshFailures ?? [])]
+    .sort((left, right) => right.observedAt.localeCompare(left.observedAt))[0] ?? null
+  const latestRefreshFailure = input.registryFailure
+    && (!latestProbeFailure || input.registryFailure.observedAt >= latestProbeFailure.observedAt)
+    ? input.registryFailure
+    : latestProbeFailure
+  const refresh = latestRefreshFailure
     ? {
-        status: input.lastGood ? 'stale' as const : 'failed' as const,
-        observedAt: input.refreshFailure.observedAt,
-        errorCode: input.refreshFailure.code,
+        status: input.registryFailure || input.lastGood ? 'stale' as const : 'failed' as const,
+        observedAt: latestRefreshFailure.observedAt,
+        errorCode: latestRefreshFailure.code,
       }
     : {
         status: 'fresh' as const,

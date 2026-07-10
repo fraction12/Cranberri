@@ -4,6 +4,7 @@ import {
   createToolEventFromApproval,
   createToolEventFromItem,
   normalizeToolRegistrySnapshot,
+  toolEventsFromCodexEvent,
 } from './tools'
 
 describe('tool event normalization', () => {
@@ -83,6 +84,39 @@ describe('tool event normalization', () => {
       status: 'approved',
       reviewId: 'review-1',
     })
+    const denied = createApprovalCompletedEvent('thread-1', 'review-1', 'denied', approval ?? undefined)
+    expect(denied).toMatchObject({
+      catalogId: 'mcp:google-drive:search',
+      name: 'search',
+      kind: 'mcp',
+      status: 'denied',
+      reviewId: 'review-1',
+    })
+  })
+
+  it('projects incoming tool events to metadata before telemetry or renderer use', () => {
+    const [safe] = toolEventsFromCodexEvent({
+      type: 'tool_event',
+      threadId: 'thread-1',
+      event: {
+        eventId: 'event-1',
+        threadId: 'thread-1',
+        toolCallId: 'call-1',
+        catalogId: 'codex:exec_command',
+        name: 'exec_command',
+        kind: 'command',
+        status: 'completed',
+        timestamp: '2026-07-09T20:00:00.000Z',
+        argumentsPreview: 'echo secret',
+        resultPreview: 'secret output',
+        error: 'secret error',
+      },
+    })
+
+    expect(safe).toMatchObject({ catalogId: 'codex:exec_command', status: 'completed' })
+    expect(safe).not.toHaveProperty('argumentsPreview')
+    expect(safe).not.toHaveProperty('resultPreview')
+    expect(safe).not.toHaveProperty('error')
   })
 
   it('normalizes app and MCP registry snapshots', () => {

@@ -973,6 +973,23 @@ async function runRepoWorkspaceSmoke() {
       if (!visibleToolText?.includes('apply_patch') || visibleToolText.includes('cranberri-approval-smoke-request')) {
         throw new Error(`Curated tool activity leaked or omitted data:\n${visibleToolText}`)
       }
+      const execCommandToolRow = page.locator('article').filter({ hasText: 'exec_command' }).first()
+      await execCommandToolRow.locator('button[aria-expanded]').click()
+      await execCommandToolRow.getByText(/Succeeded/).waitFor({ timeout: 10_000 })
+      const execCommandText = await execCommandToolRow.textContent()
+      if (!execCommandText?.includes('exec_command') || execCommandText.includes('cranberri-shell-private-sentinel')) {
+        throw new Error(`Shell activity attribution leaked or omitted data:\n${execCommandText}`)
+      }
+      const rgToolRow = page.locator('article').filter({ hasText: /^rg/ }).first()
+      await rgToolRow.locator('button[aria-expanded]').click()
+      if (await rgToolRow.getByText('Recent activity').count()) {
+        throw new Error('Shell command activity was incorrectly attributed to rg')
+      }
+      const telemetryLeakedShellText = await page.evaluate(async () => {
+        const result = await window.cranberri.telemetry.readEvents(200)
+        return result.events.some((event) => JSON.stringify(event).includes('cranberri-shell-private-sentinel'))
+      })
+      if (telemetryLeakedShellText) throw new Error('Shell command text leaked into telemetry')
 
       smokeStep('right rail reader')
       await openCommandPalette(page)

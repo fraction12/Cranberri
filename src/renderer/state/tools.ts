@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  TOOL_ACTIVITY_RETENTION_MS,
+  TOOL_CATALOG_FRESHNESS_MS,
+  metadataOnlyToolEvent,
   parseToolCatalogId,
   toolCatalogSnapshotSchema,
   toolRegistrySnapshotSchema,
@@ -18,6 +21,12 @@ const EMPTY_ACTIVITY: ToolEventRecord[] = []
 const activityByThread = new Map<string, ToolEventRecord[]>()
 const activityEpochByThread = new Map<string, string>()
 const activityListenersByThread = new Map<string, Set<() => void>>()
+const TERMINAL_ACTIVITY_STATUSES = new Set<ToolEventRecord['status']>([
+  'denied',
+  'completed',
+  'failed',
+  'disabled',
+])
 
 export interface ToolTimelineEvent extends ToolEventRecord {
   telemetryId?: number
@@ -44,12 +53,15 @@ function subscribeActivity(threadId: string, listener: () => void): () => void {
   }
 }
 
-export function recordToolActivityEvent(event: ToolEventRecord): void {
-  if (!event.catalogId) return
-  const current = activityByThread.get(event.threadId) ?? []
-  const withoutDuplicate = current.filter((item) => item.eventId !== event.eventId)
-  activityByThread.set(event.threadId, [...withoutDuplicate, event].slice(-MAX_ACTIVITY_PER_THREAD))
-  emitActivityChange(event.threadId)
+export function recordToolActivityEvent(event: ToolEventRecord, now = Date.now()): void {
+  const safeEvent = metadataOnlyToolEvent(event)
+  if (!safeEvent.catalogId) return
+  const observedAt = Date.parse(safeEvent.timestamp)
+  if (!Number.isFinite(observedAt) || now - observedAt > TOOL_ACTIVITY_RETENTION_MS) return
+  const current = pruneActivityThread(safeEvent.threadId, now, false)
+  const withoutDuplicate = current.filter((item) => item.eventId !== safeEvent.eventId)
+  activityByThread.set(safeEvent.threadId, [...withoutDuplicate, safeEvent].slice(-MAX_ACTIVITY_PER_THREAD))
+  emitActivityChange(safeEvent.threadId)
 }
 
 export function clearToolActivityEvents(threadId?: string): void {
@@ -64,8 +76,25 @@ export function clearToolActivityEvents(threadId?: string): void {
   }
 }
 
-export function toolActivityForThread(threadId: string | null | undefined): ToolEventRecord[] {
-  return threadId ? activityByThread.get(threadId) ?? EMPTY_ACTIVITY : EMPTY_ACTIVITY
+export function toolActivityForThread(threadId: string | null | undefined, now = Date.now()): ToolEventRecord[] {
+  return [...activitySnapshotForThread(threadId, now)]
+}
+
+function pruneActivityThread(threadId: string, now: number, notify: boolean): ToolEventRecord[] {
+  const current = activityByThread.get(threadId) ?? EMPTY_ACTIVITY
+  const next = current.filter((event) => {
+    const observedAt = Date.parse(event.timestamp)
+    return Number.isFinite(observedAt) && now - observedAt <= TOOL_ACTIVITY_RETENTION_MS
+  })
+  if (next.length === current.length) return current
+  if (next.length) activityByThread.set(threadId, next)
+  else activityByThread.delete(threadId)
+  if (notify) emitActivityChange(threadId)
+  return next
+}
+
+function activitySnapshotForThread(threadId: string | null | undefined, now = Date.now()): ToolEventRecord[] {
+  return threadId ? pruneActivityThread(threadId, now, false) : EMPTY_ACTIVITY
 }
 
 function alignActivityEpoch(snapshot: ToolCatalogSnapshot | undefined): void {
@@ -128,7 +157,16 @@ export function overlayToolCatalogActivity(
   for (const event of events) {
     if (event.threadId !== taskKey.threadId || !event.catalogId) continue
     const current = latestByCatalogId.get(event.catalogId)
-    if (!current || event.timestamp >= current.timestamp) latestByCatalogId.set(event.catalogId, event)
+    const sameCall = Boolean(current?.toolCallId && current.toolCallId === event.toolCallId)
+    const wouldRegressTerminalCall = Boolean(
+      current
+      && sameCall
+      && TERMINAL_ACTIVITY_STATUSES.has(current.status)
+      && !TERMINAL_ACTIVITY_STATUSES.has(event.status),
+    )
+    if (!wouldRegressTerminalCall && (!current || event.timestamp >= current.timestamp)) {
+      latestByCatalogId.set(event.catalogId, event)
+    }
   }
   if (latestByCatalogId.size === 0) return snapshot
 
@@ -186,8 +224,9 @@ export function toolCatalogQueryOptions(activeThreadId: string | null, enabled: 
       await window.cranberri.tools.catalog.list(activeThreadId),
     ),
     enabled,
-    staleTime: Infinity,
+    staleTime: TOOL_CATALOG_FRESHNESS_MS,
     refetchInterval: false as const,
+    refetchOnMount: true as const,
     refetchOnWindowFocus: false as const,
   }
 }
@@ -201,9 +240,18 @@ export function useRecentToolEvents(
     enabled && threadId ? subscribeActivity(threadId, listener) : () => undefined
   ), [enabled, threadId])
   const getSnapshot = useCallback(() => (
-    enabled ? toolActivityForThread(threadId) : EMPTY_ACTIVITY
+    enabled ? activitySnapshotForThread(threadId) : EMPTY_ACTIVITY
   ), [enabled, threadId])
   const activity = useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_ACTIVITY)
+  useEffect(() => {
+    if (!enabled || !threadId || activity.length === 0) return
+    const firstExpiry = Math.min(...activity.map((event) => Date.parse(event.timestamp) + TOOL_ACTIVITY_RETENTION_MS))
+    const timer = window.setTimeout(
+      () => pruneActivityThread(threadId, Date.now(), true),
+      Math.max(0, firstExpiry - Date.now()) + 1,
+    )
+    return () => window.clearTimeout(timer)
+  }, [activity, enabled, threadId])
   const data = useMemo(
     () => activity.slice(-limit),
     [activity, limit],
@@ -217,7 +265,7 @@ export function useToolCatalog(activeThreadId: string | null, enabled = true) {
   const queryClient = useQueryClient()
   const { data: activity } = useRecentToolEvents(activeThreadId, MAX_ACTIVITY_PER_THREAD, enabled)
   const [refreshing, setRefreshing] = useState(false)
-  const [testingToolId, setTestingToolId] = useState<ToolCatalogId | null>(null)
+  const [testingToolIds, setTestingToolIds] = useState<ToolCatalogId[]>([])
 
   useEffect(() => alignActivityEpoch(query.data), [query.data])
 
@@ -237,13 +285,13 @@ export function useToolCatalog(activeThreadId: string | null, enabled = true) {
   }, [activeThreadId, setCatalog])
 
   const testTool = useCallback(async (catalogId: ToolCatalogId) => {
-    setTestingToolId(catalogId)
+    setTestingToolIds((current) => current.includes(catalogId) ? current : [...current, catalogId])
     try {
       const snapshot = await window.cranberri.tools.catalog.test(catalogId, activeThreadId)
       setCatalog(snapshot)
       return snapshot
     } finally {
-      setTestingToolId(null)
+      setTestingToolIds((current) => current.filter((id) => id !== catalogId))
     }
   }, [activeThreadId, setCatalog])
 
@@ -256,7 +304,7 @@ export function useToolCatalog(activeThreadId: string | null, enabled = true) {
     refresh,
     refreshing,
     testTool,
-    testingToolId,
+    testingToolIds,
   }
 }
 

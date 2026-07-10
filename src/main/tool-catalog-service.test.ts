@@ -18,6 +18,7 @@ import {
   type CatalogProbeObservation,
   type ToolCatalogRequestContext,
 } from './tool-catalog-service'
+import { DEFAULT_TOOL_CATALOG_DESCRIPTORS } from './tool-catalog'
 
 const START_MS = Date.parse('2026-07-09T20:00:00.000Z')
 const TASK: ToolCatalogTaskKey = { threadId: 'thread-1', capabilityEpoch: 'local-1' }
@@ -56,6 +57,17 @@ function deferred<T>() {
 }
 
 describe('ToolCatalogService cache', () => {
+  it('keeps every probe-capable CLI descriptor aligned with one policy', () => {
+    const descriptorIds = DEFAULT_TOOL_CATALOG_DESCRIPTORS
+      .filter((entry) => entry.source.kind === 'cli' && entry.probeCapability.kind !== 'unsupported')
+      .map((entry) => entry.id)
+      .sort()
+    const policyIds = CATALOG_PROBE_POLICIES.map((policy) => policy.catalogId).sort()
+
+    expect(policyIds).toEqual(descriptorIds)
+    expect(new Set(policyIds).size).toBe(policyIds.length)
+  })
+
   it('shares environment discovery across a full refresh and keeps manual tests fresh', async () => {
     const environment = vi.fn(async () => ({ PATH: '/usr/bin', HOME: '/Users/example' }))
     const projectRoots = vi.fn(() => ['/workspace/repo'])
@@ -166,6 +178,52 @@ describe('ToolCatalogService cache', () => {
     expect(catalogEntry(final, 'cli:rg').machine.version).toBe('15.0.0')
   })
 
+  it('lets a forced refresh supersede an older full refresh', async () => {
+    const oldResult = deferred<CatalogProbeObservation>()
+    let blockOldRefresh = true
+    const probeRunner = vi.fn(async (): Promise<CatalogProbeObservation> => (
+      blockOldRefresh ? oldResult.promise : success('2.0.0')
+    ))
+    const service = new ToolCatalogService({ now: () => START_MS, probeRunner })
+
+    const oldRefresh = service.refresh(CONTEXT)
+    await vi.waitFor(() => expect(probeRunner).toHaveBeenCalledTimes(CATALOG_PROBE_POLICIES.length))
+    blockOldRefresh = false
+    const forcedRefresh = service.refresh(CONTEXT)
+    await expect(forcedRefresh).resolves.toBeDefined()
+    expect(probeRunner).toHaveBeenCalledTimes(CATALOG_PROBE_POLICIES.length * 2)
+
+    oldResult.resolve(success('1.0.0'))
+    await oldRefresh
+    const final = await service.list(CONTEXT)
+    expect(catalogEntry(final, 'cli:rg').machine.version).toBe('2.0.0')
+  })
+
+  it('preserves manual authentication evidence across automatic version checks', async () => {
+    let authenticated = false
+    const probeRunner = vi.fn(async (_policy, mode): Promise<CatalogProbeObservation> => {
+      if (mode === 'manual' && !authenticated) {
+        return {
+          status: 'authentication-required',
+          version: '2.80.0',
+          diagnosticCode: 'authentication-required',
+          safeOutput: '',
+        }
+      }
+      return success('2.80.0')
+    })
+    const service = new ToolCatalogService({ now: () => START_MS, probeRunner })
+
+    const signedOut = await service.test('cli:gh', CONTEXT)
+    expect(catalogEntry(signedOut, 'cli:gh').machine.status).toBe('authentication-required')
+    const refreshed = await service.refresh(CONTEXT)
+    expect(catalogEntry(refreshed, 'cli:gh').machine.status).toBe('authentication-required')
+
+    authenticated = true
+    const signedIn = await service.test('cli:gh', CONTEXT)
+    expect(catalogEntry(signedIn, 'cli:gh').machine.status).toBe('installed')
+  })
+
   it('preserves the last good entry as stale when a later refresh times out', async () => {
     let shouldTimeout = false
     const probeRunner = vi.fn(async (policy): Promise<CatalogProbeObservation> => {
@@ -187,6 +245,12 @@ describe('ToolCatalogService cache', () => {
       stale: true,
       provenance: 'last-good',
       diagnosticCode: 'probe-timeout',
+    })
+    expect(catalogEntry(stale, 'cli:git').machine).toMatchObject({
+      status: 'installed',
+      stale: false,
+      provenance: 'local-probe',
+      diagnosticCode: null,
     })
   })
 
@@ -340,6 +404,39 @@ describe('allowlisted CLI process boundary', () => {
     }, [projectRoot])).resolves.toEqual({
       path: null,
       errorCode: 'project-local-executable',
+    })
+  })
+
+  it('rejects executables beneath temporary path roots', async () => {
+    if (process.platform === 'win32') return
+    const shadowDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cranberri-probe-shadow-'))
+    tempDirs.push(shadowDir)
+    const shadowedRg = path.join(shadowDir, 'rg')
+    await fs.writeFile(shadowedRg, '#!/bin/sh\nexit 0\n')
+    await fs.chmod(shadowedRg, 0o755)
+
+    await expect(resolveCatalogExecutable('rg', {
+      PATH: `${shadowDir}${path.delimiter}/usr/bin`,
+    }, ['/workspace/repo'])).resolves.toEqual({
+      path: null,
+      errorCode: 'untrusted-temporary-path',
+    })
+  })
+
+  it('rejects executables beneath group or world-writable path ancestors', async () => {
+    if (process.platform === 'win32') return
+    const shadowDir = await fs.mkdtemp(path.join(path.dirname(process.cwd()), '.cranberri-probe-shadow-'))
+    tempDirs.push(shadowDir)
+    const shadowedRg = path.join(shadowDir, 'rg')
+    await fs.writeFile(shadowedRg, '#!/bin/sh\nexit 0\n')
+    await fs.chmod(shadowedRg, 0o755)
+    await fs.chmod(shadowDir, 0o777)
+
+    await expect(resolveCatalogExecutable('rg', {
+      PATH: `${shadowDir}${path.delimiter}/usr/bin`,
+    }, ['/workspace/repo'])).resolves.toEqual({
+      path: null,
+      errorCode: 'untrusted-path-permissions',
     })
   })
 })

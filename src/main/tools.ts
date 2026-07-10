@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { CodexEvent, PendingApproval, ToolCall } from '@/shared/codex'
 import {
+  metadataOnlyToolEvent,
   toolEventSchema,
   toolRegistrySnapshotSchema,
   type ToolEventKind,
@@ -211,14 +212,21 @@ export function createToolEventFromApproval(threadId: string, approval: PendingA
   })
 }
 
-export function createApprovalCompletedEvent(threadId: string, reviewId: string, action: string): ToolEventRecord | null {
+export function createApprovalCompletedEvent(
+  threadId: string,
+  reviewId: string,
+  action: string,
+  pending?: ToolEventRecord,
+): ToolEventRecord | null {
   if (!threadId || !reviewId) return null
   const status: ToolEventStatus = action === 'denied' || action === 'timedOut' || action === 'aborted' ? 'denied' : 'approved'
   return buildToolEvent({
     eventId: `${threadId}:${reviewId}:approval-${status}`,
     threadId,
-    name: `Approval ${status}`,
-    kind: 'approval',
+    toolCallId: pending?.toolCallId,
+    catalogId: pending?.catalogId,
+    name: pending?.name ?? `Approval ${status}`,
+    kind: pending?.kind ?? 'approval',
     status,
     reviewId,
   })
@@ -227,7 +235,7 @@ export function createApprovalCompletedEvent(threadId: string, reviewId: string,
 export function toolEventsFromCodexEvent(event: CodexEvent): ToolEventRecord[] {
   switch (event.type) {
     case 'tool_event':
-      return [event.event]
+      return [metadataOnlyToolEvent(event.event)]
     case 'tool_call':
       return [createToolEventFromLegacyToolCall(event.threadId, event.tool)]
     case 'approval_request': {
@@ -243,9 +251,11 @@ export function toolEventsFromCodexEvent(event: CodexEvent): ToolEventRecord[] {
   }
 }
 
-export async function recordToolEventsForCodexEvent(event: CodexEvent): Promise<void> {
-  const records = toolEventsFromCodexEvent(event)
-  await Promise.all(records.map((record) => logTelemetry('tool', record.status, record)))
+export async function recordToolEventRecords(records: ToolEventRecord[]): Promise<void> {
+  await Promise.all(records.map((record) => {
+    const safeRecord = metadataOnlyToolEvent(record)
+    return logTelemetry('tool', safeRecord.status, safeRecord)
+  }))
 }
 
 function listData(value: unknown): unknown[] {

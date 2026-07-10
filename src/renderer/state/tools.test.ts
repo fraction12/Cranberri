@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ToolCatalogSnapshot, ToolEventRecord } from '@/shared/tools'
+import { TOOL_ACTIVITY_RETENTION_MS, TOOL_CATALOG_FRESHNESS_MS, type ToolCatalogSnapshot, type ToolEventRecord } from '@/shared/tools'
 import {
   clearToolActivityEvents,
   overlayToolCatalogActivity,
@@ -9,6 +9,7 @@ import {
 } from './tools'
 
 const TASK_KEY = { threadId: 'thread-1', capabilityEpoch: 'epoch-1' }
+const NOW = Date.parse('2026-07-09T20:30:00.000Z')
 
 function event(overrides: Partial<ToolEventRecord> = {}): ToolEventRecord {
   return {
@@ -76,13 +77,13 @@ describe('task-scoped tool activity', () => {
         eventId: `thread-1-${index}`,
         toolCallId: `call-${index}`,
         timestamp: `2026-07-09T20:00:${String(index).padStart(2, '0')}.000Z`,
-      }))
+      }), NOW)
     }
-    recordToolActivityEvent(event({ eventId: 'thread-2', threadId: 'thread-2' }))
+    recordToolActivityEvent(event({ eventId: 'thread-2', threadId: 'thread-2' }), NOW)
 
-    expect(toolActivityForThread('thread-1')).toHaveLength(20)
-    expect(toolActivityForThread('thread-1')[0]?.eventId).toBe('thread-1-5')
-    expect(toolActivityForThread('thread-2').map((item) => item.eventId)).toEqual(['thread-2'])
+    expect(toolActivityForThread('thread-1', NOW)).toHaveLength(20)
+    expect(toolActivityForThread('thread-1', NOW)[0]?.eventId).toBe('thread-1-5')
+    expect(toolActivityForThread('thread-2', NOW).map((item) => item.eventId)).toEqual(['thread-2'])
   })
 
   it('overlays only same-thread canonical activity and promotes successful use', () => {
@@ -103,20 +104,64 @@ describe('task-scoped tool activity', () => {
     })
   })
 
-  it('maps failed and approval events without retaining payload previews', () => {
+  it('stores only metadata and maps failed activity', () => {
     const failed = event({
       status: 'failed',
       errorCode: 'exit-1',
       argumentsPreview: 'must not survive',
       resultPreview: 'must not survive',
     })
-    const result = overlayToolCatalogActivity(snapshot(), [failed])
+    recordToolActivityEvent(failed, NOW)
+    const cached = toolActivityForThread('thread-1', NOW)
+    const result = overlayToolCatalogActivity(snapshot(), cached)
 
     expect(result.entries[0]).toMatchObject({
       task: { status: 'unavailable', provenance: 'same-task-failure' },
       activity: { outcome: 'failed' },
     })
-    expect(JSON.stringify(result.entries[0]?.activity)).not.toContain('must not survive')
+    expect(JSON.stringify(cached)).not.toContain('must not survive')
+    expect(cached[0]).not.toHaveProperty('argumentsPreview')
+    expect(cached[0]).not.toHaveProperty('resultPreview')
+    expect(cached[0]).not.toHaveProperty('error')
+  })
+
+  it('expires activity after thirty minutes', () => {
+    recordToolActivityEvent(event({ timestamp: new Date(NOW).toISOString() }), NOW)
+
+    expect(toolActivityForThread('thread-1', NOW + TOOL_ACTIVITY_RETENTION_MS - 1)).toHaveLength(1)
+    expect(toolActivityForThread('thread-1', NOW + TOOL_ACTIVITY_RETENTION_MS + 1)).toEqual([])
+  })
+
+  it('does not let a delayed start replace a terminal event for the same call', () => {
+    const completed = event({ timestamp: '2026-07-09T20:00:00.000Z', status: 'completed' })
+    const delayedStart = event({
+      eventId: 'event-start',
+      timestamp: '2026-07-09T20:01:00.000Z',
+      status: 'running',
+    })
+
+    const result = overlayToolCatalogActivity(snapshot(), [completed, delayedStart])
+
+    expect(result.entries[0]).toMatchObject({
+      task: { status: 'usable' },
+      activity: { outcome: 'succeeded' },
+    })
+  })
+
+  it('allows execution to continue after approval for the same call', () => {
+    const approved = event({ timestamp: '2026-07-09T20:00:00.000Z', status: 'approved' })
+    const running = event({
+      eventId: 'event-running',
+      timestamp: '2026-07-09T20:01:00.000Z',
+      status: 'running',
+    })
+
+    const result = overlayToolCatalogActivity(snapshot(), [approved, running])
+
+    expect(result.entries[0]).toMatchObject({
+      task: { status: 'addressable' },
+      activity: { outcome: 'started' },
+    })
   })
 
   it('adds a directly observed literal tool to full discovery without pinning it', () => {
@@ -147,6 +192,7 @@ describe('catalog query lifecycle', () => {
     expect(options.queryKey).toEqual(['tools', 'catalog', 'thread-1'])
     expect(options.refetchInterval).toBe(false)
     expect(options.refetchOnWindowFocus).toBe(false)
-    expect(options.staleTime).toBe(Infinity)
+    expect(options.staleTime).toBe(TOOL_CATALOG_FRESHNESS_MS)
+    expect(options.refetchOnMount).toBe(true)
   })
 })

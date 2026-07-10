@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  TOOL_CATALOG_FRESHNESS_MS,
   toolCatalogIdSchema,
   toolCatalogProbeResultSchema,
   type ToolCatalogId,
@@ -15,9 +16,8 @@ import {
   type ToolCatalogTaskKey,
 } from '../shared/tools'
 import { makeCodexEnv } from './codex/env'
-import { assembleToolCatalog } from './tool-catalog'
+import { CURATED_CLI_TOOLS, assembleToolCatalog } from './tool-catalog'
 
-const DEFAULT_FRESHNESS_MS = 30_000
 const PROBE_TIMEOUT_MS = 3_000
 const PROBE_MAX_BUFFER_BYTES = 16_384
 const SAFE_CAPTURE_CHARS = 4_096
@@ -32,26 +32,13 @@ export interface CatalogProbePolicy {
   manualResult?: 'authentication'
 }
 
-export const CATALOG_PROBE_POLICIES: readonly CatalogProbePolicy[] = [
-  { catalogId: 'cli:rg', executableName: 'rg', versionArgv: ['--version'] },
-  { catalogId: 'cli:grep', executableName: 'grep', versionArgv: ['--version'] },
-  { catalogId: 'cli:find', executableName: 'find', versionArgv: ['--version'] },
-  { catalogId: 'cli:git', executableName: 'git', versionArgv: ['--version'] },
-  {
-    catalogId: 'cli:gh',
-    executableName: 'gh',
-    versionArgv: ['--version'],
-    manualArgv: ['auth', 'status'],
-    manualResult: 'authentication',
-  },
-  { catalogId: 'cli:node', executableName: 'node', versionArgv: ['--version'] },
-  { catalogId: 'cli:npm', executableName: 'npm', versionArgv: ['--version'] },
-  { catalogId: 'cli:npx', executableName: 'npx', versionArgv: ['--version'] },
-  { catalogId: 'cli:python3', executableName: 'python3', versionArgv: ['--version'] },
-  { catalogId: 'cli:pip', executableName: 'pip', versionArgv: ['--version'] },
-  { catalogId: 'cli:jq', executableName: 'jq', versionArgv: ['--version'] },
-  { catalogId: 'cli:curl', executableName: 'curl', versionArgv: ['--version'] },
-]
+export const CATALOG_PROBE_POLICIES: readonly CatalogProbePolicy[] = CURATED_CLI_TOOLS.map((tool) => ({
+  catalogId: `cli:${tool.name}`,
+  executableName: tool.name,
+  versionArgv: tool.versionArgv,
+  manualArgv: tool.manualArgv,
+  manualResult: tool.manualResult,
+}))
 
 const POLICY_BY_ID = new Map(CATALOG_PROBE_POLICIES.map((policy) => [policy.catalogId, policy]))
 
@@ -59,6 +46,7 @@ export interface ToolCatalogRequestContext {
   taskKey: ToolCatalogTaskKey | null
   preferences: ToolCatalogPreferences
   registryEvidence: ToolCatalogRegistryEvidence[]
+  registryFailure?: { code: string; observedAt: string } | null
 }
 
 export interface CatalogProbeObservation {
@@ -163,11 +151,37 @@ function sameOrDescendant(candidate: string, root: string): boolean {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
 }
 
+async function isTemporaryExecutablePath(candidate: string): Promise<boolean> {
+  const temporaryRoots = [os.tmpdir(), '/tmp', '/private/tmp', '/var/tmp']
+  for (const root of temporaryRoots) {
+    if (!path.isAbsolute(root)) continue
+    if (sameOrDescendant(candidate, root)) return true
+    try {
+      if (sameOrDescendant(candidate, await fs.realpath(root))) return true
+    } catch {
+      // A missing platform-specific temporary root cannot contain the candidate.
+    }
+  }
+  return false
+}
+
 async function executableCandidates(directory: string, executableName: string, env: NodeJS.ProcessEnv): Promise<string[]> {
   if (process.platform !== 'win32') return [path.join(directory, executableName)]
   const extensions = (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
   if (path.extname(executableName)) return [path.join(directory, executableName)]
   return extensions.map((extension) => path.join(directory, `${executableName}${extension.toLowerCase()}`))
+}
+
+async function hasGroupOrWorldWritableAncestor(candidate: string): Promise<boolean> {
+  if (process.platform === 'win32') return false
+  let current = path.resolve(candidate)
+  while (true) {
+    const stats = await fs.stat(current)
+    if ((stats.mode & 0o022) !== 0) return true
+    const parent = path.dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
 }
 
 export async function resolveCatalogExecutable(
@@ -197,6 +211,15 @@ export async function resolveCatalogExecutable(
         }
         if (projectRoots.some((root) => sameOrDescendant(candidate, root) || sameOrDescendant(realCandidate, root))) {
           return { path: null, errorCode: 'project-local-executable' }
+        }
+        if (await isTemporaryExecutablePath(candidate) || await isTemporaryExecutablePath(realCandidate)) {
+          return { path: null, errorCode: 'untrusted-temporary-path' }
+        }
+        if (
+          await hasGroupOrWorldWritableAncestor(candidate)
+          || await hasGroupOrWorldWritableAncestor(realCandidate)
+        ) {
+          return { path: null, errorCode: 'untrusted-path-permissions' }
         }
         return { path: realCandidate, errorCode: null }
       } catch {
@@ -400,7 +423,7 @@ export class ToolCatalogService {
   private generation = 0
 
   constructor(options: ToolCatalogServiceOptions = {}) {
-    this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS
+    this.freshnessMs = options.freshnessMs ?? TOOL_CATALOG_FRESHNESS_MS
     this.now = options.now ?? Date.now
     this.runtimeDependencies = {
       environment: options.environment,
@@ -421,7 +444,7 @@ export class ToolCatalogService {
   }
 
   async refresh(context: ToolCatalogRequestContext): Promise<ToolCatalogSnapshot> {
-    await this.runFullRefresh()
+    await this.runFullRefresh(true)
     return this.snapshot(context)
   }
 
@@ -469,8 +492,9 @@ export class ToolCatalogService {
     return new Date(Math.max(this.now(), this.lastObservedAt)).toISOString()
   }
 
-  private async runFullRefresh(): Promise<void> {
-    if (this.refreshInFlight) return this.refreshInFlight
+  private async runFullRefresh(force = false): Promise<void> {
+    if (this.refreshInFlight && !force) return this.refreshInFlight
+    if (this.refreshInFlight) this.refreshController?.abort()
 
     const generation = this.nextGeneration()
     const controller = new AbortController()
@@ -481,8 +505,10 @@ export class ToolCatalogService {
     )))
       .then(() => undefined)
       .finally(() => {
-        this.lastFullRefreshAt = this.now()
-        if (this.refreshInFlight === refresh) this.refreshInFlight = null
+        if (this.refreshInFlight === refresh) {
+          this.lastFullRefreshAt = this.now()
+          this.refreshInFlight = null
+        }
         if (this.refreshController === controller) this.refreshController = null
       })
     this.refreshInFlight = refresh
@@ -525,19 +551,33 @@ export class ToolCatalogService {
 
     if (observation.failureCode) {
       this.mergeFailure(policy.catalogId, generation, {
+        catalogId: policy.catalogId,
         code: observation.failureCode,
         observedAt,
       })
       return
     }
 
-    const result = toolCatalogProbeResultSchema.parse({
+    let result = toolCatalogProbeResultSchema.parse({
       catalogId: policy.catalogId,
       status: observation.status ?? 'unknown',
       version: observation.version ?? null,
       observedAt,
       diagnosticCode: observation.diagnosticCode ?? null,
     })
+    const previous = this.results.get(policy.catalogId)?.result
+    if (
+      mode === 'automatic'
+      && policy.manualResult === 'authentication'
+      && previous?.status === 'authentication-required'
+      && result.status === 'installed'
+    ) {
+      result = {
+        ...result,
+        status: 'authentication-required',
+        diagnosticCode: 'authentication-required',
+      }
+    }
     this.mergeResult(policy.catalogId, generation, result)
   }
 
@@ -570,13 +610,13 @@ export class ToolCatalogService {
     const allResults = [...this.results.values()].map((cached) => cached.result)
     const failedIds = new Set(this.failures.keys())
     const visibleResults = allResults.filter((result) => !failedIds.has(result.catalogId))
-    const latestFailure = [...this.failures.values()]
-      .sort((left, right) => right.generation - left.generation)[0]?.failure ?? null
+    const refreshFailures = [...this.failures.values()].map((cached) => cached.failure)
     const common = {
       now,
       activeTask: context.taskKey,
       preferences: context.preferences,
       registryEvidence: context.registryEvidence,
+      registryFailure: context.registryFailure,
     }
     const lastGood = allResults.length > 0
       ? assembleToolCatalog({ ...common, probeResults: allResults })
@@ -586,7 +626,7 @@ export class ToolCatalogService {
       ...common,
       probeResults: visibleResults,
       lastGood,
-      refreshFailure: latestFailure,
+      refreshFailures,
     })
   }
 }

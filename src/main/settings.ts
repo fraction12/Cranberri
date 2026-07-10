@@ -18,7 +18,7 @@ import {
   DEFAULT_APP_SETTINGS,
   type AppSettings,
 } from '../shared/settings'
-import { toolCatalogPreferencesSchema } from '../shared/tools'
+import { toolCatalogIdSchema, toolCatalogPreferencesSchema, type ToolCatalogId } from '../shared/tools'
 
 const codexReasoningEffortSchema = z.enum(CODEX_REASONING_EFFORT_VALUES)
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
@@ -101,6 +101,14 @@ function getSection(raw: Record<string, unknown>, key: string): Record<string, u
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }
 
+function validToolIds(value: unknown): ToolCatalogId[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((candidate) => {
+    const result = toolCatalogIdSchema.safeParse(candidate)
+    return result.success ? [result.data] : []
+  })
+}
+
 function migrateSettings(raw: Record<string, unknown>): AppSettings {
   const version = typeof raw.version === 'number' ? raw.version : 0
   const incoming = (raw.data as Record<string, unknown> | undefined) ?? raw
@@ -136,12 +144,8 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
         : DEFAULT_APP_SETTINGS.appearance.reducedMotion,
     },
     tools: {
-      pinnedToolIds: toolCatalogPreferencesSchema.shape.pinnedToolIds.safeParse(tools.pinnedToolIds).success
-        ? (tools.pinnedToolIds as string[])
-        : DEFAULT_APP_SETTINGS.tools.pinnedToolIds,
-      dismissedDefaultToolIds: toolCatalogPreferencesSchema.shape.dismissedDefaultToolIds.safeParse(tools.dismissedDefaultToolIds).success
-        ? (tools.dismissedDefaultToolIds as string[])
-        : DEFAULT_APP_SETTINGS.tools.dismissedDefaultToolIds,
+      pinnedToolIds: validToolIds(tools.pinnedToolIds),
+      dismissedDefaultToolIds: validToolIds(tools.dismissedDefaultToolIds),
     },
     updater: {
       channel: updaterChannelSchema.safeParse(updater.channel).success ? (updater.channel as AppSettings['updater']['channel']) : DEFAULT_APP_SETTINGS.updater.channel,

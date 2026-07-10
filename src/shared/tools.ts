@@ -1,5 +1,15 @@
 import { z } from 'zod'
 
+export const TOOL_CATALOG_FRESHNESS_MS = 30_000
+export const TOOL_ACTIVITY_RETENTION_MS = 30 * 60 * 1_000
+
+const toolCatalogIdComponent = '(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+'
+const toolCatalogIdPattern = new RegExp(
+  `^(?:(?:codex|cli):${toolCatalogIdComponent}|(?:browser|mcp):${toolCatalogIdComponent}:${toolCatalogIdComponent})$`,
+)
+
+export const toolCatalogIdSchema = z.string().regex(toolCatalogIdPattern)
+
 export const toolEventStatusSchema = z.enum([
   'pending',
   'running',
@@ -28,7 +38,7 @@ export const toolEventSchema = z.object({
   eventId: z.string().min(1),
   threadId: z.string().min(1),
   toolCallId: z.string().min(1).optional(),
-  catalogId: z.string().min(1).optional(),
+  catalogId: toolCatalogIdSchema.optional(),
   name: z.string().min(1),
   title: z.string().min(1).optional(),
   kind: toolEventKindSchema,
@@ -37,7 +47,7 @@ export const toolEventSchema = z.object({
   argumentsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
   error: z.string().optional(),
-  errorCode: z.string().min(1).optional(),
+  errorCode: z.string().min(1).max(80).optional(),
   durationMs: z.number().nonnegative().nullable().optional(),
   reviewId: z.string().optional(),
   server: z.string().optional(),
@@ -81,13 +91,6 @@ export const toolRegistrySnapshotSchema = z.object({
     errors: z.array(z.string()),
   }),
 })
-
-const toolCatalogIdComponent = '(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+'
-const toolCatalogIdPattern = new RegExp(
-  `^(?:(?:codex|cli):${toolCatalogIdComponent}|(?:browser|mcp):${toolCatalogIdComponent}:${toolCatalogIdComponent})$`,
-)
-
-export const toolCatalogIdSchema = z.string().regex(toolCatalogIdPattern)
 
 export const toolCatalogSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('codex') }).strict(),
@@ -282,13 +285,22 @@ export const toolCatalogDirectEventSchema = z.object({
 }).strict()
 
 export const toolCatalogPreferencesSchema = z.object({
-  pinnedToolIds: z.array(z.string().min(1)),
-  dismissedDefaultToolIds: z.array(z.string().min(1)),
+  pinnedToolIds: z.array(toolCatalogIdSchema),
+  dismissedDefaultToolIds: z.array(toolCatalogIdSchema),
 }).strict()
 
 export const toolCatalogRefreshFailureSchema = z.object({
+  catalogId: toolCatalogIdSchema,
   code: z.string().min(1),
   observedAt: z.string().min(1),
+}).strict()
+
+export const toolCatalogListRequestSchema = z.object({
+  activeThreadId: z.string().min(1).nullable(),
+}).strict()
+
+export const toolCatalogTestRequestSchema = toolCatalogListRequestSchema.extend({
+  catalogId: toolCatalogIdSchema,
 }).strict()
 
 export type ToolEventStatus = z.infer<typeof toolEventStatusSchema>
@@ -319,6 +331,24 @@ export type ToolCatalogCapabilityEvidence = z.infer<typeof toolCatalogCapability
 export type ToolCatalogDirectEvent = z.infer<typeof toolCatalogDirectEventSchema>
 export type ToolCatalogPreferences = z.infer<typeof toolCatalogPreferencesSchema>
 export type ToolCatalogRefreshFailure = z.infer<typeof toolCatalogRefreshFailureSchema>
+export type ToolCatalogListRequest = z.infer<typeof toolCatalogListRequestSchema>
+export type ToolCatalogTestRequest = z.infer<typeof toolCatalogTestRequestSchema>
+
+export function metadataOnlyToolEvent(event: ToolEventRecord): ToolEventRecord {
+  return toolEventSchema.parse({
+    eventId: event.eventId,
+    threadId: event.threadId,
+    toolCallId: event.toolCallId,
+    catalogId: event.catalogId,
+    name: event.name,
+    kind: event.kind,
+    status: event.status,
+    timestamp: event.timestamp,
+    errorCode: event.errorCode,
+    durationMs: event.durationMs,
+    reviewId: event.reviewId,
+  })
+}
 
 export function toolCatalogMembership(
   entry: Pick<ToolCatalogEntry, 'id' | 'isDefault'>,

@@ -5,7 +5,7 @@ import { useUpdate } from '../state/update'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { CodexResourcesSection } from './CodexResourcesSection'
 import { AppearanceSettings } from './settings/AppearanceSettings'
-import { ToolsSettingsPane } from './settings/ToolsSettingsPane'
+import { ToolsSettingsPane } from './settings/tools-settings-pane'
 import {
   CODEX_MODELS,
   CODEX_APPROVAL_MODES,

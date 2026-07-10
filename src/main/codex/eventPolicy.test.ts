@@ -33,4 +33,26 @@ describe('Codex event policy', () => {
     expect(shouldForwardCodexEventToRenderer(event)).toBe(true)
     expect(shouldPersistCodexEventTelemetry(event)).toBe(true)
   })
+
+  it('routes tool and approval payloads through metadata-only telemetry instead', () => {
+    const approval: CodexEvent = {
+      type: 'approval_request',
+      threadId: 'thread-1',
+      approval: {
+        id: 'approval-1',
+        reviewId: 'review-1',
+        action: { type: 'command', command: 'echo secret' },
+        review: {},
+        description: 'Run command: echo secret',
+      },
+    }
+    const tool: CodexEvent = {
+      type: 'tool_call',
+      threadId: 'thread-1',
+      tool: { id: 'tool-1', function: 'exec_command', arguments: { command: 'echo secret' } },
+    }
+
+    expect(shouldPersistCodexEventTelemetry(approval)).toBe(false)
+    expect(shouldPersistCodexEventTelemetry(tool)).toBe(false)
+  })
 })

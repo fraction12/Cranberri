@@ -10,7 +10,7 @@ import {
   toolSourceDisplayLabel,
   toolTaskStatusLabel,
 } from '../../state/tool-catalog-selectors'
-import { ToolDetails, toolTimeLabel } from './ToolDetails'
+import { ToolDetails, toolTimeLabel } from './tool-details'
 
 export interface ToolRowProps {
   entry: ToolCatalogEntry

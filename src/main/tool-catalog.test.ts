@@ -316,10 +316,18 @@ describe('tool catalog curation and stale state', () => {
       descriptors: [rg],
       activeTask: TASK,
       lastGood,
-      refreshFailure: {
+      probeResults: [{
+        catalogId: jq.id,
+        status: 'installed',
+        version: '1.7.1',
+        observedAt: LATER,
+        diagnosticCode: null,
+      }],
+      refreshFailures: [{
+        catalogId: rg.id,
         code: 'probe-timeout',
         observedAt: LATER,
-      },
+      }],
     })
 
     expect(toolCatalogSnapshotSchema.parse(stale)).toEqual(stale)
@@ -344,9 +352,37 @@ describe('tool catalog curation and stale state', () => {
       machine: {
         status: 'installed',
         version: '1.7.1',
-        stale: true,
-        provenance: 'last-good',
+        stale: false,
+        provenance: 'local-probe',
       },
+    })
+  })
+
+  it('reports registry failures without hiding independent probe health', () => {
+    const rg = descriptor({ kind: 'cli' }, 'rg')
+    const result = assembleToolCatalog({
+      now: NOW,
+      descriptors: [rg],
+      activeTask: TASK,
+      probeResults: [{
+        catalogId: rg.id,
+        status: 'installed',
+        version: '14.1.0',
+        observedAt: NOW,
+        diagnosticCode: null,
+      }],
+      registryFailure: { code: 'registry-unavailable', observedAt: NOW },
+    })
+
+    expect(result.refresh).toEqual({
+      status: 'stale',
+      observedAt: NOW,
+      errorCode: 'registry-unavailable',
+    })
+    expect(catalogEntry(result, rg.id).machine).toMatchObject({
+      status: 'installed',
+      stale: false,
+      provenance: 'local-probe',
     })
   })
 })

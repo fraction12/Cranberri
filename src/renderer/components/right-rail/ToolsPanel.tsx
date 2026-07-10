@@ -8,8 +8,8 @@ import { toolDiagnosticDraft } from '../../state/tool-diagnostic'
 import { useToolCatalog } from '../../state/tools'
 import { iconButton } from '../../lib/ui'
 import { createSendChatContextEvent } from '../chat/chat-context-events'
-import { ToolGroup } from './ToolGroup'
-import { ToolRow } from './ToolRow'
+import { ToolGroup } from './tool-group'
+import { ToolRow } from './tool-row'
 
 interface ToolsPanelProps {
   onOpenSettings: () => void
@@ -49,7 +49,12 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
     ? 'Loading'
     : catalog.data?.refresh.status === 'stale'
       ? 'Saved status'
+      : catalog.data?.refresh.status === 'failed'
+        ? 'Health unavailable'
       : activeThreadId ? 'Active task' : 'No active task'
+  const refreshFailure = catalog.data?.refresh.status === 'failed'
+    ? `Tool health unavailable${catalog.data.refresh.errorCode ? ` (${catalog.data.refresh.errorCode.slice(0, 80)})` : ''}.`
+    : null
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -70,9 +75,9 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
           {catalog.refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
         </button>
       </div>
-      {(actionError || (catalog.isError && !catalog.data)) && (
+      {(actionError || refreshFailure || (catalog.isError && !catalog.data)) && (
         <div className="shrink-0 border-b border-app-danger/30 px-3 py-2 text-caption text-app-danger" role="alert">
-          {actionError ?? 'Tool health unavailable. Try refreshing or open Settings.'}
+          {actionError ?? refreshFailure ?? 'Tool health unavailable. Try refreshing or open Settings.'}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -88,7 +93,7 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
                 key={entry.id}
                 entry={entry}
                 expanded={expandedToolId === entry.id}
-                busy={catalog.testingToolId === entry.id}
+                busy={catalog.testingToolIds.includes(entry.id)}
                 onExpandedChange={(toolId, expanded) => setExpandedToolId(expanded ? toolId : null)}
                 onTest={(toolId) => void runAction(() => catalog.testTool(toolId))}
                 onOpenSettings={onOpenSettings}

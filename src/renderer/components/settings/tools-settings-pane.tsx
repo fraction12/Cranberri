@@ -4,7 +4,7 @@ import { useCodexWindows } from '../../state/codex'
 import { useSettings } from '../../state/settings'
 import { setToolPinned } from '../../state/tool-catalog-selectors'
 import { useToolCatalog } from '../../state/tools'
-import { ToolCatalogSettings } from './ToolCatalogSettings'
+import { ToolCatalogSettings } from './tool-catalog-settings'
 
 interface ToolsSettingsPaneProps {
   onNavigate: (tab: 'general' | 'apps') => void
@@ -31,9 +31,9 @@ export function ToolsSettingsPane({ onNavigate }: ToolsSettingsPaneProps) {
     const entry = entries.find((candidate) => candidate.id === toolId)
     if (!entry) return
     setPinningIds((current) => [...current.filter((id) => id !== toolId), toolId])
-    void runAction(() => updateSection('tools', setToolPinned(settings.tools, entry, pinned)))
+    void runAction(() => updateSection('tools', (current) => setToolPinned(current, entry, pinned)))
       .finally(() => setPinningIds((current) => current.filter((id) => id !== toolId)))
-  }, [entries, runAction, settings.tools, updateSection])
+  }, [entries, runAction, updateSection])
 
   const openRelatedSettings = useCallback((toolId: ToolCatalogId) => {
     const source = entries.find((entry) => entry.id === toolId)?.source.kind
@@ -48,7 +48,7 @@ export function ToolsSettingsPane({ onNavigate }: ToolsSettingsPaneProps) {
       refreshing={catalog.refreshing}
       refreshStatus={catalog.data?.refresh.status ?? (catalog.isError ? 'failed' : 'fresh')}
       refreshErrorCode={catalog.data?.refresh.errorCode ?? (catalog.isError ? 'catalog-unavailable' : null)}
-      testingToolIds={catalog.testingToolId ? [catalog.testingToolId] : []}
+      testingToolIds={catalog.testingToolIds}
       pinningToolIds={pinningIds}
       pinError={actionError}
       onRefresh={() => void runAction(catalog.refresh)}

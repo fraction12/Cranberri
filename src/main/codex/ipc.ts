@@ -3,20 +3,30 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { z } from 'zod'
 import { CodexClient } from './client'
 import { makeCodexEnv } from './env'
 import { FakeCodexClient } from './fakeClient'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import {
-  toolCatalogIdSchema,
+  toolCatalogListRequestSchema,
+  toolCatalogTestRequestSchema,
+  metadataOnlyToolEvent,
+  type ToolCatalogSnapshot,
   type ToolCatalogRegistryEvidence,
   type ToolCatalogTaskKey,
+  type ToolEventRecord,
+  type ToolRegistryApp,
+  type ToolRegistryMcpServer,
   type ToolRegistrySnapshot,
 } from '../../shared/tools'
 import { randomUUID } from 'node:crypto'
 import { logTelemetry } from '../telemetry'
-import { normalizeToolRegistrySnapshot, recordToolEventsForCodexEvent } from '../tools'
+import {
+  createApprovalCompletedEvent,
+  normalizeToolRegistrySnapshot,
+  recordToolEventRecords,
+  toolEventsFromCodexEvent,
+} from '../tools'
 import { readSettings } from '../settings'
 import {
   ToolCatalogService,
@@ -77,23 +87,114 @@ let clientStarting = false
 let clientEventHandlerAttached = false
 let codexEventBroadcast: ((event: CodexEvent) => void) | null = null
 let capabilityEpochCounter = 0
+const MAX_CATALOG_TASK_CONTEXTS = 100
+const MAX_PENDING_TOOL_APPROVALS = 100
 
 const catalogProjectRoots = new Set<string>([process.cwd()])
 const capabilityEpochByThread = new Map<string, string>()
 const registryFingerprintByThread = new Map<string, string>()
+const registryAppsByContext = new Map<string, ToolRegistryApp[]>()
+const registryMcpByContext = new Map<string, ToolRegistryMcpServer[]>()
+const pendingApprovalToolEvents = new Map<string, ToolEventRecord>()
 const toolCatalogService = new ToolCatalogService({
   projectRoots: () => [...catalogProjectRoots],
 })
-const catalogListRequestSchema = z.object({
-  activeThreadId: z.string().min(1).nullable(),
-}).strict()
-const catalogTestRequestSchema = catalogListRequestSchema.extend({
-  catalogId: toolCatalogIdSchema,
-}).strict()
 
 interface ToolRegistryLoadResult {
   snapshot: ToolRegistrySnapshot
   scope: ToolCatalogRegistryEvidence['scope']
+}
+
+function registryContextKey(threadId: string | null): string {
+  return threadId ?? '__global__'
+}
+
+function retainLastRegistryEvidence(
+  threadId: string | null,
+  snapshot: ToolRegistrySnapshot,
+  scope: ToolCatalogRegistryEvidence['scope'],
+): ToolRegistryLoadResult {
+  const key = registryContextKey(threadId)
+  let usedCachedEvidence = false
+  let apps = snapshot.apps
+  let mcpServers = snapshot.mcpServers
+
+  if (snapshot.capabilities.appList) registryAppsByContext.set(key, snapshot.apps)
+  else if (registryAppsByContext.has(key)) {
+    apps = registryAppsByContext.get(key) ?? []
+    usedCachedEvidence = true
+  }
+  if (snapshot.capabilities.mcpServerStatus) registryMcpByContext.set(key, snapshot.mcpServers)
+  else if (registryMcpByContext.has(key)) {
+    mcpServers = registryMcpByContext.get(key) ?? []
+    usedCachedEvidence = true
+  }
+
+  return {
+    snapshot: { ...snapshot, apps, mcpServers },
+    scope: usedCachedEvidence && scope !== 'stale-thread-fallback'
+      ? 'stale-thread-fallback'
+      : scope,
+  }
+}
+
+function forgetCatalogThread(threadId: string): void {
+  capabilityEpochByThread.delete(threadId)
+  registryFingerprintByThread.delete(threadId)
+  registryAppsByContext.delete(registryContextKey(threadId))
+  registryMcpByContext.delete(registryContextKey(threadId))
+  for (const [key, event] of pendingApprovalToolEvents) {
+    if (event.threadId === threadId) pendingApprovalToolEvents.delete(key)
+  }
+}
+
+function trimCatalogTaskState(): void {
+  const orderedThreadIds = new Set([
+    ...capabilityEpochByThread.keys(),
+    ...registryFingerprintByThread.keys(),
+  ])
+  while (orderedThreadIds.size > MAX_CATALOG_TASK_CONTEXTS) {
+    const oldestThreadId = orderedThreadIds.values().next().value
+    if (typeof oldestThreadId !== 'string') return
+    orderedThreadIds.delete(oldestThreadId)
+    forgetCatalogThread(oldestThreadId)
+  }
+}
+
+function clearCatalogTaskState(): void {
+  capabilityEpochByThread.clear()
+  registryFingerprintByThread.clear()
+  registryAppsByContext.clear()
+  registryMcpByContext.clear()
+  pendingApprovalToolEvents.clear()
+}
+
+function approvalEventKey(threadId: string, reviewId: string): string {
+  return `${threadId}:${reviewId}`
+}
+
+function correlatedToolEvents(event: CodexEvent): ToolEventRecord[] {
+  if (event.type === 'approval_completed') {
+    const key = approvalEventKey(event.threadId, event.reviewId)
+    const pending = pendingApprovalToolEvents.get(key)
+    pendingApprovalToolEvents.delete(key)
+    const completed = createApprovalCompletedEvent(event.threadId, event.reviewId, event.action, pending)
+    return completed ? [metadataOnlyToolEvent(completed)] : []
+  }
+
+  const records = toolEventsFromCodexEvent(event).map(metadataOnlyToolEvent)
+  if (event.type === 'approval_request') {
+    const pending = records.find((record) => record.catalogId && record.reviewId)
+    if (pending?.reviewId) {
+      while (pendingApprovalToolEvents.size >= MAX_PENDING_TOOL_APPROVALS) {
+        const oldestKey = pendingApprovalToolEvents.keys().next().value
+        if (typeof oldestKey !== 'string') break
+        pendingApprovalToolEvents.delete(oldestKey)
+      }
+      pendingApprovalToolEvents.set(approvalEventKey(event.threadId, pending.reviewId), pending)
+    }
+  }
+  return records
 }
 
 function rememberCatalogProjectRoot(cwd: string): void {
@@ -103,7 +204,9 @@ function rememberCatalogProjectRoot(cwd: string): void {
 function advanceCapabilityEpoch(threadId: string): ToolCatalogTaskKey {
   capabilityEpochCounter += 1
   const capabilityEpoch = `local-${capabilityEpochCounter}`
+  capabilityEpochByThread.delete(threadId)
   capabilityEpochByThread.set(threadId, capabilityEpoch)
+  trimCatalogTaskState()
   return { threadId, capabilityEpoch }
 }
 
@@ -116,7 +219,7 @@ function catalogTaskKey(threadId: string | null): ToolCatalogTaskKey | null {
 }
 
 function advanceKnownCapabilityEpochs(): void {
-  for (const threadId of capabilityEpochByThread.keys()) advanceCapabilityEpoch(threadId)
+  for (const threadId of [...capabilityEpochByThread.keys()]) advanceCapabilityEpoch(threadId)
 }
 
 function catalogRegistryFingerprint(snapshot: ToolRegistrySnapshot): string {
@@ -567,7 +670,21 @@ async function loadToolRegistry(
   threadId: string | null,
   forceRefetch = false,
 ): Promise<ToolRegistryLoadResult> {
-  const c = await getCodexClient()
+  let c: CodexClientLike
+  try {
+    c = await getCodexClient()
+  } catch (error) {
+    const snapshot = normalizeToolRegistrySnapshot({
+      appListAvailable: false,
+      mcpServerStatusAvailable: false,
+      errors: [registryErrorMessage(error, 'Codex registry unavailable')],
+    })
+    return retainLastRegistryEvidence(
+      threadId,
+      snapshot,
+      threadId ? 'stale-thread-fallback' : 'global',
+    )
+  }
   const errors: string[] = []
   let appsResult: unknown
   let mcpResult: unknown
@@ -609,18 +726,20 @@ async function loadToolRegistry(
     }
   }
 
-  return {
-    snapshot: normalizeToolRegistrySnapshot({
+  const snapshot = normalizeToolRegistrySnapshot({
       appsResult,
       mcpResult,
       appListAvailable,
       mcpServerStatusAvailable,
       errors,
-    }),
-    scope: threadId
+    })
+  return retainLastRegistryEvidence(
+    threadId,
+    snapshot,
+    threadId
       ? usedStaleThreadFallback ? 'stale-thread-fallback' : 'active-task'
       : 'global',
-  }
+  )
 }
 
 async function loadToolCatalogContext(
@@ -630,13 +749,20 @@ async function loadToolCatalogContext(
   const registry = await loadToolRegistry(activeThreadId, forceRefetch)
   let taskKey = catalogTaskKey(activeThreadId)
 
-  if (activeThreadId && registry.scope === 'active-task') {
+  if (
+    activeThreadId
+    && registry.scope === 'active-task'
+    && registry.snapshot.capabilities.appList
+    && registry.snapshot.capabilities.mcpServerStatus
+  ) {
     const fingerprint = catalogRegistryFingerprint(registry.snapshot)
     const previousFingerprint = registryFingerprintByThread.get(activeThreadId)
     if (previousFingerprint && previousFingerprint !== fingerprint) {
       taskKey = advanceCapabilityEpoch(activeThreadId)
     }
+    registryFingerprintByThread.delete(activeThreadId)
     registryFingerprintByThread.set(activeThreadId, fingerprint)
+    trimCatalogTaskState()
   }
 
   const observedAt = new Date().toISOString()
@@ -650,19 +776,29 @@ async function loadToolCatalogContext(
     taskKey,
     preferences: readSettings().tools,
     registryEvidence,
+    registryFailure: registry.snapshot.capabilities.errors.length
+      ? { code: 'registry-unavailable', observedAt }
+      : null,
   }
 }
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   codexEventBroadcast = (event: CodexEvent) => {
+    const toolRecords = correlatedToolEvents(event)
     if (shouldPersistCodexEventTelemetry(event)) {
       void logTelemetry('main', 'codex:event', event).catch(() => undefined)
     }
-    void recordToolEventsForCodexEvent(event).catch(() => undefined)
+    void recordToolEventRecords(toolRecords).catch(() => undefined)
     if (!shouldForwardCodexEventToRenderer(event)) return
     const win = mainWindowGetter()
     if (win && !win.isDestroyed()) {
-      win.webContents.send('codex:event', event)
+      const toolEvents = toolRecords.map((record): CodexEvent => ({
+        type: 'tool_event',
+        threadId: record.threadId,
+        event: record,
+      }))
+      const outboundEvents = event.type === 'tool_event' ? toolEvents : [...toolEvents, event]
+      for (const outboundEvent of outboundEvents) win.webContents.send('codex:event', outboundEvent)
     }
   }
   if (client) attachCodexClientEventHandler(client)
@@ -749,6 +885,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const c = await getCodexClient()
     c.setCwd(cwd)
     await c.archiveThread(threadId)
+    forgetCatalogThread(threadId)
     return { ok: true }
   })
 
@@ -762,6 +899,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const c = await getCodexClient()
     c.setCwd(cwd)
     await c.deleteThread(threadId)
+    forgetCatalogThread(threadId)
     return { ok: true }
   })
 
@@ -819,23 +957,23 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return (await loadToolRegistry(threadId ?? null, forceRefetch)).snapshot
   })
 
-  ipcMain.handle('tools:catalog:list', async (event, input: unknown) => {
+  ipcMain.handle('tools:catalog:list', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {
     authorizeCatalogIpc(event, mainWindowGetter)
-    const request = catalogListRequestSchema.parse(input)
+    const request = toolCatalogListRequestSchema.parse(input)
     const context = await loadToolCatalogContext(request.activeThreadId, false)
     return toolCatalogService.list(context)
   })
 
-  ipcMain.handle('tools:catalog:refresh', async (event, input: unknown) => {
+  ipcMain.handle('tools:catalog:refresh', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {
     authorizeCatalogIpc(event, mainWindowGetter)
-    const request = catalogListRequestSchema.parse(input)
+    const request = toolCatalogListRequestSchema.parse(input)
     const context = await loadToolCatalogContext(request.activeThreadId, true)
     return toolCatalogService.refresh(context)
   })
 
-  ipcMain.handle('tools:catalog:test', async (event, input: unknown) => {
+  ipcMain.handle('tools:catalog:test', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {
     authorizeCatalogIpc(event, mainWindowGetter)
-    const request = catalogTestRequestSchema.parse(input)
+    const request = toolCatalogTestRequestSchema.parse(input)
     const context = await loadToolCatalogContext(request.activeThreadId, false)
     return toolCatalogService.test(request.catalogId, context)
   })
@@ -844,7 +982,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     client?.stop()
     client = null
     clientEventHandlerAttached = false
-    advanceKnownCapabilityEpochs()
+    clearCatalogTaskState()
     return { stopped: true }
   })
 }
@@ -854,4 +992,5 @@ export function stopCodexClient(): void {
   client?.stop()
   client = null
   clientEventHandlerAttached = false
+  clearCatalogTaskState()
 }

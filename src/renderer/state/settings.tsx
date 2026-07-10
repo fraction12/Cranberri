@@ -10,7 +10,7 @@ interface SettingsApi {
   update: (next: Partial<AppSettings>) => Promise<void>
   updateSection: <Section extends keyof AppSettings>(
     section: Section,
-    values: Partial<AppSettings[Section]>,
+    update: Partial<AppSettings[Section]> | ((current: AppSettings[Section]) => Partial<AppSettings[Section]>),
   ) => Promise<void>
 }
 
@@ -79,12 +79,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const updateSection = useCallback(async <Section extends keyof AppSettings>(
     section: Section,
-    values: Partial<AppSettings[Section]>,
+    update: Partial<AppSettings[Section]> | ((current: AppSettings[Section]) => Partial<AppSettings[Section]>),
   ) => {
-    await writeQueueRef.current?.enqueue((current) => ({
-      ...current,
-      [section]: { ...current[section], ...values },
-    }))
+    await writeQueueRef.current?.enqueue((current) => {
+      const values = typeof update === 'function' ? update(current[section]) : update
+      return {
+        ...current,
+        [section]: { ...current[section], ...values },
+      }
+    })
   }, [])
 
   return (

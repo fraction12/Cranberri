@@ -32,10 +32,28 @@ function probeLabel(entry: ToolCatalogEntry): string {
   return `${prefix}: ${entry.probeCapability.reason.slice(0, 120)}`
 }
 
+function remediationLabel(entry: ToolCatalogEntry): string | null {
+  if (entry.machine.status === 'missing' && entry.source.kind === 'cli') {
+    return `Install ${entry.name} with your preferred package manager, then refresh.`
+  }
+  if (entry.machine.status === 'authentication-required') {
+    return `Authenticate ${entry.name} in Terminal, then test it again.`
+  }
+  if (entry.machine.status === 'disconnected') return 'Reconnect this provider in Apps settings.'
+  return null
+}
+
 export function ToolDetails({ entry, onSend }: { entry: ToolCatalogEntry; onSend?: () => void }) {
   const canSend = Boolean(onSend && (entry.machine.diagnosticCode || toolAvailability(entry) === 'needs-attention'))
+  const remediation = remediationLabel(entry)
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-1 bg-app-bg/40 px-3 py-2 text-micro text-app-text-muted">
+      <span>Description</span>
+      <span className="min-w-0 break-words text-app-text">{entry.description}</span>
+      <span />
+      <span>Identity</span>
+      <span className="truncate font-mono text-app-text" title={entry.id}>{entry.id}</span>
+      <span />
       <span>Machine evidence</span>
       <span className="truncate text-app-text">{entry.machine.provenance}</span>
       <span />
@@ -58,6 +76,13 @@ export function ToolDetails({ entry, onSend }: { entry: ToolCatalogEntry; onSend
         <>
           <span>Recent activity</span>
           <span className="min-w-0 break-words text-app-text">{activityLabel(entry.activity)}</span>
+          <span />
+        </>
+      )}
+      {remediation && (
+        <>
+          <span>Next step</span>
+          <span className="min-w-0 break-words text-app-text">{remediation}</span>
           <span />
         </>
       )}

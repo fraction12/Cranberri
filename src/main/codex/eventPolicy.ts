@@ -6,10 +6,17 @@ const HIGH_VOLUME_EVENT_TYPES = new Set<CodexEvent['type']>([
   'log',
 ])
 
+const TOOL_EVENT_TYPES = new Set<CodexEvent['type']>([
+  'tool_call',
+  'tool_event',
+  'approval_request',
+  'approval_completed',
+])
+
 export function shouldForwardCodexEventToRenderer(event: CodexEvent): boolean {
   return event.type !== 'log'
 }
 
 export function shouldPersistCodexEventTelemetry(event: CodexEvent): boolean {
-  return !HIGH_VOLUME_EVENT_TYPES.has(event.type)
+  return !HIGH_VOLUME_EVENT_TYPES.has(event.type) && !TOOL_EVENT_TYPES.has(event.type)
 }

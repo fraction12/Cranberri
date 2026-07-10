@@ -189,4 +189,22 @@ describe('Tool curation settings persistence', () => {
     const persisted = JSON.parse(fs.readFileSync(path.join(electron.userDataPath, 'settings.json'), 'utf8'))
     expect(persisted).toMatchObject({ version: 3, data: { tools } })
   })
+
+  it('drops malformed tool IDs without discarding valid persisted choices', () => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 3,
+      data: {
+        ...DEFAULT_APP_SETTINGS,
+        tools: {
+          pinnedToolIds: ['cli:rg', 'not-a-catalog-id', 'mcp:github:search'],
+          dismissedDefaultToolIds: ['codex:apply_patch', 'cli:bad value'],
+        },
+      },
+    }))
+
+    expect(readSettings().tools).toEqual({
+      pinnedToolIds: ['cli:rg', 'mcp:github:search'],
+      dismissedDefaultToolIds: ['codex:apply_patch'],
+    })
+  })
 })
