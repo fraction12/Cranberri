@@ -180,6 +180,7 @@ describe('app actions', () => {
     })
 
     actions.find((action) => action.id === 'system:diagnostics')?.run()
+    actions.find((action) => action.id === 'system:tools')?.run()
     actions.find((action) => action.id === 'system:apps')?.run()
     actions.find((action) => action.id === 'context:active-chat')?.run()
     actions.find((action) => action.id === 'context:active-chat:copy')?.run()
@@ -196,6 +197,7 @@ describe('app actions', () => {
     actions.find((action) => action.id === 'system:plugins:marketplaces:upgrade')?.run()
 
     expect(openSettings).toHaveBeenCalledWith('diagnostics')
+    expect(openSettings).toHaveBeenCalledWith('tools')
     expect(openSettings).toHaveBeenCalledWith('apps')
     expect(actions.find((action) => action.id === 'system:plugins:marketplaces:upgrade')).toMatchObject({
       label: 'Refresh Codex plugin marketplaces',

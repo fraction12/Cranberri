@@ -964,77 +964,15 @@ async function runRepoWorkspaceSmoke() {
       await page.locator('[cmdk-item]').filter({ hasText: 'Deny pending Codex action' }).first().click()
       await page.getByText('Install fake smoke dependency').waitFor({ state: 'detached', timeout: 10_000 })
       await page.getByTitle('Tools').click()
-      await page.getByText('Fake smoke tool').first().waitFor({ timeout: 10_000 })
-      await page.getByText('cranberri-fake-tool-complete').first().waitFor({ timeout: 10_000 })
-      const completedToolRow = page.locator('li').filter({ hasText: 'cranberri-fake-tool-complete' }).first()
-      await completedToolRow.getByLabel('Copy tool event context').click()
-      const copiedVisibleToolEventContext = await page.evaluate(() => navigator.clipboard.readText())
-      if (!copiedVisibleToolEventContext.includes('Tool event context:')
-        || !copiedVisibleToolEventContext.includes('Fake smoke tool')
-        || !copiedVisibleToolEventContext.includes('cranberri-fake-tool-complete')) {
-        throw new Error(`Visible tool event context clipboard was wrong:\n${copiedVisibleToolEventContext}`)
+      await page.getByText('apply_patch', { exact: true }).first().waitFor({ timeout: 10_000 })
+      const applyPatchToolRow = page.locator('article').filter({ hasText: 'apply_patch' }).first()
+      await applyPatchToolRow.locator('button[aria-expanded]').click()
+      await applyPatchToolRow.getByText('Recent activity').waitFor({ timeout: 10_000 })
+      await applyPatchToolRow.getByText(/Succeeded/).waitFor({ timeout: 10_000 })
+      const visibleToolText = await applyPatchToolRow.textContent()
+      if (!visibleToolText?.includes('apply_patch') || visibleToolText.includes('cranberri-approval-smoke-request')) {
+        throw new Error(`Curated tool activity leaked or omitted data:\n${visibleToolText}`)
       }
-      await completedToolRow.getByLabel('Send tool event context to chat').click()
-      await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Tool event context:') && textarea.value.includes('Fake smoke tool') && textarea.value.includes('cranberri-fake-tool-complete'))
-      }, { timeout: 10_000 })
-      await page.getByLabel('Send message').click()
-      await page.getByText('Fake Codex received: Tool event context:').waitFor({ timeout: 10_000 })
-
-      await openCommandPalette(page)
-      await page.getByPlaceholder('Run command or switch repo...').fill('send latest tool event context')
-      const sendLatestToolEventAction = page.locator('[cmdk-item]').filter({ hasText: 'Send latest tool event context to chat' }).first()
-      await sendLatestToolEventAction.waitFor({ timeout: 10_000 })
-      if (await sendLatestToolEventAction.getAttribute('aria-disabled') === 'true') {
-        throw new Error(`Send latest tool event context action was disabled: ${await sendLatestToolEventAction.textContent()}`)
-      }
-      await sendLatestToolEventAction.click()
-      await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Tool event context:') && textarea.value.includes('Fake smoke tool') && textarea.value.includes('cranberri-fake-tool-complete'))
-      }, { timeout: 10_000 })
-      const toolEventContextCountBefore = await page.locator('article').filter({ hasText: 'Fake Codex received: Tool event context:' }).count()
-      await page.getByLabel('Send message').click()
-      await page.waitForFunction((countBefore) => {
-        return [...document.querySelectorAll('article')]
-          .filter((article) => article.textContent?.includes('Fake Codex received: Tool event context:')).length >= countBefore + 1
-      }, toolEventContextCountBefore, { timeout: 10_000 })
-      await openCommandPalette(page)
-      await page.getByPlaceholder('Run command or switch repo...').fill('copy latest tool event context')
-      const copyLatestToolEventAction = page.locator('[cmdk-item]').filter({ hasText: 'Copy latest tool event context' }).first()
-      await copyLatestToolEventAction.waitFor({ timeout: 10_000 })
-      if (await copyLatestToolEventAction.getAttribute('aria-disabled') === 'true') {
-        throw new Error(`Copy latest tool event context action was disabled: ${await copyLatestToolEventAction.textContent()}`)
-      }
-      await copyLatestToolEventAction.click()
-      await page.waitForFunction(async () => {
-        const text = await navigator.clipboard.readText()
-        return text.includes('Tool event context:') && text.includes('Fake smoke tool') && text.includes('cranberri-fake-tool-complete')
-      }, { timeout: 10_000 })
-
-      await openCommandPalette(page)
-      await page.getByPlaceholder('Run command or switch repo...').fill('copy fake smoke tool event context')
-      await clickCommandItemByText(page, 'Copy tool event context: Fake smoke tool')
-      const copiedPaletteToolEventContext = await page.evaluate(() => navigator.clipboard.readText())
-      if (!copiedPaletteToolEventContext.includes('Tool event context:')
-        || !copiedPaletteToolEventContext.includes('Fake smoke tool')
-        || !copiedPaletteToolEventContext.includes('cranberri-fake-tool-complete')) {
-        throw new Error(`Palette tool event context clipboard was wrong:\n${copiedPaletteToolEventContext}`)
-      }
-
-      await openCommandPalette(page)
-      await page.getByPlaceholder('Run command or switch repo...').fill('fake smoke tool event context')
-      await clickCommandItemByText(page, 'Send tool event context: Fake smoke tool')
-      await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Tool event context:') && textarea.value.includes('Fake smoke tool') && textarea.value.includes('cranberri-fake-tool-complete'))
-      }, { timeout: 10_000 })
-      await page.getByLabel('Send message').click()
-      await page.waitForFunction(() => {
-        const matches = document.body.innerText.match(/Fake Codex received: Tool event context:/g)
-        return (matches?.length ?? 0) >= 2
-      }, { timeout: 10_000 })
 
       smokeStep('right rail reader')
       await openCommandPalette(page)
@@ -1483,13 +1421,10 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Fake Codex received: Connected app context:').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('tool registry context')
-      await page.locator('[cmdk-item]').filter({ hasText: 'Send Codex tool registry context' }).first().click()
-      await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Codex tool registry context:') && textarea.value.includes('Fake Smoke App') && textarea.value.includes('fake-smoke-mcp'))
-      }, { timeout: 10_000 })
-      await page.getByLabel('Send message').click()
-      await page.getByText('Fake Codex received: Codex tool registry context:').waitFor({ timeout: 10_000 })
+      if (await page.locator('[cmdk-item]').filter({ hasText: 'Codex tool registry context' }).count()) {
+        throw new Error('Whole-registry context action should not be exposed')
+      }
+      await page.keyboard.press('Escape')
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('inspect fake smoke fixture')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send MCP tool context: Inspect fake smoke fixture' }).first().click()
@@ -1542,21 +1477,25 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('All Files', { exact: true }).waitFor({ timeout: 10_000 })
       await page.getByTitle('README.md').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
-      await page.getByPlaceholder('Run command or switch repo...').fill('show tool timeline')
-      await page.locator('[cmdk-item]').filter({ hasText: 'Show tool timeline' }).first().click()
+      await page.getByPlaceholder('Run command or switch repo...').fill('show tools')
+      await page.locator('[cmdk-item]').filter({ hasText: 'Show tools' }).first().click()
       await page.getByText('Tools', { exact: true }).waitFor({ timeout: 10_000 })
-      const copyToolRegistryContextButton = page.getByLabel('Copy tool registry context')
-      await copyToolRegistryContextButton.waitFor({ timeout: 10_000 })
-      if (await copyToolRegistryContextButton.isDisabled()) {
-        throw new Error('Copy tool registry context button was disabled')
+      await page.getByText('rg', { exact: true }).first().waitFor({ timeout: 10_000 })
+      const toolsPanel = page.getByText('Active task', { exact: true }).locator('..').locator('..')
+      const toolsPanelText = await toolsPanel.textContent()
+      if (toolsPanelText?.includes('observe-only') || toolsPanelText?.includes('apps')) {
+        throw new Error(`Tools panel still contains registry noise:\n${toolsPanelText}`)
       }
-      await copyToolRegistryContextButton.click()
-      const copiedVisibleToolRegistryContext = await page.evaluate(() => navigator.clipboard.readText())
-      if (!copiedVisibleToolRegistryContext.includes('Codex tool registry context:')
-        || !copiedVisibleToolRegistryContext.includes('Fake Smoke App')
-        || !copiedVisibleToolRegistryContext.includes('fake-smoke-mcp')) {
-        throw new Error(`Visible tool registry context clipboard was wrong:\n${copiedVisibleToolRegistryContext}`)
-      }
+      const rgRow = page.locator('article').filter({ hasText: /^rg/ }).first()
+      await rgRow.getByLabel('Test rg').click()
+      await rgRow.getByLabel('Test rg').waitFor({ timeout: 10_000 })
+      await page.getByLabel('Manage tools').click()
+      await page.getByPlaceholder('Search tools').fill('inspect_fixture')
+      const inspectToolRow = page.locator('article').filter({ hasText: 'inspect_fixture' }).first()
+      await inspectToolRow.getByLabel('Pin inspect_fixture to Tools rail').click()
+      await inspectToolRow.getByLabel('Unpin inspect_fixture from Tools rail').waitFor({ timeout: 10_000 })
+      await page.getByLabel('Close settings').click()
+      await page.getByText('inspect_fixture', { exact: true }).waitFor({ timeout: 10_000 })
 
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('terminal')

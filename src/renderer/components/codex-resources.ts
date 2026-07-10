@@ -102,32 +102,6 @@ export function mcpToolChatContext(server: Pick<ToolRegistryMcpServer, 'name' | 
   ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
-export function toolRegistryChatContext(registry: ToolRegistrySnapshot): string {
-  const accessibleApps = registry.apps.filter((app) => app.accessible)
-  const unavailableApps = registry.apps.filter((app) => app.enabled && !app.accessible)
-  const totalMcpTools = registry.mcpServers.reduce((sum, server) => sum + server.toolCount, 0)
-  const servers = registry.mcpServers.slice(0, 12).map((server) => {
-    const tools = server.tools.slice(0, 8).map((tool) => tool.title ?? tool.name).join(', ')
-    return `- ${server.name}: ${server.authStatus}; ${server.toolCount} tools${tools ? ` (${tools})` : ''}`
-  })
-  const apps = registry.apps.slice(0, 16).map((app) => (
-    `- ${app.name}: ${app.accessible ? 'accessible' : app.enabled ? 'needs access' : 'disabled'}${app.pluginDisplayNames.length ? `; plugins ${app.pluginDisplayNames.join(', ')}` : ''}`
-  ))
-
-  return [
-    'Codex tool registry context:',
-    `Generated: ${registry.generatedAt}`,
-    `Apps: ${registry.apps.length} total; ${accessibleApps.length} accessible; ${unavailableApps.length} need access`,
-    `MCP servers: ${registry.mcpServers.length}; MCP tools: ${totalMcpTools}`,
-    `Capabilities: appList=${registry.capabilities.appList}; mcpServerStatus=${registry.capabilities.mcpServerStatus}`,
-    registry.capabilities.errors.length ? '\nRegistry errors:' : null,
-    ...registry.capabilities.errors.map((error) => `- ${error}`),
-    apps.length ? '\nApps:' : null,
-    ...apps,
-    servers.length ? '\nMCP servers:' : null,
-    ...servers,
-  ].filter((line): line is string => Boolean(line)).join('\n')
-}
 
 export function filterCodexPlugins(plugins: CodexPluginInfo[], query: string): CodexPluginInfo[] {
   const normalized = query.trim().toLowerCase()

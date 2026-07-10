@@ -41,18 +41,17 @@ function sessionSummary(thread: FakeThreadRecord): CodexSessionSummary {
   }
 }
 
-function fakeToolEvent(threadId: string, turnId: string, status: 'running' | 'completed', userText: string): ToolEventRecord {
+function fakeToolEvent(threadId: string, turnId: string, status: 'running' | 'completed'): ToolEventRecord {
   return {
     eventId: `${threadId}:${turnId}:fake-tool:${status}`,
     threadId,
     toolCallId: `${turnId}-tool`,
-    name: 'fake_codex.inspect_repo',
-    title: 'Fake smoke tool',
-    kind: 'dynamic',
+    catalogId: 'codex:apply_patch',
+    name: 'apply_patch',
+    title: 'Apply patch',
+    kind: 'file_change',
     status,
     timestamp: new Date().toISOString(),
-    argumentsPreview: JSON.stringify({ query: userText || 'empty message' }),
-    resultPreview: status === 'completed' ? 'cranberri-fake-tool-complete' : 'Inspecting repo fixture',
     durationMs: status === 'completed' ? 42 : null,
   }
 }
@@ -140,7 +139,7 @@ export class FakeCodexClient extends EventEmitter {
 
     this.emit('event', { type: 'run_start', threadId } satisfies CodexEvent)
     this.emit('event', { type: 'item_started', threadId, itemId, itemType: 'agentMessage' } satisfies CodexEvent)
-    this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running', userText) } satisfies CodexEvent)
+    this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running') } satisfies CodexEvent)
     if (userText.includes('cranberri-approval-smoke-request')) {
       setTimeout(() => {
         this.emit('event', fakeApproval(threadId, turnId))
@@ -164,7 +163,7 @@ export class FakeCodexClient extends EventEmitter {
         ]
       }
       this.emit('event', { type: 'agent_message_completed', threadId, itemId, text: response, phase: 'final_answer' } satisfies CodexEvent)
-      this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'completed', userText) } satisfies CodexEvent)
+      this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
       this.emit('event', { type: 'context_usage', threadId, usedTokens: 128, contextWindow: 258400 } satisfies CodexEvent)
       this.emit('event', { type: 'final_answer', threadId, text: response } satisfies CodexEvent)
       this.emit('event', { type: 'run_end', threadId } satisfies CodexEvent)

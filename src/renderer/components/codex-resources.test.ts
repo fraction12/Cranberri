@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexPluginInfo, CodexSkillInfo } from '@/shared/codex'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
-import { appChatContext, filterCodexPlugins, mcpServerChatContext, mcpToolChatContext, skillChatContext, skillSourceLabel, summarizeCodexResources, toolRegistryChatContext } from './codex-resources'
+import { appChatContext, filterCodexPlugins, mcpServerChatContext, mcpToolChatContext, skillChatContext, skillSourceLabel, summarizeCodexResources } from './codex-resources'
 
 describe('codex resource helpers', () => {
   it('summarizes plugins, skills, app registry, and MCP tools', () => {
@@ -93,39 +93,6 @@ describe('codex resource helpers', () => {
     expect(mcpServerChatContext(server)).toContain('Known tools: Create issue, list_prs')
     expect(mcpToolChatContext(server, server.tools[0])).toContain('Tool: Create issue')
     expect(mcpToolChatContext(server, server.tools[0])).toContain('Description: Open a GitHub issue')
-  })
-
-  it('formats full tool registry context for chat insertion', () => {
-    const registry: ToolRegistrySnapshot = {
-      generatedAt: '2026-07-08T00:00:00.000Z',
-      apps: [
-        { id: 'github', name: 'GitHub', description: null, logoUrl: null, enabled: true, accessible: true, distributionChannel: 'plugin', pluginDisplayNames: ['GitHub'] },
-        { id: 'linear', name: 'Linear', description: null, logoUrl: null, enabled: true, accessible: false, distributionChannel: 'plugin', pluginDisplayNames: ['Linear'] },
-      ],
-      mcpServers: [{
-        name: 'browser',
-        authStatus: 'available',
-        toolCount: 2,
-        resourceCount: 0,
-        resourceTemplateCount: 0,
-        tools: [
-          { name: 'snapshot', title: 'Capture snapshot', description: null },
-          { name: 'screenshot', title: null, description: null },
-        ],
-      }],
-      capabilities: { appList: true, mcpServerStatus: false, errors: ['mcp status missing'] },
-    }
-
-    const context = toolRegistryChatContext(registry)
-
-    expect(context).toContain('Codex tool registry context:')
-    expect(context).toContain('Apps: 2 total; 1 accessible; 1 need access')
-    expect(context).toContain('MCP servers: 1; MCP tools: 2')
-    expect(context).toContain('Capabilities: appList=true; mcpServerStatus=false')
-    expect(context).toContain('- mcp status missing')
-    expect(context).toContain('- GitHub: accessible; plugins GitHub')
-    expect(context).toContain('- Linear: needs access; plugins Linear')
-    expect(context).toContain('- browser: available; 2 tools (Capture snapshot, screenshot)')
   })
 
   it('filters plugins by name, id, marketplace, description, and version', () => {
