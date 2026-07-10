@@ -1,6 +1,19 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker } from '../../shared/codex'
+import {
+  codexWorkerIsActive,
+  mergeCodexWorker,
+  mergeWorkerCollections,
+  normalizeCodexWorkerStatus,
+  workerFromSessionSummary,
+  workersFromSessionThread,
+  workersFromThreadItem,
+} from '../../shared/codex-workers'
+import {
+  buildCodexWorkerControlInput,
+  type CodexWorkerControlAction,
+} from '../../shared/codex-worker-control'
 import { makeCodexEnv } from './env'
 import { buildCodexTurnOverrides } from './turn-settings'
 import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
@@ -25,6 +38,11 @@ interface JsonRpcNotification {
   params?: Record<string, unknown>
 }
 
+export const CODEX_INITIALIZE_PARAMS = {
+  clientInfo: { name: 'cranberri', version: '0.1.0' },
+  capabilities: { experimentalApi: true, requestAttestation: false },
+} as const
+
 interface Thread {
   id: string
   name?: string | null
@@ -33,6 +51,9 @@ interface Thread {
 interface SdkThread {
   id: string
   sessionId?: string
+  forkedFromId?: string | null
+  parentThreadId?: string | null
+  ephemeral?: boolean
   name?: string | null
   preview?: string
   cwd?: string | { path?: string } | null
@@ -41,6 +62,10 @@ interface SdkThread {
   recencyAt?: number | null
   status?: unknown
   path?: string | null
+  source?: unknown
+  threadSource?: string | null
+  agentNickname?: string | null
+  agentRole?: string | null
   turns?: CodexSdkTurn[]
 }
 
@@ -50,12 +75,19 @@ function cwdToString(cwd: SdkThread['cwd']): string | undefined {
   return undefined
 }
 
-function normalizeThread(thread: SdkThread, archived: boolean): CodexSessionThread {
+export function normalizeThread(thread: SdkThread, archived: boolean): CodexSessionThread {
   const preview = thread.preview ?? ''
-  return {
+  const normalized: CodexSessionThread = {
     id: thread.id,
     sessionId: thread.sessionId,
-    title: thread.name ?? preview.split('\n')[0] ?? 'Untitled session',
+    forkedFromId: thread.forkedFromId,
+    parentThreadId: thread.parentThreadId,
+    ephemeral: thread.ephemeral,
+    source: thread.source,
+    threadSource: thread.threadSource,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole,
+    title: thread.name || preview.split('\n')[0] || 'Untitled session',
     preview,
     cwd: cwdToString(thread.cwd),
     createdAt: thread.createdAt ?? 0,
@@ -67,6 +99,33 @@ function normalizeThread(thread: SdkThread, archived: boolean): CodexSessionThre
     turnCount: thread.turns?.length ?? 0,
     turns: thread.turns ?? [],
   }
+  normalized.workers = workersFromSessionThread(normalized)
+  return normalized
+}
+
+export function normalizeThreadList(threads: SdkThread[], archived: boolean): CodexSessionSummary[] {
+  const sessions = threads.map((thread) => normalizeThread(thread, archived))
+  const childrenByParent = new Map<string, CodexSessionThread[]>()
+  for (const session of sessions) {
+    if (!session.parentThreadId) continue
+    childrenByParent.set(session.parentThreadId, [...(childrenByParent.get(session.parentThreadId) ?? []), session])
+  }
+  const descendants = (parentThreadId: string, ancestors: Set<string>): CodexWorker[] => {
+    if (ancestors.has(parentThreadId)) return []
+    const nextAncestors = new Set(ancestors).add(parentThreadId)
+    return (childrenByParent.get(parentThreadId) ?? []).flatMap((session) => {
+      const worker = workerFromSessionSummary(session)
+      if (!worker || nextAncestors.has(worker.threadId)) return []
+      worker.workers = mergeWorkerCollections(worker.workers, descendants(worker.threadId, nextAncestors))
+      return [worker]
+    })
+  }
+  return sessions
+    .filter((session) => !session.parentThreadId)
+    .map((session) => ({
+      ...session,
+      workers: mergeWorkerCollections(session.workers, descendants(session.id, new Set())),
+    }))
 }
 
 function getTurnApprovalSettings(mode: CodexTurnSettings['approvalMode']): { approvalPolicy?: string; sandboxPolicy?: { type: string } } {
@@ -107,6 +166,8 @@ export class CodexClient extends EventEmitter {
   private activeRunThreads = new Set<string>()
   private currentTurnIdByThread = new Map<string, string>()
   private pendingApprovalsByThread = new Map<string, boolean>()
+  private parentThreadByWorker = new Map<string, string>()
+  private workerByThread = new Map<string, CodexWorker>()
 
   constructor(cwd: string) {
     super()
@@ -115,6 +176,47 @@ export class CodexClient extends EventEmitter {
 
   setCwd(cwd: string): void {
     this.cwd = cwd
+  }
+
+  private rememberWorker(worker: CodexWorker, emit = false): CodexWorker {
+    const merged = mergeCodexWorker(this.workerByThread.get(worker.threadId), worker)
+    this.workerByThread.set(worker.threadId, merged)
+    this.parentThreadByWorker.set(worker.threadId, merged.parentThreadId)
+    if (emit) {
+      this.emit('event', {
+        type: 'worker_updated',
+        threadId: merged.parentThreadId,
+        worker: merged,
+      } satisfies CodexEvent)
+    }
+    return merged
+  }
+
+  private rememberSessionWorkers(session: CodexSessionSummary, emit = false): void {
+    const sessionWorker = workerFromSessionSummary(session)
+    if (sessionWorker) this.rememberWorkerTree(sessionWorker, emit)
+    for (const worker of session.workers ?? []) this.rememberWorkerTree(worker, emit)
+  }
+
+  private rememberWorkerTree(worker: CodexWorker, emit: boolean): void {
+    const remembered = this.rememberWorker(worker, emit)
+    for (const child of remembered.workers ?? []) this.rememberWorkerTree(child, emit)
+  }
+
+  private updateKnownWorker(
+    workerThreadId: string,
+    update: Partial<Omit<CodexWorker, 'threadId' | 'parentThreadId'>>,
+  ): void {
+    const parentThreadId = this.parentThreadByWorker.get(workerThreadId)
+    if (!parentThreadId) return
+    const current = this.workerByThread.get(workerThreadId)
+    this.rememberWorker({
+      threadId: workerThreadId,
+      parentThreadId,
+      status: update.status ?? current?.status ?? 'pendingInit',
+      updatedAt: update.updatedAt ?? Date.now(),
+      ...update,
+    }, true)
   }
 
   async start(): Promise<void> {
@@ -169,15 +271,22 @@ export class CodexClient extends EventEmitter {
         this.process = null
         this.startPromise = null
       })
-    }).then(async () => {
-      await this.call('initialize', { clientInfo: { name: 'cranberri', version: '0.1.0' } })
-    })
+    }).then(() => this.initializeSession())
+  }
+
+  private async initializeSession(): Promise<void> {
+    await this.call('initialize', CODEX_INITIALIZE_PARAMS)
+    this.notify('initialized')
   }
 
   stop(): void {
     this.process?.kill('SIGTERM')
     this.process = null
     this.startPromise = null
+    this.activeRunThreads.clear()
+    this.currentTurnIdByThread.clear()
+    this.parentThreadByWorker.clear()
+    this.workerByThread.clear()
   }
 
   async createThread(cwd?: string, settings?: CodexTurnSettings): Promise<Thread> {
@@ -204,6 +313,60 @@ export class CodexClient extends EventEmitter {
     })
     const turnId = (res.result as { turn?: { id?: string } } | undefined)?.turn?.id
     if (turnId) this.currentTurnIdByThread.set(threadId, turnId)
+  }
+
+  async steerThread(threadId: string, input: CodexUserInput[]): Promise<void> {
+    const turnId = await this.resolveActiveTurnId(threadId)
+    if (!turnId) throw new Error('This worker does not have an active turn to steer.')
+    await this.call('turn/steer', {
+      threadId,
+      input,
+      expectedTurnId: turnId,
+    })
+  }
+
+  async controlWorker(
+    parentThreadId: string,
+    workerThreadId: string,
+    action: CodexWorkerControlAction,
+    workerInput: CodexUserInput[],
+  ): Promise<void> {
+    if (action === 'stop') {
+      await this.interrupt(workerThreadId)
+      return
+    }
+    const content = workerInput
+      .filter((part): part is Extract<CodexUserInput, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+      .join('\n\n')
+    if (!content) throw new Error('Worker instructions cannot be empty.')
+    const input = buildCodexWorkerControlInput(workerThreadId, action, content, workerInput)
+    const activeParentTurnId = await this.resolveActiveTurnId(parentThreadId)
+    if (activeParentTurnId) {
+      try {
+        await this.call('turn/steer', {
+          threadId: parentThreadId,
+          input,
+          expectedTurnId: activeParentTurnId,
+        })
+        return
+      } catch (error) {
+        this.currentTurnIdByThread.delete(parentThreadId)
+        const latestParentTurnId = await this.resolveActiveTurnId(parentThreadId)
+        if (latestParentTurnId === activeParentTurnId) throw error
+        if (latestParentTurnId) {
+          await this.call('turn/steer', {
+            threadId: parentThreadId,
+            input,
+            expectedTurnId: latestParentTurnId,
+          })
+          return
+        }
+      }
+    }
+    await this.resumeThread(parentThreadId, this.cwd)
+    await this.sendMessage(parentThreadId, input)
   }
 
   async compactThread(threadId: string): Promise<void> {
@@ -262,8 +425,15 @@ export class CodexClient extends EventEmitter {
       sortDirection: 'desc',
     })
     const result = res.result as { data?: SdkThread[]; nextCursor?: string | null; backwardsCursor?: string | null } | undefined
+    const roots = result?.data ?? []
+    const descendants = await Promise.all(roots.map((thread) => this.listDescendantThreads(thread.id).catch(() => [])))
+    const descendantsWithOutcomes = await Promise.all(
+      descendants.flat().map((descendant) => this.withLatestTurnOutcome(descendant)),
+    )
+    const sessions = normalizeThreadList([...roots, ...descendantsWithOutcomes], archived)
+    for (const session of sessions) this.rememberSessionWorkers(session)
     return {
-      sessions: (result?.data ?? []).map((thread) => normalizeThread(thread, archived)),
+      sessions,
       nextCursor: result?.nextCursor,
       backwardsCursor: result?.backwardsCursor,
     }
@@ -273,12 +443,21 @@ export class CodexClient extends EventEmitter {
     const res = await this.call('thread/read', { threadId, includeTurns: true })
     const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
     if (!thread?.id) throw new Error('thread/read did not return a thread')
-    return normalizeThread(thread, archived)
+    const descendants = await this.listDescendantThreads(thread.id).catch(() => [])
+    const descendantsWithOutcomes = await Promise.all(descendants.map((descendant) => this.withLatestTurnOutcome(descendant)))
+    const normalized = normalizeThread(thread, archived)
+    const treeRoot = normalizeThreadList([
+      { ...thread, parentThreadId: null },
+      ...descendantsWithOutcomes,
+    ], archived)[0]
+    normalized.workers = mergeWorkerCollections(normalized.workers, treeRoot?.workers)
+    this.rememberSessionWorkers(normalized)
+    return normalized
   }
 
   async resumeThread(threadId: string, cwd?: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
     if (cwd) this.cwd = cwd
-    const approvalSettings = getTurnApprovalSettings(settings?.approvalMode)
+    const approvalSettings = getThreadApprovalSettings(settings?.approvalMode)
     const res = await this.call('thread/resume', {
       threadId,
       cwd: this.cwd,
@@ -287,7 +466,9 @@ export class CodexClient extends EventEmitter {
     })
     const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
     if (!thread?.id) throw new Error('thread/resume did not return a thread')
-    return normalizeThread(thread, false)
+    const normalized = normalizeThread(thread, false)
+    this.rememberSessionWorkers(normalized)
+    return normalized
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -298,7 +479,9 @@ export class CodexClient extends EventEmitter {
     const res = await this.call('thread/unarchive', { threadId })
     const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
     if (!thread?.id) throw new Error('thread/unarchive did not return a thread')
-    return normalizeThread(thread, false)
+    const normalized = normalizeThread(thread, false)
+    this.rememberSessionWorkers(normalized)
+    return normalized
   }
 
   async deleteThread(threadId: string): Promise<void> {
@@ -307,6 +490,56 @@ export class CodexClient extends EventEmitter {
 
   async setThreadName(threadId: string, name: string): Promise<void> {
     await this.call('thread/name/set', { threadId, name })
+  }
+
+  private async listDescendantThreads(ancestorThreadId: string): Promise<SdkThread[]> {
+    const descendants: SdkThread[] = []
+    for (const archived of [false, true]) {
+      let cursor: string | null = null
+      try {
+        do {
+          const res = await this.call('thread/list', {
+            ancestorThreadId,
+            archived,
+            cursor,
+            limit: 100,
+            sortKey: 'created_at',
+            sortDirection: 'asc',
+          })
+          const result = res.result as { data?: SdkThread[]; nextCursor?: string | null } | undefined
+          descendants.push(...(result?.data ?? []))
+          cursor = result?.nextCursor ?? null
+        } while (cursor)
+      } catch {
+        // Older app-server builds may reject descendant or archived-tree filters.
+      }
+    }
+    return [...new Map(descendants.map((thread) => [thread.id, thread])).values()]
+  }
+
+  private async withLatestTurnOutcome(thread: SdkThread): Promise<SdkThread> {
+    const statusType = thread.status && typeof thread.status === 'object'
+      ? (thread.status as { type?: unknown }).type
+      : thread.status
+    if (statusType === 'active') return thread
+    try {
+      const res = await this.call('thread/turns/list', {
+        threadId: thread.id,
+        cursor: null,
+        limit: 1,
+        sortDirection: 'desc',
+        itemsView: 'summary',
+      })
+      const latest = (res.result as { data?: Array<{ status?: string }> } | undefined)?.data?.[0]
+      const workerStatus = latest?.status === 'inProgress'
+        ? 'running'
+        : latest?.status === 'failed'
+          ? 'errored'
+          : latest?.status
+      return workerStatus ? { ...thread, status: workerStatus } : thread
+    } catch {
+      return thread
+    }
   }
 
   async getRateLimits(): Promise<CodexRateLimitsReadResult> {
@@ -349,16 +582,24 @@ export class CodexClient extends EventEmitter {
   }
 
   async interrupt(threadId: string): Promise<void> {
-    const turnId = this.currentTurnIdByThread.get(threadId)
-    if (!turnId) {
-      console.warn(`[codex] turn/interrupt called for thread ${threadId} without a known turnId`)
-    }
-    await this.call('turn/interrupt', { threadId, turnId: turnId ?? null })
+    const turnId = await this.resolveActiveTurnId(threadId)
+    if (!turnId) throw new Error('This task does not have an active turn to stop.')
+    await this.call('turn/interrupt', { threadId, turnId })
   }
 
   /** @deprecated use interrupt() */
   async abort(threadId: string): Promise<void> {
     await this.interrupt(threadId)
+  }
+
+  private async resolveActiveTurnId(threadId: string): Promise<string | null> {
+    const knownTurnId = this.currentTurnIdByThread.get(threadId)
+    if (knownTurnId) return knownTurnId
+    const res = await this.call('thread/read', { threadId, includeTurns: true })
+    const turns = (res.result as { thread?: SdkThread } | undefined)?.thread?.turns ?? []
+    const activeTurn = [...turns].reverse().find((turn) => turn.status === 'inProgress')
+    if (activeTurn?.id) this.currentTurnIdByThread.set(threadId, activeTurn.id)
+    return activeTurn?.id ?? null
   }
 
   private onData(data: Buffer): void {
@@ -390,6 +631,16 @@ export class CodexClient extends EventEmitter {
     this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
   }
 
+  private rememberWorkersFromItem(parentThreadId: string, item: unknown): void {
+    for (const worker of workersFromThreadItem(
+      parentThreadId,
+      item && typeof item === 'object' ? item : undefined,
+      Date.now(),
+    )) {
+      this.rememberWorker(worker, true)
+    }
+  }
+
   private handleMessage(msg: JsonRpcResponse | JsonRpcNotification): void {
     if ('id' in msg && msg.id !== undefined) {
       const pending = this.pending.get(msg.id)
@@ -406,13 +657,24 @@ export class CodexClient extends EventEmitter {
     if (!('method' in msg)) return
     const n = msg as JsonRpcNotification
     const params = n.params ?? {}
-    const threadId = (params.threadId as string | undefined) ?? ''
+    const notificationThread = (params as { thread?: SdkThread }).thread
+    const threadId = (params.threadId as string | undefined) ?? notificationThread?.id ?? ''
     const method = n.method
 
     switch (method) {
+      case 'thread/started': {
+        if (!notificationThread?.id) break
+        const session = normalizeThread(notificationThread, false)
+        this.rememberSessionWorkers(session, true)
+        if (session.title) {
+          this.emit('event', { type: 'thread_name_updated', threadId: session.id, title: session.title } as CodexEvent)
+        }
+        break
+      }
       case 'thread/name/updated': {
         const title = (params as { threadName?: string }).threadName ?? (params as { name?: string }).name ?? 'New thread'
         this.emit('event', { type: 'thread_name_updated', threadId, title } as CodexEvent)
+        this.updateKnownWorker(threadId, { title, updatedAt: Date.now() })
         break
       }
       case 'thread/status/changed': {
@@ -430,12 +692,18 @@ export class CodexClient extends EventEmitter {
         } else if (status?.type === 'idle') {
           this.emitRunEnd(threadId)
         }
+        const workerStatus = normalizeCodexWorkerStatus(status, 'running')
+        const currentWorker = this.workerByThread.get(threadId)
+        if (workerStatus !== 'idle' || !currentWorker || codexWorkerIsActive(currentWorker.status)) {
+          this.updateKnownWorker(threadId, { status: workerStatus, updatedAt: Date.now() })
+        }
         break
       }
       case 'turn/started': {
         const turnId = (params as { turn?: { id?: string } }).turn?.id
         if (turnId) this.currentTurnIdByThread.set(threadId, turnId)
         this.emitRunStart(threadId)
+        this.updateKnownWorker(threadId, { status: 'running', updatedAt: Date.now() })
         break
       }
       case 'agent_message': {
@@ -453,8 +721,20 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'turn/completed': {
-        const error = (params as { turn?: { error?: { message?: string } } }).turn?.error?.message
+        const turn = (params as { turn?: { status?: string; error?: { message?: string } } }).turn
+        const error = turn?.error?.message
+        const workerStatus = turn?.status === 'interrupted'
+          ? 'interrupted'
+          : turn?.status === 'failed' || error
+            ? 'errored'
+            : 'completed'
+        this.currentTurnIdByThread.delete(threadId)
         this.emitRunEnd(threadId, error)
+        this.updateKnownWorker(threadId, {
+          status: workerStatus,
+          message: error ?? (workerStatus === 'errored' ? 'Worker turn failed' : ''),
+          updatedAt: Date.now(),
+        })
         break
       }
       case 'token_count':
@@ -480,6 +760,7 @@ export class CodexClient extends EventEmitter {
         const item = (params as { item?: { id?: string; type?: string } }).item
         const itemType = item?.type ?? 'unknown'
         this.emit('event', { type: 'item_started', threadId, itemId: item?.id, itemType } as CodexEvent)
+        this.rememberWorkersFromItem(threadId, item)
         const toolEvent = createToolEventFromItem(threadId, item, 'started')
         if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (itemType === 'contextCompaction') {
@@ -533,6 +814,7 @@ export class CodexClient extends EventEmitter {
       }
       case 'item/completed': {
         const item = (params as { item?: { id?: string; type?: string; text?: string; phase?: string } }).item
+        this.rememberWorkersFromItem(threadId, item)
         const toolEvent = createToolEventFromItem(threadId, item, 'completed')
         if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (item?.type === 'contextCompaction') {
@@ -541,6 +823,10 @@ export class CodexClient extends EventEmitter {
         if (item?.type === 'agentMessage' && item.id) {
           this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '', phase: item.phase } as CodexEvent)
         }
+        break
+      }
+      case 'thread/deleted': {
+        this.updateKnownWorker(threadId, { status: 'notFound', updatedAt: Date.now() })
         break
       }
       case 'item/mcpToolCall/progress': {
@@ -613,6 +899,13 @@ export class CodexClient extends EventEmitter {
       default:
         return String(a.type ?? 'Unknown action')
     }
+  }
+
+  private notify(method: string, params?: Record<string, unknown>): void {
+    if (!this.process?.stdin?.writable) throw new Error('Codex app-server not running')
+    const notification: JsonRpcNotification = { jsonrpc: '2.0', method, params }
+    if (!params) delete notification.params
+    this.process.stdin.write(`${JSON.stringify(notification)}\n`)
   }
 
   private call(method: string, params?: Record<string, unknown>, timeoutMs = 60_000): Promise<JsonRpcResponse> {

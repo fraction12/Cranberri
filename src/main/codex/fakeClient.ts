@@ -7,14 +7,22 @@ import type {
   CodexSessionThread,
   CodexTurnSettings,
   CodexUserInput,
+  CodexWorker,
+  CodexWorkerStatus,
 } from '../../shared/codex'
 import type { ToolEventRecord } from '../../shared/tools'
+import type { CodexWorkerControlAction } from '../../shared/codex-worker-control'
 import { createToolEventFromItem } from '../tools'
 
 const FAKE_SHELL_SENTINEL = 'cranberri-shell-private-sentinel'
 
 interface FakeThreadRecord {
   id: string
+  sessionId: string
+  parentThreadId?: string
+  agentNickname?: string
+  agentRole?: string
+  status: CodexWorkerStatus
   title: string
   cwd: string
   createdAt: number
@@ -31,16 +39,48 @@ function visualInputCount(input: CodexUserInput[]): number {
   return input.filter((part) => part.type === 'image' || part.type === 'localImage').length
 }
 
-function sessionSummary(thread: FakeThreadRecord): CodexSessionSummary {
+function workerFromFakeThread(thread: FakeThreadRecord): CodexWorker | null {
+  if (!thread.parentThreadId) return null
+  return {
+    threadId: thread.id,
+    parentThreadId: thread.parentThreadId,
+    sessionId: thread.sessionId,
+    title: thread.title,
+    nickname: thread.agentNickname,
+    role: thread.agentRole,
+    status: thread.status,
+    cwd: thread.cwd,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  }
+}
+
+function sessionSummary(thread: FakeThreadRecord, allThreads: Iterable<FakeThreadRecord>): CodexSessionSummary {
+  const workers = [...allThreads]
+    .filter((candidate) => candidate.parentThreadId === thread.id)
+    .map(workerFromFakeThread)
+    .filter((worker): worker is CodexWorker => Boolean(worker))
   return {
     id: thread.id,
+    sessionId: thread.sessionId,
+    parentThreadId: thread.parentThreadId,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole,
     title: thread.title,
     preview: thread.turns.at(-1)?.items?.find((item) => item.type === 'userMessage')?.content?.map((part) => part.text).join('\n') ?? '',
     cwd: thread.cwd,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     archived: thread.archived,
+    status: thread.parentThreadId
+      ? thread.status === 'running' || thread.status === 'pendingInit'
+        ? { type: 'active', activeFlags: [] }
+        : thread.status === 'errored'
+          ? { type: 'systemError' }
+          : { type: 'idle' }
+      : { type: 'idle' },
     turnCount: thread.turns.length,
+    workers,
   }
 }
 
@@ -87,11 +127,24 @@ function fakeApproval(threadId: string, turnId: string): CodexEvent {
   }
 }
 
+function fakeWorkerEvent(parentThreadId: string, worker: FakeThreadRecord, message?: string): CodexEvent {
+  return {
+    type: 'worker_updated',
+    threadId: parentThreadId,
+    worker: {
+      ...workerFromFakeThread(worker)!,
+      message,
+      updatedAt: Date.now(),
+    },
+  }
+}
+
 export class FakeCodexClient extends EventEmitter {
   private cwd: string
   private nextThread = 1
   private nextTurn = 1
   private readonly threads = new Map<string, FakeThreadRecord>()
+  private readonly workerTimers = new Map<string, NodeJS.Timeout>()
 
   constructor(cwd: string) {
     super()
@@ -100,7 +153,10 @@ export class FakeCodexClient extends EventEmitter {
 
   async start(): Promise<void> {}
 
-  stop(): void {}
+  stop(): void {
+    for (const timer of this.workerTimers.values()) clearTimeout(timer)
+    this.workerTimers.clear()
+  }
 
   setCwd(cwd: string): void {
     this.cwd = cwd
@@ -112,6 +168,8 @@ export class FakeCodexClient extends EventEmitter {
     const now = Date.now()
     const thread: FakeThreadRecord = {
       id,
+      sessionId: `fake-session-${id}`,
+      status: 'completed',
       title: 'Smoke Codex Thread',
       cwd: this.cwd,
       createdAt: now,
@@ -153,6 +211,11 @@ export class FakeCodexClient extends EventEmitter {
       ],
     })
 
+    if (thread.parentThreadId) {
+      thread.status = 'running'
+      this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Working on new instruction'))
+    }
+
     this.emit('event', { type: 'run_start', threadId } satisfies CodexEvent)
     this.emit('event', { type: 'item_started', threadId, itemId, itemType: 'agentMessage' } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running') } satisfies CodexEvent)
@@ -161,6 +224,9 @@ export class FakeCodexClient extends EventEmitter {
       setTimeout(() => {
         this.emit('event', fakeApproval(threadId, turnId))
       }, 15)
+    }
+    if (userText.includes('cranberri-worker-smoke')) {
+      this.spawnFakeWorker(thread, turnId)
     }
     const chunks = ['Fake Codex received: ', userText || 'empty message', visualLine, settingsLine, '\ncranberri-fake-codex-stream-complete']
     chunks.forEach((delta, index) => {
@@ -184,8 +250,54 @@ export class FakeCodexClient extends EventEmitter {
       this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
       this.emit('event', { type: 'context_usage', threadId, usedTokens: 128, contextWindow: 258400 } satisfies CodexEvent)
       this.emit('event', { type: 'final_answer', threadId, text: response } satisfies CodexEvent)
+      if (thread.parentThreadId) {
+        thread.status = 'completed'
+        thread.updatedAt = Date.now()
+        this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Instruction complete'))
+      }
       this.emit('event', { type: 'run_end', threadId } satisfies CodexEvent)
     }, 100)
+  }
+
+  async steerThread(threadId: string, input: CodexUserInput[]): Promise<void> {
+    const worker = this.requireThread(threadId)
+    if (!worker.parentThreadId) throw new Error('Only fake workers can be steered.')
+    if (worker.status !== 'running' && worker.status !== 'pendingInit') {
+      throw new Error('This fake worker does not have an active turn to steer.')
+    }
+    const instruction = firstText(input)
+    const turn = worker.turns.at(-1)
+    if (turn) {
+      turn.items = [
+        ...(turn.items ?? []),
+        {
+          id: `${turn.id}-steer-${Date.now()}`,
+          type: 'userMessage',
+          content: [{ type: 'text', text: instruction }],
+        },
+      ]
+    }
+    worker.updatedAt = Date.now()
+    this.emit('event', fakeWorkerEvent(worker.parentThreadId, worker, `Steered: ${instruction}`))
+  }
+
+  async controlWorker(
+    parentThreadId: string,
+    workerThreadId: string,
+    action: CodexWorkerControlAction,
+    input: CodexUserInput[],
+  ): Promise<void> {
+    const worker = this.requireThread(workerThreadId)
+    if (worker.parentThreadId !== parentThreadId) throw new Error('Fake worker is not attached to this parent.')
+    if (action === 'stop') {
+      await this.interrupt(workerThreadId)
+      return
+    }
+    if (action === 'message' && (worker.status === 'running' || worker.status === 'pendingInit')) {
+      await this.steerThread(workerThreadId, input)
+      return
+    }
+    await this.sendMessage(workerThreadId, input)
   }
 
   async runOneShot(cwd: string, content: string, _settings?: CodexTurnSettings, _timeoutMs?: number): Promise<string> {
@@ -211,7 +323,9 @@ export class FakeCodexClient extends EventEmitter {
     this.cwd = cwd
     const archived = options.archived ?? false
     return {
-      sessions: [...this.threads.values()].filter((thread) => thread.archived === archived).map(sessionSummary),
+      sessions: [...this.threads.values()]
+        .filter((thread) => thread.archived === archived && !thread.parentThreadId)
+        .map((thread) => sessionSummary(thread, this.threads.values())),
       nextCursor: null,
       backwardsCursor: null,
     }
@@ -219,7 +333,7 @@ export class FakeCodexClient extends EventEmitter {
 
   async readThread(threadId: string, archived = false): Promise<CodexSessionThread> {
     const thread = this.requireThread(threadId)
-    return { ...sessionSummary(thread), archived, turns: thread.turns }
+    return { ...sessionSummary(thread, this.threads.values()), archived, turns: thread.turns }
   }
 
   async resumeThread(threadId: string, cwd?: string, _settings?: CodexTurnSettings): Promise<CodexSessionThread> {
@@ -258,7 +372,13 @@ export class FakeCodexClient extends EventEmitter {
   }
 
   async interrupt(threadId: string): Promise<void> {
-    this.requireThread(threadId)
+    const thread = this.requireThread(threadId)
+    const timer = this.workerTimers.get(threadId)
+    if (timer) clearTimeout(timer)
+    this.workerTimers.delete(threadId)
+    thread.status = 'interrupted'
+    thread.updatedAt = Date.now()
+    if (thread.parentThreadId) this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Stopped by user'))
     this.emit('event', { type: 'run_end', threadId, error: 'Interrupted' } satisfies CodexEvent)
   }
 
@@ -328,6 +448,89 @@ export class FakeCodexClient extends EventEmitter {
     const thread = this.threads.get(threadId)
     if (!thread) throw new Error(`Fake Codex thread not found: ${threadId}`)
     return thread
+  }
+
+  private spawnFakeWorker(parent: FakeThreadRecord, parentTurnId: string): void {
+    const id = `fake-worker-${this.nextThread++}`
+    const now = Date.now()
+    const workerTurnId = `fake-worker-turn-${this.nextTurn++}`
+    const worker: FakeThreadRecord = {
+      id,
+      sessionId: parent.sessionId,
+      parentThreadId: parent.id,
+      agentNickname: 'Euclid',
+      agentRole: 'explorer',
+      status: 'pendingInit',
+      title: 'Inspect worker smoke fixture',
+      cwd: parent.cwd,
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+      turns: [{
+        id: workerTurnId,
+        startedAt: now / 1000,
+        completedAt: null,
+        status: 'inProgress',
+        items: [{
+          id: `${workerTurnId}-prompt`,
+          type: 'userMessage',
+          content: [{ type: 'text', text: 'Inspect the fake worker smoke fixture.' }],
+        }],
+      }],
+    }
+    this.threads.set(id, worker)
+    const parentTurn = parent.turns.find((turn) => turn.id === parentTurnId)
+    if (parentTurn) {
+      parentTurn.items = [
+        ...(parentTurn.items ?? []),
+        {
+          id: `${parentTurnId}-spawn-worker`,
+          type: 'collabAgentToolCall',
+          tool: 'spawnAgent',
+          status: 'completed',
+          senderThreadId: parent.id,
+          receiverThreadIds: [worker.id],
+          prompt: 'Inspect the fake worker smoke fixture.',
+          model: 'gpt-5.6-terra',
+          reasoningEffort: 'high',
+          agentsStates: { [worker.id]: { status: 'running', message: null } },
+        },
+      ]
+    }
+    this.emit('event', fakeWorkerEvent(parent.id, worker, 'Starting'))
+    worker.status = 'running'
+    worker.updatedAt = Date.now()
+    this.emit('event', { type: 'run_start', threadId: worker.id } satisfies CodexEvent)
+    this.emit('event', fakeWorkerEvent(parent.id, worker, 'Inspecting fixture'))
+
+    const timer = setTimeout(() => {
+      const activeWorker = this.threads.get(worker.id)
+      if (!activeWorker || activeWorker.status !== 'running') return
+      const turn = activeWorker.turns.at(-1)
+      const response = 'Fake worker completed the fixture inspection.'
+      if (turn) {
+        turn.completedAt = Date.now() / 1000
+        turn.durationMs = 1_500
+        turn.status = 'completed'
+        turn.items = [
+          ...(turn.items ?? []),
+          { id: `${turn.id}-assistant`, type: 'agentMessage', text: response, phase: 'final_answer' },
+        ]
+      }
+      activeWorker.status = 'completed'
+      activeWorker.updatedAt = Date.now()
+      this.emit('event', {
+        type: 'agent_message_completed',
+        threadId: activeWorker.id,
+        itemId: `${turn?.id ?? workerTurnId}-assistant`,
+        text: response,
+        phase: 'final_answer',
+      } satisfies CodexEvent)
+      this.emit('event', fakeWorkerEvent(parent.id, activeWorker, 'Fixture inspection complete'))
+      this.emit('event', { type: 'run_end', threadId: activeWorker.id } satisfies CodexEvent)
+      this.workerTimers.delete(activeWorker.id)
+    }, 5_000)
+    this.workerTimers.set(worker.id, timer)
   }
 }
 

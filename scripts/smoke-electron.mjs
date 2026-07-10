@@ -958,6 +958,77 @@ async function runRepoWorkspaceSmoke() {
             && payload.state === 'completed'
         })
       }, { timeout: 10_000 })
+
+      smokeStep('first-class subagent workers')
+      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-worker-smoke')
+      await page.getByLabel('Send message').click()
+      const workerRow = page.locator('[data-worker-id^="fake-worker-"]').first()
+      await workerRow.waitFor({ timeout: 10_000 })
+      await workerRow.getByText('Euclid', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => {
+        const worker = document.querySelector('[data-worker-id^="fake-worker-"]')
+        return worker?.getAttribute('data-worker-status') === 'running'
+      }, undefined, { timeout: 10_000 })
+      await page.getByLabel('View Euclid').click()
+      await page.getByLabel('Steer Euclid').click()
+      await page.getByPlaceholder('Steer this worker...').fill('Focus on the renderer worker shelf.')
+      await page.getByLabel('Send worker instruction').click()
+      await page.locator('[data-worker-detail]').getByText(/Direction sent through parent|Steered:/).waitFor({ timeout: 10_000 })
+
+      await page.getByLabel('Open Euclid').click()
+      await page.getByLabel('Open parent task').waitFor({ timeout: 10_000 })
+      await page.getByText('Inspect the fake worker smoke fixture.').waitFor({ timeout: 10_000 })
+      await page.getByRole('textbox', { name: 'Chat message' }).fill('Steer from the opened worker transcript.')
+      await page.getByRole('button', { name: 'Send message' }).click()
+      await page.getByText('Steer from the opened worker transcript.', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByLabel('Open parent task').click()
+      const stopWorkerButton = page.locator('button[aria-label="Stop Euclid"]:visible')
+      if (!await stopWorkerButton.isVisible().catch(() => false)) {
+        await page.locator('button[aria-label="View Euclid"]:visible').click()
+      }
+      await stopWorkerButton.waitFor({ timeout: 10_000 })
+      await stopWorkerButton.click()
+      await page.waitForFunction(() => {
+        const worker = document.querySelector('[data-worker-id^="fake-worker-"]')
+        return worker?.getAttribute('data-worker-status') === 'interrupted'
+      }, undefined, { timeout: 10_000 })
+      await page.locator('button[aria-label="Resume Euclid"]:visible').click()
+      await page.locator('input[placeholder="Resume with a new instruction..."]:visible').fill('Recheck the fixture after interruption.')
+      await page.locator('button[aria-label="Send worker instruction"]:visible').click()
+      await page.waitForFunction(() => {
+        const worker = document.querySelector('[data-worker-id^="fake-worker-"]')
+        return worker?.getAttribute('data-worker-status') === 'completed'
+      }, undefined, { timeout: 10_000 })
+      if (await page.locator('[data-session-worker-id]').count() !== 0) {
+        throw new Error('Subagents should not appear in the repo rail')
+      }
+      if (await page.locator('button[aria-label^="Expand workers for"]').count() !== 0) {
+        throw new Error('Repo sessions should not expose worker disclosure controls')
+      }
+      const restoredWorkerTree = await page.evaluate(async (targetRepoPath) => {
+        const listed = await window.cranberri.codex.listThreads(targetRepoPath, { archived: false, limit: 20 })
+        const parent = listed.sessions.find((session) => session.workers?.some((worker) => worker.nickname === 'Euclid'))
+        if (!parent) return null
+        const restored = await window.cranberri.codex.readThread(targetRepoPath, parent.id, false)
+        return {
+          parentId: parent.id,
+          listedStatus: parent.workers?.[0]?.status,
+          restoredStatus: restored.thread.workers?.[0]?.status,
+          hasHistoricalSpawn: restored.thread.turns.some((turn) => turn.items?.some((item) => item.type === 'collabAgentToolCall')),
+        }
+      }, repoPath)
+      if (!restoredWorkerTree
+        || restoredWorkerTree.listedStatus !== 'completed'
+        || restoredWorkerTree.restoredStatus !== 'completed'
+        || !restoredWorkerTree.hasHistoricalSpawn) {
+        throw new Error(`Worker tree did not restore correctly: ${JSON.stringify(restoredWorkerTree)}`)
+      }
+      if (await page.getByLabel('Switch to Inspect worker smoke fixture').count() !== 1) {
+        throw new Error('Opening and returning from a worker created duplicate worker tabs')
+      }
+      await page.getByLabel('Close Inspect worker smoke fixture').click()
+      await captureSmokeScreenshot(page, 'subagent-workers')
+
       smokeStep('approvals and tools')
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-approval-smoke-request')
       await page.getByLabel('Send message').click()

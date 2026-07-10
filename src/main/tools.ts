@@ -53,6 +53,7 @@ function itemKind(type: string): ToolEventKind | null {
     case 'tool_search_call':
       return 'dynamic'
     case 'collabAgentToolCall':
+    case 'collabToolCall':
       return 'collab'
     case 'web_search_call':
       return 'web_search'

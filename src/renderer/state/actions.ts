@@ -2168,12 +2168,17 @@ function codexThreadAsSessionSummary(thread: CodexThread): CodexSessionSummary {
   const lastMessage = [...thread.messages].reverse().find((message) => message.content.trim())
   return {
     id: thread.id,
+    sessionId: thread.sessionId,
+    parentThreadId: thread.parentThreadId,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole,
     title: thread.title || 'Untitled session',
     preview: lastMessage?.content.slice(0, 160) ?? '',
     createdAt: timestamp,
     updatedAt: timestamp,
     archived: false,
     turnCount: thread.messages.filter((message) => message.role === 'user').length,
+    workers: thread.workers,
   }
 }
 

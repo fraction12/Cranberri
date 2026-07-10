@@ -51,8 +51,20 @@ describe('Codex event policy', () => {
       threadId: 'thread-1',
       tool: { id: 'tool-1', function: 'exec_command', arguments: { command: 'echo secret' } },
     }
+    const worker: CodexEvent = {
+      type: 'worker_updated',
+      threadId: 'thread-1',
+      worker: {
+        threadId: 'worker-1',
+        parentThreadId: 'thread-1',
+        prompt: 'Sensitive task context',
+        status: 'running',
+        updatedAt: 1,
+      },
+    }
 
     expect(shouldPersistCodexEventTelemetry(approval)).toBe(false)
     expect(shouldPersistCodexEventTelemetry(tool)).toBe(false)
+    expect(shouldPersistCodexEventTelemetry(worker)).toBe(false)
   })
 })

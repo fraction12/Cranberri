@@ -73,6 +73,8 @@ declare global {
         start: (cwd: string) => Promise<{ started: boolean }>
         createThread: (cwd: string, settings?: CodexTurnSettings) => Promise<{ threadId: string; title?: string | null }>
         sendMessage: (cwd: string, threadId: string, input: import('@/shared/codex').CodexUserInput[], settings?: CodexTurnSettings) => Promise<{ ok: boolean }>
+        steerThread: (cwd: string, threadId: string, input: import('@/shared/codex').CodexUserInput[]) => Promise<{ ok: boolean }>
+        controlWorker: (cwd: string, parentThreadId: string, workerThreadId: string, action: import('@/shared/codex-worker-control').CodexWorkerControlAction, input: import('@/shared/codex').CodexUserInput[]) => Promise<{ ok: boolean }>
         compactThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         approve: (cwd: string, threadId: string, event: unknown) => Promise<{ ok: boolean }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>

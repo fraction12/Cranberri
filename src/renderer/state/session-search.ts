@@ -1,4 +1,5 @@
 import type { CodexSdkThreadItem, CodexSessionSummary, CodexSessionThread } from '@/shared/codex'
+import { codexWorkerControlDisplayText } from '@/shared/codex-worker-control'
 
 export interface SessionSearchResult {
   session: CodexSessionSummary
@@ -55,7 +56,25 @@ export function searchSessionTranscript(thread: CodexSessionThread, query: strin
 export function sessionThreadMatchesSummary(session: CodexSessionSummary, query: string): boolean {
   const terms = normalizeTerms(query)
   if (terms.length === 0) return true
-  const haystack = normalizeSearchText([session.title, session.preview, session.id, session.cwd, session.path].filter(Boolean).join(' '))
+  const workerKeywords = (session.workers ?? []).flatMap((worker) => [
+    worker.threadId,
+    worker.nickname,
+    worker.role,
+    worker.title,
+    worker.prompt,
+    worker.lastInstruction,
+  ])
+  const haystack = normalizeSearchText([
+    session.title,
+    session.preview,
+    session.id,
+    session.cwd,
+    session.path,
+    session.parentThreadId,
+    session.agentNickname,
+    session.agentRole,
+    ...workerKeywords,
+  ].filter(Boolean).join(' '))
   return terms.every((term) => haystack.includes(term))
 }
 
@@ -81,6 +100,9 @@ export function sessionChatContext(thread: CodexSessionThread, matches: Transcri
     `Title: ${thread.title || 'Untitled session'}`,
     `Thread: ${thread.id}`,
     thread.sessionId ? `Session: ${thread.sessionId}` : null,
+    thread.parentThreadId ? `Parent thread: ${thread.parentThreadId}` : null,
+    thread.agentNickname ? `Worker: ${thread.agentNickname}` : null,
+    thread.agentRole ? `Worker role: ${thread.agentRole}` : null,
     thread.cwd ? `Repo: ${thread.cwd}` : null,
     thread.archived ? 'Archived: yes' : 'Archived: no',
     `Turns: ${thread.turnCount}`,
@@ -116,7 +138,7 @@ function transcriptItems(thread: CodexSessionThread): TranscriptItem[] {
 
 function itemToTranscriptItem(turnId: string, item: CodexSdkThreadItem): TranscriptItem | null {
   if (item.type === 'userMessage') {
-    return { turnId, itemId: item.id, role: 'user', text: contentText(item) }
+    return { turnId, itemId: item.id, role: 'user', text: codexWorkerControlDisplayText(contentText(item)) }
   }
   if (item.type === 'agentMessage') {
     return { turnId, itemId: item.id, role: item.phase === 'commentary' || item.phase === 'reasoning' ? 'assistant reasoning' : 'assistant', text: item.text ?? contentText(item) }

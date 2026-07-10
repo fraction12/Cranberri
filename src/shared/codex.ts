@@ -264,6 +264,20 @@ export interface CodexSdkThreadItem {
   phase?: string | null
   content?: Array<{ type?: string; text?: string }>
   summary?: string[]
+  tool?: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'spawn_agent' | 'send_input' | 'resume_agent' | 'close_agent' | string
+  status?: unknown
+  senderThreadId?: string
+  receiverThreadIds?: string[]
+  receiverThreadId?: string | null
+  newThreadId?: string | null
+  prompt?: string | null
+  model?: string | null
+  reasoningEffort?: CodexReasoningEffort | string | null
+  agentsStates?: Record<string, { status?: string; message?: string | null } | undefined>
+  agentStatus?: string | { status?: string; message?: string | null } | null
+  kind?: 'started' | 'interacted' | 'interrupted' | string
+  agentThreadId?: string
+  agentPath?: string
 }
 
 export interface CodexSdkTurn {
@@ -278,6 +292,13 @@ export interface CodexSdkTurn {
 export interface CodexSessionSummary {
   id: string
   sessionId?: string
+  forkedFromId?: string | null
+  parentThreadId?: string | null
+  ephemeral?: boolean
+  source?: unknown
+  threadSource?: string | null
+  agentNickname?: string | null
+  agentRole?: string | null
   title: string
   preview: string
   cwd?: string
@@ -288,6 +309,7 @@ export interface CodexSessionSummary {
   status?: unknown
   path?: string | null
   turnCount: number
+  workers?: CodexWorker[]
 }
 
 export interface CodexSessionThread extends CodexSessionSummary {
@@ -309,6 +331,38 @@ export interface PendingApproval {
   description: string
 }
 
+export type CodexWorkerStatus =
+  | 'pendingInit'
+  | 'running'
+  | 'idle'
+  | 'interrupted'
+  | 'completed'
+  | 'errored'
+  | 'shutdown'
+  | 'notFound'
+
+export interface CodexWorker {
+  threadId: string
+  parentThreadId: string
+  sessionId?: string
+  title?: string
+  nickname?: string
+  role?: string
+  prompt?: string
+  lastInstruction?: string
+  model?: string
+  reasoningEffort?: string
+  status: CodexWorkerStatus
+  message?: string
+  cwd?: string
+  agentPath?: string
+  ephemeral?: boolean
+  source?: unknown
+  createdAt?: number
+  updatedAt: number
+  workers?: CodexWorker[]
+}
+
 export interface CodexThread {
   id: string
   title: string
@@ -321,6 +375,11 @@ export interface CodexThread {
   lastRunDurationMs?: number
   contextUsage?: CodexContextUsage
   isHistorical?: boolean
+  sessionId?: string
+  parentThreadId?: string | null
+  agentNickname?: string | null
+  agentRole?: string | null
+  workers?: CodexWorker[]
 }
 
 export type CodexEvent =
@@ -335,6 +394,7 @@ export type CodexEvent =
   | { type: 'run_end'; threadId: string; error?: string }
   | { type: 'context_usage'; threadId: string; usedTokens: number; contextWindow: number }
   | { type: 'context_compaction'; threadId: string; state: 'started' | 'completed' | 'failed'; message?: string }
+  | { type: 'worker_updated'; threadId: string; worker: CodexWorker }
   | { type: 'final_answer'; threadId: string; text: string }
   | { type: 'item_started'; threadId: string; itemId?: string; itemType: string }
   | { type: 'log'; level: string; text: string }

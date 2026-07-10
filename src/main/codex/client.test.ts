@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CodexClient } from './client'
+import { CODEX_INITIALIZE_PARAMS, CodexClient, normalizeThreadList } from './client'
+
+describe('CodexClient app-server handshake', () => {
+  it('enables the experimental descendant API and completes initialization', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async () => ({ jsonrpc: '2.0' as const, id: 1, result: {} }))
+    const notify = vi.fn()
+    Object.defineProperty(client, 'call', { value: call })
+    Object.defineProperty(client, 'notify', { value: notify })
+
+    await (client as unknown as { initializeSession: () => Promise<void> }).initializeSession()
+
+    expect(call).toHaveBeenCalledWith('initialize', CODEX_INITIALIZE_PARAMS)
+    expect(notify).toHaveBeenCalledWith('initialized')
+    expect(CODEX_INITIALIZE_PARAMS.capabilities).toEqual({ experimentalApi: true, requestAttestation: false })
+  })
+})
 
 describe('CodexClient turn transport', () => {
   it('sends the resolved model, effort, and service tier to turn/start', async () => {
     const client = new CodexClient('/tmp/cranberri-client-test')
-    const call = vi.fn(async () => ({
+    const call = vi.fn(async (_method: string, _params: Record<string, unknown>) => ({
       jsonrpc: '2.0' as const,
       id: 1,
       result: { turn: { id: 'turn-1' } },
@@ -43,6 +59,376 @@ describe('CodexClient turn transport', () => {
       effort: 'medium',
       serviceTier: null,
     }))
+  })
+
+  it('steers the currently active root turn with the app-server precondition', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => ({
+      jsonrpc: '2.0' as const,
+      id: 1,
+      result: method === 'turn/start' ? { turn: { id: 'turn-1' } } : {},
+    }))
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.sendMessage('parent-1', [{ type: 'text', text: 'start' }])
+    await client.steerThread('parent-1', [{ type: 'text', text: 'focus on renderer state' }])
+
+    expect(call).toHaveBeenLastCalledWith('turn/steer', {
+      threadId: 'parent-1',
+      input: [{ type: 'text', text: 'focus on renderer state' }],
+      expectedTurnId: 'turn-1',
+    })
+  })
+
+  it('routes a live worker instruction through the active parent turn', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => {
+      if (method === 'thread/read') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: { thread: { id: 'parent-1', turns: [{ id: 'parent-turn', status: 'inProgress' }] } },
+        }
+      }
+      return { jsonrpc: '2.0' as const, id: 2, result: {} }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.controlWorker('parent-1', 'worker-1', 'message', [{ type: 'text', text: 'Inspect renderer state.' }])
+
+    expect(call).toHaveBeenNthCalledWith(1, 'thread/read', { threadId: 'parent-1', includeTurns: true })
+    expect(call).toHaveBeenNthCalledWith(2, 'turn/steer', {
+      threadId: 'parent-1',
+      input: [expect.objectContaining({ type: 'text', text: expect.stringContaining('Target subagent thread: worker-1') })],
+      expectedTurnId: 'parent-turn',
+    })
+  })
+
+  it('resumes an inactive parent before asking it to resume a worker', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => {
+      if (method === 'thread/read') {
+        return { jsonrpc: '2.0' as const, id: 1, result: { thread: { id: 'parent-1', turns: [] } } }
+      }
+      if (method === 'thread/resume') {
+        return { jsonrpc: '2.0' as const, id: 2, result: { thread: { id: 'parent-1', turns: [] } } }
+      }
+      if (method === 'turn/start') {
+        return { jsonrpc: '2.0' as const, id: 3, result: { turn: { id: 'parent-turn-2' } } }
+      }
+      return { jsonrpc: '2.0' as const, id: 4, result: {} }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.controlWorker('parent-1', 'worker-1', 'resume', [{ type: 'text', text: 'Continue the audit.' }])
+
+    expect(call).toHaveBeenNthCalledWith(1, 'thread/read', { threadId: 'parent-1', includeTurns: true })
+    expect(call).toHaveBeenNthCalledWith(2, 'thread/resume', expect.objectContaining({
+      threadId: 'parent-1',
+      cwd: '/tmp/cranberri-client-test',
+    }))
+    expect(call).toHaveBeenNthCalledWith(3, 'turn/start', expect.objectContaining({
+      threadId: 'parent-1',
+      input: [expect.objectContaining({ type: 'text', text: expect.stringContaining('resume_agent') })],
+    }))
+  })
+
+  it('falls back to a new parent turn when the active parent finishes during worker steering', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    let reads = 0
+    const call = vi.fn(async (method: string) => {
+      if (method === 'thread/read') {
+        reads += 1
+        return {
+          jsonrpc: '2.0' as const,
+          id: reads,
+          result: { thread: { id: 'parent-1', turns: reads === 1 ? [{ id: 'turn-old', status: 'inProgress' }] : [] } },
+        }
+      }
+      if (method === 'turn/steer') throw new Error('expected active turn turn-old but found none')
+      if (method === 'thread/resume') {
+        return { jsonrpc: '2.0' as const, id: 3, result: { thread: { id: 'parent-1', turns: [] } } }
+      }
+      if (method === 'turn/start') {
+        return { jsonrpc: '2.0' as const, id: 4, result: { turn: { id: 'turn-new' } } }
+      }
+      return { jsonrpc: '2.0' as const, id: 5, result: {} }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.controlWorker('parent-1', 'worker-1', 'message', [{ type: 'text', text: 'Continue.' }])
+
+    expect(call).toHaveBeenCalledWith('thread/resume', expect.objectContaining({ threadId: 'parent-1' }))
+    expect(call).toHaveBeenLastCalledWith('turn/start', expect.objectContaining({ threadId: 'parent-1' }))
+  })
+
+  it('recovers a restored active turn before interrupting it', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => {
+      if (method === 'thread/read') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: { thread: { id: 'worker-1', turns: [{ id: 'turn-restored', status: 'inProgress' }] } },
+        }
+      }
+      return { jsonrpc: '2.0' as const, id: 2, result: {} }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.interrupt('worker-1')
+
+    expect(call).toHaveBeenNthCalledWith(1, 'thread/read', { threadId: 'worker-1', includeTurns: true })
+    expect(call).toHaveBeenNthCalledWith(2, 'turn/interrupt', { threadId: 'worker-1', turnId: 'turn-restored' })
+  })
+
+  it('uses thread-level sandbox settings when resuming a worker', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (_method: string, _params: Record<string, unknown>) => ({
+      jsonrpc: '2.0' as const,
+      id: 1,
+      result: { thread: { id: 'worker-1', turns: [] } },
+    }))
+    Object.defineProperty(client, 'call', { value: call })
+
+    await client.resumeThread('worker-1', '/tmp/worker-worktree', {
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+      approvalMode: 'full',
+    })
+
+    expect(call).toHaveBeenCalledWith('thread/resume', expect.objectContaining({
+      threadId: 'worker-1',
+      cwd: '/tmp/worker-worktree',
+      sandbox: { type: 'dangerFullAccess' },
+    }))
+    expect(call.mock.calls[0][1]).not.toHaveProperty('sandboxPolicy')
+  })
+})
+
+describe('CodexClient worker session normalization', () => {
+  it('nests subagent sessions beneath their parent instead of listing them as top-level tasks', () => {
+    const sessions = normalizeThreadList([
+      {
+        id: 'parent-1',
+        sessionId: 'tree-1',
+        name: 'Parent task',
+        createdAt: 1,
+        updatedAt: 2,
+        status: { type: 'idle' },
+        turns: [],
+      },
+      {
+        id: 'worker-1',
+        sessionId: 'tree-1',
+        parentThreadId: 'parent-1',
+        name: 'Inspect tests',
+        agentNickname: 'Euclid',
+        agentRole: 'explorer',
+        createdAt: 1,
+        updatedAt: 2,
+        status: { type: 'active', activeFlags: [] },
+        turns: [],
+      },
+    ], false)
+
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]).toMatchObject({ id: 'parent-1' })
+    expect(sessions[0].workers).toEqual([expect.objectContaining({
+      threadId: 'worker-1',
+      parentThreadId: 'parent-1',
+      nickname: 'Euclid',
+      role: 'explorer',
+      status: 'running',
+    })])
+  })
+
+  it('preserves nested worker ancestry recursively', () => {
+    const sessions = normalizeThreadList([
+      { id: 'parent-1', name: 'Parent', createdAt: 1, updatedAt: 4, turns: [] },
+      { id: 'worker-1', parentThreadId: 'parent-1', agentNickname: 'Euclid', createdAt: 2, updatedAt: 4, status: { type: 'idle' }, turns: [] },
+      { id: 'worker-2', parentThreadId: 'worker-1', agentNickname: 'Noether', createdAt: 3, updatedAt: 4, status: { type: 'active', activeFlags: [] }, turns: [] },
+    ], false)
+
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].workers?.[0]).toMatchObject({
+      threadId: 'worker-1',
+      workers: [expect.objectContaining({ threadId: 'worker-2', parentThreadId: 'worker-1', status: 'running' })],
+    })
+  })
+
+  it('paginates descendants and keeps them out of the top-level session list', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<{ type: string; threadId?: string; worker?: { threadId: string; status: string } }> = []
+    client.on('event', (event) => events.push(event))
+    const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/turns/list') {
+        return { jsonrpc: '2.0' as const, id: 5, result: { data: [{ id: 'turn-1', status: 'completed' }], nextCursor: null } }
+      }
+      if (method !== 'thread/list') throw new Error(`Unexpected method ${method}`)
+      if (!params.ancestorThreadId) {
+        return { jsonrpc: '2.0' as const, id: 1, result: { data: [{ id: 'parent-1', name: 'Parent', turns: [] }], nextCursor: null } }
+      }
+      if (params.archived === true) {
+        return { jsonrpc: '2.0' as const, id: 2, result: { data: [], nextCursor: null } }
+      }
+      if (params.cursor === null) {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 3,
+          result: { data: [{ id: 'worker-1', parentThreadId: 'parent-1', agentNickname: 'Euclid', status: { type: 'idle' }, turns: [] }], nextCursor: 'page-2' },
+        }
+      }
+      return {
+        jsonrpc: '2.0' as const,
+        id: 4,
+        result: { data: [{ id: 'worker-2', parentThreadId: 'worker-1', agentNickname: 'Noether', status: { type: 'active', activeFlags: [] }, turns: [] }], nextCursor: null },
+      }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    const result = await client.listThreads('/tmp/project', { limit: 8 })
+
+    expect(result.sessions).toHaveLength(1)
+    expect(result.sessions[0].workers?.[0]).toMatchObject({
+      threadId: 'worker-1',
+      status: 'completed',
+      workers: [expect.objectContaining({ threadId: 'worker-2', status: 'running' })],
+    })
+    expect(call).toHaveBeenCalledWith('thread/list', expect.objectContaining({ ancestorThreadId: 'parent-1', cursor: 'page-2' }))
+    expect(call).toHaveBeenCalledWith('thread/turns/list', expect.objectContaining({ threadId: 'worker-1', limit: 1 }))
+
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'worker-2', turn: { status: 'interrupted' } },
+    })
+    expect(events.at(-1)).toMatchObject({
+      type: 'worker_updated',
+      threadId: 'worker-1',
+      worker: { threadId: 'worker-2', status: 'interrupted' },
+    })
+  })
+
+  it('uses the latest persisted turn outcome when a descendant is not loaded', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/read') {
+        return { jsonrpc: '2.0' as const, id: 1, result: { thread: { id: 'parent-1', name: 'Parent', turns: [] } } }
+      }
+      if (method === 'thread/turns/list') {
+        return { jsonrpc: '2.0' as const, id: 2, result: { data: [{ id: 'turn-1', status: 'interrupted' }], nextCursor: null } }
+      }
+      if (method === 'thread/list' && params.archived === false) {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 3,
+          result: { data: [{ id: 'worker-1', parentThreadId: 'parent-1', agentNickname: 'Euclid', status: { type: 'notLoaded' }, turns: [] }], nextCursor: null },
+        }
+      }
+      return { jsonrpc: '2.0' as const, id: 4, result: { data: [], nextCursor: null } }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    const restored = await client.readThread('parent-1')
+
+    expect(restored.workers).toEqual([expect.objectContaining({
+      threadId: 'worker-1',
+      status: 'interrupted',
+      nickname: 'Euclid',
+    })])
+  })
+})
+
+describe('CodexClient live worker notifications', () => {
+  it('routes child and nested lifecycle updates to their immediate parent without regressing interruption', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<{ type: string; threadId?: string; worker?: { threadId: string; status: string; message?: string } }> = []
+    client.on('event', (event) => events.push(event))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'thread/started',
+      params: {
+        thread: {
+          id: 'worker-1',
+          parentThreadId: 'parent-1',
+          agentNickname: 'Euclid',
+          createdAt: 1,
+          updatedAt: 1,
+          status: { type: 'active', activeFlags: [] },
+          turns: [],
+        },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/started',
+      params: {
+        threadId: 'worker-1',
+        item: {
+          id: 'spawn-nested',
+          type: 'collabAgentToolCall',
+          tool: 'spawnAgent',
+          status: 'inProgress',
+          senderThreadId: 'worker-1',
+          receiverThreadIds: ['worker-2'],
+        },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'worker-1', turn: { status: 'interrupted' } },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'thread/status/changed',
+      params: { threadId: 'worker-1', status: { type: 'idle' } },
+    })
+
+    const workerEvents = events.filter((event) => event.type === 'worker_updated')
+    expect(workerEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ threadId: 'parent-1', worker: expect.objectContaining({ threadId: 'worker-1', status: 'running' }) }),
+      expect.objectContaining({ threadId: 'worker-1', worker: expect.objectContaining({ threadId: 'worker-2', status: 'pendingInit' }) }),
+      expect.objectContaining({ threadId: 'parent-1', worker: expect.objectContaining({ threadId: 'worker-1', status: 'interrupted' }) }),
+    ]))
+    expect(workerEvents.filter((event) => event.worker?.threadId === 'worker-1').at(-1)?.worker).toMatchObject({
+      status: 'interrupted',
+      message: '',
+    })
+  })
+
+  it('marks a failed child turn as errored even when app-server omits an error message', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<{ type: string; worker?: { threadId: string; status: string; message?: string } }> = []
+    client.on('event', (event) => events.push(event))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'thread/started',
+      params: {
+        thread: {
+          id: 'worker-1',
+          parentThreadId: 'parent-1',
+          status: { type: 'active', activeFlags: [] },
+          turns: [],
+        },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'worker-1', turn: { status: 'failed' } },
+    })
+
+    expect(events.filter((event) => event.worker?.threadId === 'worker-1').at(-1)?.worker).toMatchObject({
+      status: 'errored',
+      message: 'Worker turn failed',
+    })
   })
 })
 

@@ -1,14 +1,24 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
+import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput, CodexWorker } from '@/shared/codex'
+import {
+  codexWorkerIsActive,
+  mergeCodexWorker,
+  mergeWorkerCollections,
+  workersFromSessionThread,
+} from '@/shared/codex-workers'
 import { useRepos } from './repos'
 import { applyCodexSendFailure } from './codex-send-failure'
 import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
+import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
+import { codexWorkerControlDisplayText } from '@/shared/codex-worker-control'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
   activeThread: CodexThread | null
   getThread: (threadId: string) => CodexThread | undefined
+  workersByParent: Readonly<Record<string, CodexWorker[]>>
+  getWorkersForThread: (threadId: string) => CodexWorker[]
 }
 
 interface CodexWindowStateApi {
@@ -24,6 +34,8 @@ interface CodexActionsApi {
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
   abort: (threadId: string) => Promise<void>
+  messageWorker: (parentThreadId: string, workerThreadId: string, content: string, input?: CodexUserInput[]) => Promise<void>
+  stopWorker: (parentThreadId: string, workerThreadId: string) => Promise<void>
   switchThread: (threadId: string | null) => void
   closeThreadWindow: (windowId: string) => void
   openSession: (
@@ -63,7 +75,7 @@ function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
     const timestamp = (turn.startedAt ?? thread.updatedAt ?? Date.now() / 1000) * 1000
     for (const item of turn.items ?? []) {
       if (item.type === 'userMessage') {
-        const content = itemText(item)
+        const content = codexWorkerControlDisplayText(itemText(item))
         if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'user', content, timestamp })
       } else if (item.type === 'agentMessage' && item.text) {
         messages.push({
@@ -92,15 +104,26 @@ function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
 
 function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread {
   const lastTurn = [...session.turns].reverse().find((turn) => turn.durationMs)
+  const statusType = session.status && typeof session.status === 'object'
+    ? (session.status as { type?: unknown }).type
+    : session.status
+  const isRunning = statusType === 'active' || statusType === 'running' || statusType === 'inProgress'
   return {
     id: session.id,
     title: session.title,
     repoId,
     messages: threadToMessages(session),
     pendingApprovals: [],
-    isRunning: false,
+    isRunning,
+    currentActivity: isRunning ? 'Working' : undefined,
     lastRunDurationMs: lastTurn?.durationMs ?? undefined,
     contextUsage: undefined,
+    sessionId: session.sessionId,
+    parentThreadId: session.parentThreadId,
+    agentNickname: session.agentNickname,
+    agentRole: session.agentRole,
+    workers: mergeWorkerCollections(session.workers, workersFromSessionThread(session)),
+    isHistorical: !isRunning,
   }
 }
 
@@ -111,10 +134,15 @@ function logRendererTelemetry(type: string, payload: unknown): void {
 }
 
 export function CodexProvider({ children }: { children: React.ReactNode }) {
-  const { activeRepo } = useRepos()
+  const { activeRepo, repos } = useRepos()
   const [threads, setThreads] = useState<CodexThread[]>([])
   const threadsRef = useRef(threads)
   threadsRef.current = threads
+  const reposRef = useRef(repos)
+  reposRef.current = repos
+  const [workersByParent, setWorkersByParent] = useState<Record<string, CodexWorker[]>>({})
+  const workersByParentRef = useRef(workersByParent)
+  workersByParentRef.current = workersByParent
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const activeThreadIdRef = useRef(activeThreadId)
   activeThreadIdRef.current = activeThreadId
@@ -128,6 +156,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
   const openThreadIds = useMemo(() => [...new Set(Object.values(windowToThread))], [windowToThread])
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
+  const getWorkersForThread = useCallback((threadId: string) => workersByParent[threadId] ?? [], [workersByParent])
   const getThreadSnapshot = useCallback((threadId: string) => threadsRef.current.find((thread) => thread.id === threadId), [])
 
   useEffect(() => {
@@ -209,6 +238,25 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         const key = streamingMessageKey(threadId, e.itemId)
         if (e.text) streamingBuffersRef.current[key] = e.text
         queueStreamingMessage(threadId, e.itemId, agentMessageRole(e.phase), false, true)
+        return
+      }
+
+      if (e.type === 'worker_updated') {
+        if (pendingStreamingUpdatesRef.current.size > 0) flushStreamingMessagesNow()
+        const parent = threadsRef.current.find((thread) => thread.id === e.threadId)
+        const knownWorkers = parent?.workers ?? workersByParentRef.current[e.threadId] ?? []
+        const isNewWorker = !knownWorkers.some((worker) => worker.threadId === e.worker.threadId)
+        setWorkersByParent((current) => upsertWorkerGraph(current, e.threadId, e.worker))
+        setThreads((current) => applyWorkerUpdate(current, e.threadId, e.worker))
+        if (isNewWorker) {
+          const repoPath = e.worker.cwd
+            ?? (parent ? reposRef.current.find((repo) => repo.id === parent.repoId)?.path : undefined)
+          if (repoPath) {
+            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
+              detail: { repoPath, threadId: e.threadId },
+            }))
+          }
+        }
         return
       }
 
@@ -385,6 +433,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       isRunning: !!initialContent,
       currentActivity: initialContent ? 'Working' : undefined,
       runStartedAt: initialContent ? Date.now() : undefined,
+      workers: [],
     }
     setThreads((prev) => [...prev, thread])
     setActiveThreadId(threadId)
@@ -484,6 +533,80 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
   }, [activeRepo])
 
+  const repoPathForThread = useCallback((threadId: string): string => {
+    const thread = threadsRef.current.find((candidate) => candidate.id === threadId)
+    const repo = repos.find((candidate) => candidate.id === thread?.repoId) ?? activeRepo
+    if (!repo) throw new Error('The worker repository is no longer available.')
+    return repo.path
+  }, [activeRepo, repos])
+
+  const updateWorker = useCallback((parentThreadId: string, worker: CodexWorker): void => {
+    setWorkersByParent((current) => upsertWorkerGraph(current, parentThreadId, worker))
+    setThreads((current) => applyWorkerUpdate(current, parentThreadId, worker))
+  }, [])
+
+  const messageWorker = useCallback(async (
+    parentThreadId: string,
+    workerThreadId: string,
+    content: string,
+    input?: CodexUserInput[],
+  ): Promise<void> => {
+    const instruction = content.trim()
+    if (!instruction) return
+    const parent = threadsRef.current.find((thread) => thread.id === parentThreadId)
+    const existing = parent?.workers?.find((worker) => worker.threadId === workerThreadId)
+      ?? workersByParentRef.current[parentThreadId]?.find((worker) => worker.threadId === workerThreadId)
+    if (!existing) throw new Error('This worker is no longer attached to the parent task.')
+    const repoPath = repoPathForThread(parentThreadId)
+    const wasActive = codexWorkerIsActive(existing.status)
+    const controlInput = input?.some((part) => part.type === 'text')
+      ? input
+      : [{ type: 'text' as const, text: instruction }, ...(input ?? [])]
+    await window.cranberri.codex.controlWorker(
+      repoPath,
+      parentThreadId,
+      workerThreadId,
+      wasActive ? 'message' : 'resume',
+      controlInput,
+    )
+    const updated = mergeCodexWorker(existing, {
+      ...existing,
+      status: existing.status,
+      lastInstruction: instruction,
+      message: wasActive ? 'Direction sent through parent' : 'Resume requested through parent',
+      updatedAt: Date.now(),
+    })
+    updateWorker(parentThreadId, updated)
+    setThreads((current) => current.map((thread) => thread.id === workerThreadId
+      ? {
+          ...thread,
+          isHistorical: wasActive ? false : thread.isHistorical,
+          isRunning: codexWorkerIsActive(updated.status),
+          currentActivity: codexWorkerIsActive(updated.status) ? updated.message : undefined,
+          messages: [...thread.messages, {
+            id: crypto.randomUUID(),
+            role: 'user',
+            content: instruction,
+            timestamp: Date.now(),
+          }],
+        }
+      : thread))
+  }, [repoPathForThread, updateWorker])
+
+  const stopWorker = useCallback(async (parentThreadId: string, workerThreadId: string): Promise<void> => {
+    const parent = threadsRef.current.find((thread) => thread.id === parentThreadId)
+    const existing = parent?.workers?.find((worker) => worker.threadId === workerThreadId)
+      ?? workersByParentRef.current[parentThreadId]?.find((worker) => worker.threadId === workerThreadId)
+    if (!existing) throw new Error('This worker is no longer attached to the parent task.')
+    await window.cranberri.codex.controlWorker(
+      repoPathForThread(parentThreadId),
+      parentThreadId,
+      workerThreadId,
+      'stop',
+      [],
+    )
+  }, [repoPathForThread])
+
   const switchThread = useCallback((threadId: string | null) => {
     setActiveThreadId(threadId)
   }, [])
@@ -495,8 +618,19 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     repo: { id: string; path: string } | undefined = activeRepo ?? undefined,
   ): Promise<CodexThread> => {
     if (!repo) throw new Error('No active repo')
-    const { thread } = await window.cranberri.codex.readThread(repo.path, session.id, archived)
-    const hydrated = { ...hydrateThread(thread, repo.id), isHistorical: true }
+    let thread: CodexSessionThread
+    try {
+      thread = (await window.cranberri.codex.readThread(repo.path, session.id, archived)).thread
+    } catch {
+      thread = (await window.cranberri.codex.readThread(repo.path, session.id, !archived)).thread
+    }
+    const hydratedBase = hydrateThread(thread, repo.id)
+    const mergedWorkers = mergeWorkerCollections(hydratedBase.workers, workersByParentRef.current[hydratedBase.id])
+    const hydrated = {
+      ...hydratedBase,
+      workers: hydrateWorkersFromGraph(workersByParentRef.current, mergedWorkers),
+    }
+    setWorkersByParent((current) => hydrateSessionWorkerGraph(current, thread, hydrated.workers ?? []))
     setThreads((prev) => [...prev.filter((item) => item.id !== hydrated.id), hydrated])
     setActiveThreadId(hydrated.id)
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
@@ -518,7 +652,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       restored = (await window.cranberri.codex.readThread(activeRepo.path, threadId, true)).thread
     }
 
-    const hydrated = { ...hydrateThread(restored, activeRepo.id), isHistorical: true }
+    const hydratedBase = hydrateThread(restored, activeRepo.id)
+    const mergedWorkers = mergeWorkerCollections(hydratedBase.workers, workersByParentRef.current[hydratedBase.id])
+    const hydrated = {
+      ...hydratedBase,
+      workers: hydrateWorkersFromGraph(workersByParentRef.current, mergedWorkers),
+    }
+    setWorkersByParent((current) => hydrateSessionWorkerGraph(current, restored, hydrated.workers ?? []))
     setThreads((prev) => [...prev.filter((thread) => thread.id !== hydrated.id), hydrated])
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
     return hydrated
@@ -545,6 +685,11 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     clearToolActivityEvents(threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
+    setWorkersByParent((current) => {
+      const { [threadId]: removed, ...rest } = current
+      void removed
+      return rest
+    })
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
 
@@ -559,7 +704,9 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     threads,
     activeThread,
     getThread,
-  }), [activeThread, getThread, threads])
+    workersByParent,
+    getWorkersForThread,
+  }), [activeThread, getThread, getWorkersForThread, threads, workersByParent])
   const windowState = useMemo<CodexWindowStateApi>(() => ({
     activeThreadId,
     openThreadIds,
@@ -572,6 +719,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     compactThread,
     approve,
     abort,
+    messageWorker,
+    stopWorker,
     switchThread,
     closeThreadWindow,
     openSession,
@@ -589,10 +738,12 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     createThread,
     deleteSession,
     getThreadSnapshot,
+    messageWorker,
     openSession,
     renameSession,
     restoreSessionWindow,
     sendMessage,
+    stopWorker,
     switchThread,
     unarchiveSession,
   ])

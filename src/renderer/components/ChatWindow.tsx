@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
+import { useRepos } from '../state/repos'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
@@ -43,6 +44,7 @@ import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { TranscriptList } from './chat/TranscriptList'
 import { VoiceDictationButton } from './chat/VoiceDictationButton'
+import { WorkerShelf, workerDisplayName } from './chat/WorkerShelf'
 import {
   appendDictationTranscript,
   speechRecognitionConstructor,
@@ -50,7 +52,7 @@ import {
   voiceDictationErrorMessage,
   type SpeechRecognitionLike,
 } from './chat/voice-dictation'
-import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
+import type { CodexPluginInfo, CodexSessionSummary, CodexSkillInfo, CodexTurnSettings, CodexUserInput, CodexWorker } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
   const beforeCursor = input.slice(0, cursor)
@@ -134,15 +136,19 @@ export function ChatWindow({ id }: { id: string }) {
     compactThread,
     approve,
     abort,
+    messageWorker,
+    stopWorker,
     restoreSessionWindow,
     switchThread,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
+  const { repos, activeRepo } = useRepos()
   const { activeWindowId, renameWindow } = useWorkspace()
   const threadId = getThreadForWindow(id)
   const thread = threadId ? getThread(threadId) : undefined
+  const threadRepo = repos.find((repo) => repo.id === thread?.repoId) ?? activeRepo
 
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
@@ -413,7 +419,7 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const handleSend = async () => {
-    if (isRunning) return
+    if (isRunning && !thread?.parentThreadId) return
     const text = input.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
     const draftInput = input
@@ -426,24 +432,28 @@ export function ChatWindow({ id }: { id: string }) {
     setContextInputParts([])
 
     try {
-      if (text === '/compact') {
+      if (text === '/compact' && !thread?.parentThreadId) {
         if (!threadId) return
         await compactThread(threadId)
       } else {
         const message = buildMessage(text)
         if (threadId) {
-          await sendMessage(threadId, message.displayText, message.input, turnSettings)
+          if (thread?.parentThreadId) {
+            await messageWorker(thread.parentThreadId, threadId, message.displayText, message.input)
+          } else {
+            await sendMessage(threadId, message.displayText, message.input, turnSettings)
+          }
         } else {
           await createThread(id, message.displayText, turnSettings, message.input)
         }
       }
     } catch (error) {
-      if (shouldRestoreDraftAfterSendError(threadId, error)) {
+      if (thread?.parentThreadId || shouldRestoreDraftAfterSendError(threadId, error)) {
         setInput(draftInput)
         setAttachments(draftAttachments)
         setContextInputParts(draftContextInputParts)
       }
-      if (shouldToastAfterSendError(threadId, draftInput, error)) {
+      if (thread?.parentThreadId || shouldToastAfterSendError(threadId, draftInput, error)) {
         toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
       }
     } finally {
@@ -522,8 +532,12 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const isRunning = thread?.isRunning ?? false
+  const isWorkerThread = Boolean(thread?.parentThreadId)
+  const hasComposerContent = Boolean(input.trim() || attachments.length > 0 || contextInputParts.length > 0)
+  const workerCanSend = isWorkerThread && hasComposerContent
+  const primaryActionIsStop = isRunning && !workerCanSend
   const handlePrimaryAction = async () => {
-    if (!isRunning) {
+    if (!primaryActionIsStop) {
       await handleSend()
       return
     }
@@ -593,8 +607,59 @@ export function ChatWindow({ id }: { id: string }) {
     })
   }, [])
 
+  const openCodexThread = useCallback((session: CodexSessionSummary) => {
+    if (!threadRepo) {
+      toast.error('This task\'s repository is no longer available.')
+      return
+    }
+    window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', {
+      detail: { session, repoPath: threadRepo.path, archived: false },
+    }))
+  }, [threadRepo])
+
+  const openWorker = useCallback((worker: CodexWorker) => {
+    openCodexThread({
+      id: worker.threadId,
+      sessionId: worker.sessionId,
+      parentThreadId: worker.parentThreadId,
+      agentNickname: worker.nickname,
+      agentRole: worker.role,
+      title: worker.title || workerDisplayName(worker),
+      preview: worker.prompt || worker.lastInstruction || '',
+      cwd: worker.cwd ?? threadRepo?.path,
+      createdAt: worker.createdAt ?? worker.updatedAt,
+      updatedAt: worker.updatedAt,
+      archived: false,
+      status: worker.status,
+      turnCount: 0,
+    })
+  }, [openCodexThread, threadRepo?.path])
+
+  const openParent = useCallback((parentThreadId: string) => {
+    const parent = getThread(parentThreadId)
+    openCodexThread({
+      id: parentThreadId,
+      title: parent?.title ?? 'Parent task',
+      preview: '',
+      cwd: threadRepo?.path,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      archived: false,
+      turnCount: 0,
+    })
+  }, [getThread, openCodexThread, threadRepo?.path])
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
+      {thread && (
+        <WorkerShelf
+          thread={thread}
+          onOpenWorker={openWorker}
+          onOpenParent={openParent}
+          onMessageWorker={(worker, content) => messageWorker(thread.id, worker.threadId, content)}
+          onStopWorker={(worker) => stopWorker(thread.id, worker.threadId)}
+        />
+      )}
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollContainerRef}
@@ -800,14 +865,16 @@ export function ChatWindow({ id }: { id: string }) {
                     return
                   }
                 }
-                if (shouldSendComposerOnEnter(e.key, e.shiftKey, isRunning)) {
+                if (shouldSendComposerOnEnter(e.key, e.shiftKey, isRunning && !isWorkerThread)) {
                   e.preventDefault()
                   void handleSend()
                 }
               }}
               placeholder={
                 isRunning
-                  ? 'Keep typing while Codex works...'
+                  ? isWorkerThread
+                    ? 'Steer this worker through its parent...'
+                    : 'Keep typing while Codex works...'
                   : goalMode
                     ? 'Describe your goal, define measurable outcomes for best results'
                     : 'Ask for follow-up changes'
@@ -843,11 +910,11 @@ export function ChatWindow({ id }: { id: string }) {
                 <button
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void handlePrimaryAction()}
-                  disabled={isRunning ? !threadId : (!input.trim() && attachments.length === 0 && contextInputParts.length === 0)}
+                  disabled={primaryActionIsStop ? !threadId : !hasComposerContent}
                   className={SEND_BUTTON_CLASS}
-                  aria-label={isRunning ? 'Stop Codex' : 'Send message'}
+                  aria-label={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
                 >
-                  {isRunning ? <Square className="h-3 w-3 fill-current" /> : <ArrowUp className="h-4 w-4" />}
+                  {primaryActionIsStop ? <Square className="h-3 w-3 fill-current" /> : <ArrowUp className="h-4 w-4" />}
                 </button>
               </div>
             </div>

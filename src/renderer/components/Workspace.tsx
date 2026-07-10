@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useWorkspace } from '../state/workspace'
-import { useCodexActions } from '../state/codex'
+import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
 import { BrowserWindow as BrowserPane } from './BrowserWindow'
@@ -32,6 +32,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
   const { openSession, closeThreadWindow } = useCodexActions()
+  const { getThreadForWindow } = useCodexWindows()
   const [terminalCloseTarget, setTerminalCloseTarget] = useState<{ windowId: string; termId: string } | null>(null)
 
   useEffect(() => {
@@ -46,6 +47,12 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         toast.error('That session\'s repo is no longer available.')
         return
       }
+      const existingWindow = windows.find((item) => item.type === 'chat' && getThreadForWindow(item.id) === session.id)
+      if (existingWindow) {
+        setActiveWindow(existingWindow.id)
+        if (targetRepo && targetRepo.id !== activeRepoId) void setActiveRepo(targetRepo.id)
+        return
+      }
       const windowId = `session-${session.id}`
       openSession(windowId, session, archived, targetRepo ?? undefined)
         .then((thread) => {
@@ -57,7 +64,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
     }
     window.addEventListener('cranberri:open-codex-session', onOpenSession)
     return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
-  }, [activeRepoId, openChat, openSession, repos, setActiveRepo])
+  }, [activeRepoId, getThreadForWindow, openChat, openSession, repos, setActiveRepo, setActiveWindow, windows])
 
   useEffect(() => {
     const onOpenProcessTerminal = (event: Event) => {
@@ -179,6 +186,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
             <span className="truncate">{win.title}</span>
             <button
               type="button"
+              aria-label={`Close ${win.title}`}
               onClick={(e) => {
                 e.stopPropagation()
                 closeWorkspaceWindow(win.id)

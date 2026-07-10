@@ -11,6 +11,7 @@ const TOOL_EVENT_TYPES = new Set<CodexEvent['type']>([
   'tool_event',
   'approval_request',
   'approval_completed',
+  'worker_updated',
 ])
 
 export function shouldForwardCodexEventToRenderer(event: CodexEvent): boolean {

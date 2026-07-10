@@ -34,6 +34,7 @@ import {
   type ToolCatalogRequestContext,
 } from '../tool-catalog-service'
 import { shouldForwardCodexEventToRenderer, shouldPersistCodexEventTelemetry } from './eventPolicy'
+import type { CodexWorkerControlAction } from '../../shared/codex-worker-control'
 import {
   MINIMUM_GPT_56_CODEX_VERSION,
   codexCliNeedsUpdate,
@@ -923,6 +924,27 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const c = await getCodexClient()
     c.setCwd(cwd)
     await c.sendMessage(threadId, input, settings)
+    return { ok: true }
+  })
+
+  ipcMain.handle('codex:steer-thread', async (_, cwd: string, threadId: string, input: CodexUserInput[]) => {
+    const c = await getCodexClient()
+    c.setCwd(cwd)
+    await c.steerThread(threadId, input)
+    return { ok: true }
+  })
+
+  ipcMain.handle('codex:control-worker', async (
+    _,
+    cwd: string,
+    parentThreadId: string,
+    workerThreadId: string,
+    action: CodexWorkerControlAction,
+    input: CodexUserInput[],
+  ) => {
+    const c = await getCodexClient()
+    c.setCwd(cwd)
+    await c.controlWorker(parentThreadId, workerThreadId, action, input)
     return { ok: true }
   })
 
