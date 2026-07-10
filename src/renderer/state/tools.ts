@@ -7,16 +7,17 @@ import {
   type ToolCatalogActivitySummary,
   type ToolCatalogId,
   type ToolCatalogSnapshot,
+  type ToolCatalogTaskKey,
   type ToolCatalogTaskProvenance,
   type ToolCatalogTaskStatus,
   type ToolEventRecord,
 } from '../../shared/tools'
 
 const MAX_ACTIVITY_PER_THREAD = 20
+const EMPTY_ACTIVITY: ToolEventRecord[] = []
 const activityByThread = new Map<string, ToolEventRecord[]>()
 const activityEpochByThread = new Map<string, string>()
-const activityListeners = new Set<() => void>()
-let activityVersion = 0
+const activityListenersByThread = new Map<string, Set<() => void>>()
 
 export interface ToolTimelineEvent extends ToolEventRecord {
   telemetryId?: number
@@ -24,14 +25,23 @@ export interface ToolTimelineEvent extends ToolEventRecord {
   persistedAt?: string
 }
 
-function emitActivityChange(): void {
-  activityVersion += 1
-  for (const listener of activityListeners) listener()
+function emitActivityChange(threadId?: string): void {
+  const threadIds = threadId
+    ? [threadId]
+    : [...activityListenersByThread.keys()]
+  for (const id of threadIds) {
+    for (const listener of activityListenersByThread.get(id) ?? []) listener()
+  }
 }
 
-function subscribeActivity(listener: () => void): () => void {
-  activityListeners.add(listener)
-  return () => activityListeners.delete(listener)
+function subscribeActivity(threadId: string, listener: () => void): () => void {
+  const listeners = activityListenersByThread.get(threadId) ?? new Set<() => void>()
+  listeners.add(listener)
+  activityListenersByThread.set(threadId, listeners)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) activityListenersByThread.delete(threadId)
+  }
 }
 
 export function recordToolActivityEvent(event: ToolEventRecord): void {
@@ -39,22 +49,23 @@ export function recordToolActivityEvent(event: ToolEventRecord): void {
   const current = activityByThread.get(event.threadId) ?? []
   const withoutDuplicate = current.filter((item) => item.eventId !== event.eventId)
   activityByThread.set(event.threadId, [...withoutDuplicate, event].slice(-MAX_ACTIVITY_PER_THREAD))
-  emitActivityChange()
+  emitActivityChange(event.threadId)
 }
 
 export function clearToolActivityEvents(threadId?: string): void {
   if (threadId) {
     activityByThread.delete(threadId)
     activityEpochByThread.delete(threadId)
+    emitActivityChange(threadId)
   } else {
     activityByThread.clear()
     activityEpochByThread.clear()
+    emitActivityChange()
   }
-  emitActivityChange()
 }
 
 export function toolActivityForThread(threadId: string | null | undefined): ToolEventRecord[] {
-  return threadId ? activityByThread.get(threadId) ?? [] : []
+  return threadId ? activityByThread.get(threadId) ?? EMPTY_ACTIVITY : EMPTY_ACTIVITY
 }
 
 function alignActivityEpoch(snapshot: ToolCatalogSnapshot | undefined): void {
@@ -63,7 +74,7 @@ function alignActivityEpoch(snapshot: ToolCatalogSnapshot | undefined): void {
   const previousEpoch = activityEpochByThread.get(taskKey.threadId)
   if (previousEpoch && previousEpoch !== taskKey.capabilityEpoch) {
     activityByThread.delete(taskKey.threadId)
-    emitActivityChange()
+    emitActivityChange(taskKey.threadId)
   }
   activityEpochByThread.set(taskKey.threadId, taskKey.capabilityEpoch)
 }
@@ -88,6 +99,24 @@ function activityOutcome(event: ToolEventRecord): {
   }
 }
 
+function activityOverlay(event: ToolEventRecord, taskKey: ToolCatalogTaskKey) {
+  const state = activityOutcome(event)
+  return {
+    task: {
+      status: state.taskStatus,
+      taskKey,
+      observedAt: event.timestamp,
+      provenance: state.provenance,
+    },
+    activity: {
+      outcome: state.outcome,
+      observedAt: event.timestamp,
+      callId: event.toolCallId ?? null,
+      durationMs: event.durationMs ?? null,
+    },
+  }
+}
+
 export function overlayToolCatalogActivity(
   snapshot: ToolCatalogSnapshot,
   events: ToolEventRecord[],
@@ -107,21 +136,9 @@ export function overlayToolCatalogActivity(
   const entries = snapshot.entries.map((entry) => {
     const event = latestByCatalogId.get(entry.id)
     if (!event) return entry
-    const state = activityOutcome(event)
     return {
       ...entry,
-      task: {
-        status: state.taskStatus,
-        taskKey,
-        observedAt: event.timestamp,
-        provenance: state.provenance,
-      },
-      activity: {
-        outcome: state.outcome,
-        observedAt: event.timestamp,
-        callId: event.toolCallId ?? null,
-        durationMs: event.durationMs ?? null,
-      },
+      ...activityOverlay(event, taskKey),
     }
   })
 
@@ -129,7 +146,6 @@ export function overlayToolCatalogActivity(
     if (existingIds.has(catalogId)) continue
     const parsed = parseToolCatalogId(catalogId)
     if (!parsed) continue
-    const state = activityOutcome(event)
     entries.push({
       id: catalogId,
       name: parsed.name,
@@ -153,18 +169,7 @@ export function overlayToolCatalogActivity(
         provenance: 'active-task-inventory',
         diagnosticCode: event.errorCode ?? null,
       },
-      task: {
-        status: state.taskStatus,
-        taskKey,
-        observedAt: event.timestamp,
-        provenance: state.provenance,
-      },
-      activity: {
-        outcome: state.outcome,
-        observedAt: event.timestamp,
-        callId: event.toolCallId ?? null,
-        durationMs: event.durationMs ?? null,
-      },
+      ...activityOverlay(event, taskKey),
     })
   }
 
@@ -192,12 +197,17 @@ export function useRecentToolEvents(
   limit = MAX_ACTIVITY_PER_THREAD,
   enabled = true,
 ) {
-  useSyncExternalStore(
-    subscribeActivity,
-    () => activityVersion,
-    () => 0,
+  const subscribe = useCallback((listener: () => void) => (
+    enabled && threadId ? subscribeActivity(threadId, listener) : () => undefined
+  ), [enabled, threadId])
+  const getSnapshot = useCallback(() => (
+    enabled ? toolActivityForThread(threadId) : EMPTY_ACTIVITY
+  ), [enabled, threadId])
+  const activity = useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_ACTIVITY)
+  const data = useMemo(
+    () => activity.slice(-limit),
+    [activity, limit],
   )
-  const data = enabled ? toolActivityForThread(threadId).slice(-limit) : []
   return { data, isLoading: false }
 }
 

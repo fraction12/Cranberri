@@ -4,27 +4,9 @@ import {
   createToolEventFromApproval,
   createToolEventFromItem,
   normalizeToolRegistrySnapshot,
-  safePayloadPreview,
 } from './tools'
 
 describe('tool event normalization', () => {
-  it('redacts sensitive payload keys in previews', () => {
-    const preview = safePayloadPreview({
-      command: 'deploy',
-      apiKey: 'sk-secret',
-      nested: {
-        authorization: 'Bearer token',
-        ok: true,
-      },
-    })
-
-    expect(preview).toContain('"command":"deploy"')
-    expect(preview).toContain('"apiKey":"[redacted]"')
-    expect(preview).toContain('"authorization":"[redacted]"')
-    expect(preview).not.toContain('sk-secret')
-    expect(preview).not.toContain('Bearer token')
-  })
-
   it('normalizes MCP item lifecycle records', () => {
     const started = createToolEventFromItem('thread-1', {
       type: 'mcpToolCall',

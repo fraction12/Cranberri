@@ -386,6 +386,8 @@ export async function runAllowlistedCatalogProbe(
 export class ToolCatalogService {
   private readonly freshnessMs: number
   private readonly now: () => number
+  private readonly runtimeDependencies: CatalogProbeRuntimeDependencies
+  private readonly customProbeRunner: CatalogProbeRunner | null
   private readonly probeRunner: CatalogProbeRunner
   private readonly results = new Map<ToolCatalogId, CachedProbeResult>()
   private readonly failures = new Map<ToolCatalogId, CachedProbeFailure>()
@@ -400,8 +402,16 @@ export class ToolCatalogService {
   constructor(options: ToolCatalogServiceOptions = {}) {
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS
     this.now = options.now ?? Date.now
-    this.probeRunner = options.probeRunner ?? ((policy, mode, signal) => (
-      runAllowlistedCatalogProbe(policy, mode, signal, options)
+    this.runtimeDependencies = {
+      environment: options.environment,
+      projectRoots: options.projectRoots,
+      resolveExecutable: options.resolveExecutable,
+      execFile: options.execFile,
+      neutralCwd: options.neutralCwd,
+    }
+    this.customProbeRunner = options.probeRunner ?? null
+    this.probeRunner = this.customProbeRunner ?? ((policy, mode, signal) => (
+      runAllowlistedCatalogProbe(policy, mode, signal, this.runtimeDependencies)
     ))
   }
 
@@ -464,9 +474,10 @@ export class ToolCatalogService {
 
     const generation = this.nextGeneration()
     const controller = new AbortController()
+    const probeRunner = this.createFullRefreshProbeRunner()
     this.refreshController = controller
     const refresh = Promise.all(CATALOG_PROBE_POLICIES.map((policy) => (
-      this.runOne(policy, 'automatic', generation, controller.signal)
+      this.runOne(policy, 'automatic', generation, controller.signal, probeRunner)
     )))
       .then(() => undefined)
       .finally(() => {
@@ -478,15 +489,35 @@ export class ToolCatalogService {
     return refresh
   }
 
+  private createFullRefreshProbeRunner(): CatalogProbeRunner {
+    if (this.customProbeRunner) return this.customProbeRunner
+
+    const dependencies = this.runtimeDependencies
+    let environmentPromise: Promise<NodeJS.ProcessEnv> | null = null
+    let projectRoots: string[] | null = null
+    return (policy, mode, signal) => runAllowlistedCatalogProbe(policy, mode, signal, {
+      ...dependencies,
+      environment: () => {
+        environmentPromise ??= (dependencies.environment ?? makeCodexEnv)()
+        return environmentPromise
+      },
+      projectRoots: () => {
+        projectRoots ??= (dependencies.projectRoots ?? (() => [process.cwd()]))()
+        return projectRoots
+      },
+    })
+  }
+
   private async runOne(
     policy: CatalogProbePolicy,
     mode: CatalogProbeMode,
     generation: number,
     signal: AbortSignal,
+    probeRunner: CatalogProbeRunner = this.probeRunner,
   ): Promise<void> {
     let observation: CatalogProbeObservation
     try {
-      observation = await this.probeRunner(policy, mode, signal)
+      observation = await probeRunner(policy, mode, signal)
     } catch {
       observation = { failureCode: signal.aborted ? 'probe-cancelled' : 'probe-exec-failed', safeOutput: '' }
     }

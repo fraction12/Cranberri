@@ -1,6 +1,7 @@
 import {
   createToolCatalogId,
   parseToolCatalogId,
+  toolCatalogMembership,
   toolCatalogSnapshotSchema,
   type ToolCatalogActivitySummary,
   type ToolCatalogCapabilityEvidence,
@@ -298,6 +299,7 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
   }
 
   const registryById = new Map<string, { evidence: ToolCatalogRegistryEvidence; status: ToolCatalogMachineState['status'] }>()
+  const activeInventoryById = new Map<string, ToolCatalogRegistryEvidence>()
   for (const item of evidence) {
     for (const server of item.snapshot.mcpServers) {
       const source: ToolCatalogSource = {
@@ -311,13 +313,17 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
         if (!current || isNewer(item.observedAt, current.evidence.observedAt)) {
           registryById.set(id, { evidence: item, status: registryMachineStatus(server.authStatus) })
         }
+        if (
+          item.scope === 'active-task'
+          && sameTask(item.taskKey, activeTask)
+          && !activeInventoryById.has(id)
+        ) activeInventoryById.set(id, item)
       }
     }
   }
 
   const lastGoodById = new Map(input.lastGood?.entries.map((entry) => [entry.id, entry]) ?? [])
   const pinnedIds = new Set(preferences.pinnedToolIds)
-  const dismissedIds = new Set(preferences.dismissedDefaultToolIds)
 
   const entries: ToolCatalogEntry[] = [...descriptorMap.values()].map((entry) => {
     const probe = latestProbe.get(entry.id)
@@ -360,12 +366,7 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
 
     let task = noTaskState(activeTask)
     if (activeTask) {
-      const activeInventory = evidence
-        .filter((item) => item.scope === 'active-task' && sameTask(item.taskKey, activeTask))
-        .find((item) => item.snapshot.mcpServers.some((server) => {
-          const source: ToolCatalogSource = { kind: 'mcp', providerId: server.name, providerName: server.name }
-          return server.tools.some((tool) => createToolCatalogId(source, tool.name) === entry.id)
-        }))
+      const activeInventory = activeInventoryById.get(entry.id)
       const weakInventory = registry?.evidence
       if (activeInventory) {
         task = {
@@ -411,15 +412,12 @@ export function assembleToolCatalog(input: AssembleToolCatalogInput): ToolCatalo
       }
     }
 
-    const isPinned = pinnedIds.has(entry.id)
-    const isDismissedDefault = entry.isDefault && dismissedIds.has(entry.id)
+    const membership = toolCatalogMembership(entry, preferences)
     const isOrphan = pinnedIds.has(entry.id) && !currentDescriptorIds.has(entry.id) && !lastGoodById.has(entry.id)
 
     return {
       ...entry,
-      isPinned,
-      isDismissedDefault,
-      inRail: isPinned || (entry.isDefault && !isDismissedDefault),
+      ...membership,
       isOrphan,
       machine,
       task,

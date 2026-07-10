@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Loader2, Pin, PinOff, RefreshCw, Search } from 'lucide-react'
+import { Loader2, RefreshCw, Search } from 'lucide-react'
 import type {
   ToolCatalogEntry,
   ToolCatalogId,
@@ -8,7 +8,8 @@ import type {
 } from '@/shared/tools'
 import { cn, iconButton } from '../../lib/ui'
 import { ToolGroup } from '../right-rail/ToolGroup'
-import { ToolRow } from '../right-rail/ToolRow'
+import { CatalogToolRow } from './CatalogToolRow'
+import { ToolCatalogState } from './ToolCatalogState'
 import {
   TOOL_CATALOG_FILTER_OPTIONS,
   selectToolCatalogSettingsGroups,
@@ -30,81 +31,6 @@ export interface ToolCatalogSettingsProps {
   onOpenSettings: (toolId: ToolCatalogId) => void
   onPinChange: (toolId: ToolCatalogId, pinned: boolean) => void
   onSendDiagnostic?: (toolId: ToolCatalogId) => void
-}
-
-function CatalogToolRow({
-  entry,
-  expanded,
-  testing,
-  pinning,
-  onExpandedChange,
-  onTest,
-  onOpenSettings,
-  onPinChange,
-  onSendDiagnostic,
-}: {
-  entry: ToolCatalogEntry
-  expanded: boolean
-  testing: boolean
-  pinning: boolean
-  onExpandedChange: (toolId: ToolCatalogId, expanded: boolean) => void
-  onTest: (toolId: ToolCatalogId) => void
-  onOpenSettings: (toolId: ToolCatalogId) => void
-  onPinChange: (toolId: ToolCatalogId, pinned: boolean) => void
-  onSendDiagnostic?: (toolId: ToolCatalogId) => void
-}) {
-  const togglePin = useCallback(() => onPinChange(entry.id, !entry.inRail), [entry.id, entry.inRail, onPinChange])
-  const pinLabel = entry.inRail ? `Unpin ${entry.name} from Tools rail` : `Pin ${entry.name} to Tools rail`
-  const pinAction = (
-    <button
-      type="button"
-      className={iconButton({ tone: entry.inRail ? 'active' : 'neutral' })}
-      disabled={pinning}
-      aria-label={pinning ? `${pinLabel} in progress` : pinLabel}
-      aria-pressed={entry.inRail}
-      title={pinLabel}
-      onClick={togglePin}
-    >
-      {pinning
-        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        : entry.inRail ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-    </button>
-  )
-  return (
-    <ToolRow
-      entry={entry}
-      expanded={expanded}
-      busy={testing}
-      endAction={pinAction}
-      onExpandedChange={onExpandedChange}
-      onTest={onTest}
-      onOpenSettings={onOpenSettings}
-      onSendDiagnostic={onSendDiagnostic}
-    />
-  )
-}
-
-function CatalogState({ loading, refreshStatus, hasEntries, errorCode }: {
-  loading: boolean
-  refreshStatus: ToolCatalogSnapshot['refresh']['status']
-  hasEntries: boolean
-  errorCode: string | null
-}) {
-  if (loading && !hasEntries) {
-    return (
-      <div className="flex items-center gap-2 border-y border-app-border px-3 py-4 text-xs text-app-text-muted" role="status">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading tool catalog...
-      </div>
-    )
-  }
-  if (refreshStatus === 'stale') {
-    return <div className="border-y border-app-warning/30 bg-app-warning/5 px-3 py-2 text-xs text-app-text-muted" role="status">Showing saved tool status. Refresh needed.</div>
-  }
-  if (refreshStatus === 'failed' && hasEntries) {
-    return <div className="border-y border-app-danger/30 bg-app-danger/5 px-3 py-2 text-xs text-app-text-muted" role="status">Refresh failed. Showing saved tool status{errorCode ? ` (${errorCode.slice(0, 80)})` : ''}.</div>
-  }
-  return null
 }
 
 export function ToolCatalogSettings({
@@ -175,7 +101,7 @@ export function ToolCatalogSettings({
           </button>
         ))}
       </div>
-      <CatalogState loading={loading} refreshStatus={refreshStatus} hasEntries={hasEntries} errorCode={refreshErrorCode} />
+      <ToolCatalogState loading={loading} refreshStatus={refreshStatus} hasEntries={hasEntries} errorCode={refreshErrorCode} />
       {unavailable && (
         <div className="border-y border-app-danger/30 px-3 py-5 text-center text-xs text-app-text-muted" role="alert">
           Tool catalog unavailable{refreshErrorCode ? ` (${refreshErrorCode.slice(0, 80)})` : ''}.

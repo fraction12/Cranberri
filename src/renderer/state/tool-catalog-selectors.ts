@@ -1,9 +1,10 @@
-import type {
-  ToolCatalogEntry,
-  ToolCatalogMachineStatus,
-  ToolCatalogPreferences,
-  ToolCatalogSource,
-  ToolCatalogTaskStatus,
+import {
+  toolCatalogMembership as sharedToolMembership,
+  type ToolCatalogEntry,
+  type ToolCatalogMachineStatus,
+  type ToolCatalogPreferences,
+  type ToolCatalogSource,
+  type ToolCatalogTaskStatus,
 } from '@/shared/tools'
 
 export type ToolCatalogSourceKind = ToolCatalogSource['kind']
@@ -114,15 +115,7 @@ export function toolAvailabilityLabel(entry: ToolCatalogEntry): string {
   return toolAvailability(entry) === 'available' ? 'Available' : 'Availability unknown'
 }
 
-export function toolMembership(entry: ToolCatalogEntry, preferences: ToolCatalogPreferences) {
-  const isPinned = preferences.pinnedToolIds.includes(entry.id)
-  const isDismissedDefault = entry.isDefault && preferences.dismissedDefaultToolIds.includes(entry.id)
-  return {
-    isPinned,
-    isDismissedDefault,
-    inRail: isPinned || (entry.isDefault && !isDismissedDefault),
-  }
-}
+export const toolMembership = sharedToolMembership
 
 export function selectToolEntriesWithPreferences(
   entries: readonly ToolCatalogEntry[],

@@ -56,6 +56,33 @@ function deferred<T>() {
 }
 
 describe('ToolCatalogService cache', () => {
+  it('shares environment discovery across a full refresh and keeps manual tests fresh', async () => {
+    const environment = vi.fn(async () => ({ PATH: '/usr/bin', HOME: '/Users/example' }))
+    const projectRoots = vi.fn(() => ['/workspace/repo'])
+    const resolveExecutable = vi.fn(async (name: string) => ({ path: `/usr/bin/${name}`, errorCode: null }))
+    const execFile: CatalogExecFile = (_file, _argv, _options, callback) => {
+      callback(null, 'tool version 1.0.0', '')
+      return { kill: vi.fn(() => true) }
+    }
+    const service = new ToolCatalogService({
+      now: () => START_MS,
+      environment,
+      projectRoots,
+      resolveExecutable,
+      execFile,
+      neutralCwd: '/tmp',
+    })
+
+    await service.list(CONTEXT)
+    expect(environment).toHaveBeenCalledTimes(1)
+    expect(projectRoots).toHaveBeenCalledTimes(1)
+    expect(resolveExecutable).toHaveBeenCalledTimes(CATALOG_PROBE_POLICIES.length)
+
+    await service.test('cli:rg', CONTEXT)
+    expect(environment).toHaveBeenCalledTimes(2)
+    expect(projectRoots).toHaveBeenCalledTimes(2)
+  })
+
   it('returns a fresh cache hit and coalesces one stale full refresh', async () => {
     let now = START_MS
     const blocked = deferred<CatalogProbeObservation>()

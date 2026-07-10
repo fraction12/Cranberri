@@ -14,10 +14,6 @@ import {
 import { createToolCatalogId } from './tool-catalog'
 import { logTelemetry } from './telemetry'
 
-const MAX_PREVIEW_LENGTH = 1200
-const MAX_STRING_LENGTH = 500
-const SECRET_KEY_RE = /token|secret|password|authorization|cookie|apikey|api_key|credential/i
-
 type ToolItemPhase = 'started' | 'completed'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -30,30 +26,6 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function sanitize(value: unknown, depth = 0): unknown {
-  if (depth > 5) return '[depth-limit]'
-  if (value === null || value === undefined) return value
-  if (typeof value === 'bigint') return value.toString()
-  if (typeof value === 'string') return value.length > MAX_STRING_LENGTH ? `${value.slice(0, MAX_STRING_LENGTH)}...` : value
-  if (typeof value === 'number' || typeof value === 'boolean') return value
-  if (Array.isArray(value)) return value.slice(0, 50).map((item) => sanitize(item, depth + 1))
-  if (typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .map(([key, item]) => [key, SECRET_KEY_RE.test(key) ? '[redacted]' : sanitize(item, depth + 1)]),
-    )
-  }
-  return String(value)
-}
-
-export function safePayloadPreview(value: unknown, maxLength = MAX_PREVIEW_LENGTH): string | undefined {
-  if (value === undefined || value === null) return undefined
-  const sanitized = sanitize(value)
-  const raw = typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized)
-  if (!raw || raw === '{}' || raw === '[]') return undefined
-  return raw.length > maxLength ? `${raw.slice(0, maxLength)}...` : raw
 }
 
 function normalizeStatus(rawStatus: unknown, fallback: ToolEventStatus): ToolEventStatus {
@@ -219,18 +191,9 @@ export function createToolEventFromApproval(threadId: string, approval: PendingA
         : 'approval'
   const server = stringValue(action.server)
   const toolName = stringValue(action.toolName) ?? stringValue(action.program) ?? stringValue(action.command)
-  const identity = kind === 'command'
-    ? { name: 'exec_command', catalogId: createToolCatalogId({ kind: 'codex' }, 'exec_command') }
-    : kind === 'file_change'
-      ? { name: 'apply_patch', catalogId: createToolCatalogId({ kind: 'codex' }, 'apply_patch') }
-      : server && toolName
-        ? {
-            name: toolName,
-            catalogId: createToolCatalogId({ kind: 'mcp', providerId: server, providerName: server }, toolName),
-          }
-        : toolName
-          ? { name: toolName, catalogId: createToolCatalogId({ kind: 'codex' }, toolName) }
-          : { name: approval.description }
+  const identity = !toolName && kind !== 'command' && kind !== 'file_change'
+    ? { name: approval.description }
+    : itemIdentity({ server, tool: toolName }, kind)
 
   return buildToolEvent({
     eventId: `${threadId}:${approval.reviewId || approval.id}:approval-requested`,

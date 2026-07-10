@@ -18,6 +18,7 @@ import {
   DEFAULT_APP_SETTINGS,
   type AppSettings,
 } from '../shared/settings'
+import { toolCatalogPreferencesSchema } from '../shared/tools'
 
 const codexReasoningEffortSchema = z.enum(CODEX_REASONING_EFFORT_VALUES)
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
@@ -25,10 +26,9 @@ const themeSchema = z.enum(APP_THEME_VALUES)
 const accentSchema = z.enum(APP_ACCENT_VALUES)
 const reducedMotionSchema = z.enum(APP_REDUCED_MOTION_VALUES)
 const updaterChannelSchema = z.enum(['stable', 'beta'])
-const toolIdListSchema = z.array(z.string().min(1))
 const toolCurationSettingsSchema = z.object({
-  pinnedToolIds: toolIdListSchema.default([]),
-  dismissedDefaultToolIds: toolIdListSchema.default([]),
+  pinnedToolIds: toolCatalogPreferencesSchema.shape.pinnedToolIds.default([]),
+  dismissedDefaultToolIds: toolCatalogPreferencesSchema.shape.dismissedDefaultToolIds.default([]),
 })
 
 const codexSpeedSchema = z.enum(['standard', 'fast'])
@@ -136,10 +136,10 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
         : DEFAULT_APP_SETTINGS.appearance.reducedMotion,
     },
     tools: {
-      pinnedToolIds: toolIdListSchema.safeParse(tools.pinnedToolIds).success
+      pinnedToolIds: toolCatalogPreferencesSchema.shape.pinnedToolIds.safeParse(tools.pinnedToolIds).success
         ? (tools.pinnedToolIds as string[])
         : DEFAULT_APP_SETTINGS.tools.pinnedToolIds,
-      dismissedDefaultToolIds: toolIdListSchema.safeParse(tools.dismissedDefaultToolIds).success
+      dismissedDefaultToolIds: toolCatalogPreferencesSchema.shape.dismissedDefaultToolIds.safeParse(tools.dismissedDefaultToolIds).success
         ? (tools.dismissedDefaultToolIds as string[])
         : DEFAULT_APP_SETTINGS.tools.dismissedDefaultToolIds,
     },

@@ -320,6 +320,19 @@ export type ToolCatalogDirectEvent = z.infer<typeof toolCatalogDirectEventSchema
 export type ToolCatalogPreferences = z.infer<typeof toolCatalogPreferencesSchema>
 export type ToolCatalogRefreshFailure = z.infer<typeof toolCatalogRefreshFailureSchema>
 
+export function toolCatalogMembership(
+  entry: Pick<ToolCatalogEntry, 'id' | 'isDefault'>,
+  preferences: ToolCatalogPreferences,
+) {
+  const isPinned = preferences.pinnedToolIds.includes(entry.id)
+  const isDismissedDefault = entry.isDefault && preferences.dismissedDefaultToolIds.includes(entry.id)
+  return {
+    isPinned,
+    isDismissedDefault,
+    inRail: isPinned || (entry.isDefault && !isDismissedDefault),
+  }
+}
+
 function encodeToolCatalogIdComponent(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,

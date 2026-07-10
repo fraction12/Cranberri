@@ -1,4 +1,5 @@
 import type { CodexApprovalMode, CodexReasoningEffort, CodexSpeed } from './codex'
+import type { ToolCatalogPreferences } from './tools'
 
 export const APP_THEME_VALUES = ['system', 'light', 'dark'] as const
 export type AppTheme = (typeof APP_THEME_VALUES)[number]
@@ -13,10 +14,7 @@ export const APP_UI_FONT_SIZE_RANGE = { min: 11, max: 16 } as const
 export const APP_CODE_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 export const APP_TERMINAL_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 
-export interface ToolCurationSettings {
-  pinnedToolIds: string[]
-  dismissedDefaultToolIds: string[]
-}
+export type ToolCurationSettings = ToolCatalogPreferences
 
 export interface AppSettings {
   codex: {
