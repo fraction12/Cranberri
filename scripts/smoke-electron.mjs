@@ -378,6 +378,16 @@ async function runRepoWorkspaceSmoke() {
       await modelSubmenu.waitFor({ state: 'visible', timeout: 2_000 })
       await captureSmokeScreenshot(page, 'model-selector')
       await page.getByRole('menuitemradio', { name: /GPT-5\.6-Sol Most capable/ }).click()
+      await page.waitForFunction(() => {
+        const toolbar = document.querySelector('[data-composer-toolbar="true"]')
+        const send = document.querySelector('button[aria-label="Send message"]')
+        if (!(toolbar instanceof HTMLElement) || !(send instanceof HTMLElement)) return false
+        const toolbarRect = toolbar.getBoundingClientRect()
+        const sendRect = send.getBoundingClientRect()
+        return toolbar.scrollWidth <= toolbar.clientWidth + 1
+          && sendRect.left >= toolbarRect.left - 1
+          && sendRect.right <= toolbarRect.right + 1
+      }, undefined, { timeout: 10_000 })
       await resizeMainWindow(electronApp, 1400, 900, 900, 600)
       await page.waitForFunction(() => window.innerHeight > 700)
       await modelSelector.click()

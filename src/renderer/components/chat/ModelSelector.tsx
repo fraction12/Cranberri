@@ -52,8 +52,8 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         >
           <span>{selectedModel.label.replace('GPT-', '')}</span>
           <span>{selectedEffort.label}</span>
-          <span className="text-app-text-muted">·</span>
-          <span>{selectedSpeed.label}</span>
+          <span className="hidden text-app-text-muted xl:inline">·</span>
+          <span className="hidden xl:inline">{selectedSpeed.label}</span>
           <ChevronDown className="h-3 w-3 text-app-text-muted" />
         </button>
       </DropdownMenu.Trigger>

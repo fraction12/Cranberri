@@ -768,8 +768,11 @@ export function ChatWindow({ id }: { id: string }) {
               className={TEXTAREA_CLASS}
             />
             </div>
-            <div className="flex items-center justify-between pt-2 text-[var(--app-text-muted)]">
-              <div className="flex items-center gap-3">
+            <div
+              data-composer-toolbar="true"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-[var(--app-text-muted)]"
+            >
+              <div className="flex shrink-0 items-center gap-3">
                 <AddMenu
                   onAttachFiles={attachFiles}
                   onGoal={() => setGoalMode((value) => !value)}
@@ -784,7 +787,7 @@ export function ChatWindow({ id }: { id: string }) {
                   <GoalModePill onRemove={() => setGoalMode(false)} />
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="ml-auto flex shrink-0 items-center gap-2 xl:gap-3">
                 <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
                 <ModelSelector settings={turnSettings} onChange={setTurnSettings} />
                 <VoiceDictationButton listening={voiceListening} onClick={toggleVoiceDictation} />
