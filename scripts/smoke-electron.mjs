@@ -1491,7 +1491,7 @@ async function runRepoWorkspaceSmoke() {
       await rgRow.getByLabel('Test rg').waitFor({ timeout: 10_000 })
       await page.getByLabel('Manage tools').click()
       await page.getByPlaceholder('Search tools').fill('inspect_fixture')
-      const inspectToolRow = page.locator('article').filter({ hasText: 'inspect_fixture' }).first()
+      const inspectToolRow = page.getByLabel('Tool catalog').locator('article').filter({ hasText: 'inspect_fixture' }).first()
       await inspectToolRow.getByLabel('Pin inspect_fixture to Tools rail').click()
       await inspectToolRow.getByLabel('Unpin inspect_fixture from Tools rail').waitFor({ timeout: 10_000 })
       await page.getByLabel('Close settings').click()
