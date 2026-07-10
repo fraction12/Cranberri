@@ -11,6 +11,7 @@ import {
   type ToolRegistryMcpTool,
   type ToolRegistrySnapshot,
 } from '../shared/tools'
+import { createToolCatalogId } from './tool-catalog'
 import { logTelemetry } from './telemetry'
 
 const MAX_PREVIEW_LENGTH = 1200
@@ -89,28 +90,39 @@ function itemKind(type: string): ToolEventKind | null {
   }
 }
 
-function commandName(item: Record<string, unknown>): string {
-  const command = item.command
-  if (Array.isArray(command)) return command.map(String).join(' ')
-  if (typeof command === 'string' && command.trim()) return command
-  const action = asRecord(item.action)
-  if (action?.command) return String(action.command)
-  return 'Command'
-}
-
-function itemName(item: Record<string, unknown>, kind: ToolEventKind): string {
-  if (kind === 'command') return commandName(item)
-  if (kind === 'file_change') return 'File change'
+function itemIdentity(item: Record<string, unknown>, kind: ToolEventKind): { name: string; catalogId?: string } {
+  if (kind === 'command') return { name: 'exec_command', catalogId: createToolCatalogId({ kind: 'codex' }, 'exec_command') }
+  if (kind === 'file_change') return { name: 'apply_patch', catalogId: createToolCatalogId({ kind: 'codex' }, 'apply_patch') }
   const server = stringValue(item.server)
   const namespace = stringValue(item.namespace)
   const tool = stringValue(item.tool) ?? stringValue(item.name)
-  if (server && tool) return `${server}.${tool}`
-  if (namespace && tool) return `${namespace}.${tool}`
-  if (tool) return tool
-  if (kind === 'web_search') return 'Web search'
-  if (kind === 'image') return 'Image generation'
-  if (kind === 'collab') return 'Collaboration tool'
-  return 'Tool call'
+  if (server && tool) {
+    return {
+      name: tool,
+      catalogId: createToolCatalogId({ kind: 'mcp', providerId: server, providerName: server }, tool),
+    }
+  }
+  if (kind === 'web_search') {
+    return {
+      name: 'web_search',
+      catalogId: createToolCatalogId({ kind: 'browser', providerId: 'codex-runtime' }, 'web_search'),
+    }
+  }
+  if (kind === 'image') {
+    return {
+      name: 'image_generation',
+      catalogId: createToolCatalogId({ kind: 'browser', providerId: 'codex-runtime' }, 'image_generation'),
+    }
+  }
+  if (tool) {
+    return {
+      name: tool,
+      catalogId: createToolCatalogId({ kind: 'codex' }, tool),
+    }
+  }
+  if (namespace) return { name: namespace }
+  if (kind === 'collab') return { name: 'collaboration' }
+  return { name: 'tool_call' }
 }
 
 function itemStatus(item: Record<string, unknown>, phase: ToolItemPhase): ToolEventStatus {
@@ -123,12 +135,13 @@ function itemStatus(item: Record<string, unknown>, phase: ToolItemPhase): ToolEv
   return status
 }
 
-function itemError(item: Record<string, unknown>): string | undefined {
-  const error = item.error
-  if (!error) return undefined
-  if (typeof error === 'string') return error
-  const record = asRecord(error)
-  return stringValue(record?.message) ?? safePayloadPreview(error, 400)
+function itemErrorCode(item: Record<string, unknown>, status: ToolEventStatus): string | undefined {
+  if (status !== 'failed') return undefined
+  const error = asRecord(item.error)
+  const code = stringValue(error?.code)
+  if (code) return code.slice(0, 80)
+  const exitCode = numberValue(item.exitCode)
+  return exitCode === undefined ? 'tool-failed' : `exit-${exitCode}`
 }
 
 function buildToolEvent(input: Omit<ToolEventRecord, 'timestamp'> & { timestamp?: string }): ToolEventRecord {
@@ -150,22 +163,18 @@ export function createToolEventFromItem(threadId: string, itemValue: unknown, ph
   const status = itemStatus(item, phase)
   const server = stringValue(item.server)
   const appContext = asRecord(item.appContext)
+  const identity = itemIdentity(item, kind)
 
   return buildToolEvent({
     eventId: `${threadId}:${toolCallId ?? randomUUID()}:${phase}:${status}`,
     threadId,
     toolCallId,
-    name: itemName(item, kind),
+    catalogId: identity.catalogId,
+    name: identity.name,
     title: stringValue(item.title),
     kind,
     status,
-    argumentsPreview: safePayloadPreview(
-      kind === 'command'
-        ? { command: item.command, cwd: item.cwd, source: item.source }
-        : item.arguments ?? item.input ?? item.changes ?? item.prompt,
-    ),
-    resultPreview: safePayloadPreview(item.result ?? item.output ?? item.contentItems ?? item.exitCode),
-    error: itemError(item),
+    errorCode: itemErrorCode(item, status),
     durationMs: numberValue(item.durationMs) ?? null,
     server,
     connectorId: typeof appContext?.connectorId === 'string' ? appContext.connectorId : undefined,
@@ -181,19 +190,19 @@ export function createMcpToolProgressEvent(threadId: string, itemId: string | un
     name: 'MCP tool',
     kind: 'mcp',
     status: 'progress',
-    resultPreview: message,
   })
 }
 
 export function createToolEventFromLegacyToolCall(threadId: string, tool: ToolCall): ToolEventRecord {
+  const catalogId = createToolCatalogId({ kind: 'codex' }, tool.function)
   return buildToolEvent({
     eventId: `${threadId}:${tool.id}:legacy-tool-call`,
     threadId,
     toolCallId: tool.id,
+    catalogId,
     name: tool.function,
     kind: 'dynamic',
     status: 'running',
-    argumentsPreview: safePayloadPreview(tool.arguments),
   })
 }
 
@@ -210,16 +219,28 @@ export function createToolEventFromApproval(threadId: string, approval: PendingA
         : 'approval'
   const server = stringValue(action.server)
   const toolName = stringValue(action.toolName) ?? stringValue(action.program) ?? stringValue(action.command)
+  const identity = kind === 'command'
+    ? { name: 'exec_command', catalogId: createToolCatalogId({ kind: 'codex' }, 'exec_command') }
+    : kind === 'file_change'
+      ? { name: 'apply_patch', catalogId: createToolCatalogId({ kind: 'codex' }, 'apply_patch') }
+      : server && toolName
+        ? {
+            name: toolName,
+            catalogId: createToolCatalogId({ kind: 'mcp', providerId: server, providerName: server }, toolName),
+          }
+        : toolName
+          ? { name: toolName, catalogId: createToolCatalogId({ kind: 'codex' }, toolName) }
+          : { name: approval.description }
 
   return buildToolEvent({
     eventId: `${threadId}:${approval.reviewId || approval.id}:approval-requested`,
     threadId,
     toolCallId: stringValue(action.targetItemId) ?? approval.targetItemId ?? undefined,
-    name: server && toolName ? `${server}.${toolName}` : toolName ?? approval.description,
+    catalogId: identity.catalogId,
+    name: identity.name,
     title: stringValue(action.toolTitle),
     kind,
     status: 'approval_requested',
-    argumentsPreview: safePayloadPreview(action),
     reviewId: approval.reviewId,
     server,
     connectorId: typeof action.connectorId === 'string' ? action.connectorId : undefined,

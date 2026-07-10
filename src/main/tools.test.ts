@@ -39,12 +39,13 @@ describe('tool event normalization', () => {
     expect(started).toMatchObject({
       threadId: 'thread-1',
       toolCallId: 'item-1',
-      name: 'github.list_pull_requests',
+      catalogId: 'mcp:github:list_pull_requests',
+      name: 'list_pull_requests',
       kind: 'mcp',
       status: 'running',
       connectorId: 'github',
     })
-    expect(started?.argumentsPreview).toContain('Cranberri')
+    expect(started).not.toHaveProperty('argumentsPreview')
   })
 
   it('marks failed command executions from non-zero exit codes', () => {
@@ -58,11 +59,13 @@ describe('tool event normalization', () => {
     }, 'completed')
 
     expect(event).toMatchObject({
-      name: 'npm test',
+      catalogId: 'codex:exec_command',
+      name: 'exec_command',
       kind: 'command',
       status: 'failed',
       durationMs: 1400,
     })
+    expect(JSON.stringify(event)).not.toContain('npm test')
   })
 
   it('normalizes tool approval request and completion records', () => {
@@ -84,12 +87,14 @@ describe('tool event normalization', () => {
     const completed = createApprovalCompletedEvent('thread-1', 'review-1', 'approved')
 
     expect(approval).toMatchObject({
-      name: 'google-drive.search',
+      catalogId: 'mcp:google-drive:search',
+      name: 'search',
       title: 'Search files',
       kind: 'mcp',
       status: 'approval_requested',
       connectorName: 'Google Drive',
     })
+    expect(approval).not.toHaveProperty('argumentsPreview')
     expect(completed).toMatchObject({
       name: 'Approval approved',
       kind: 'approval',
