@@ -1,4 +1,5 @@
-const TOOLTIP_CLASS = 'pointer-events-none absolute bottom-6 left-1/2 z-[1200] w-[165px] -translate-x-1/2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-center text-xs text-[var(--app-text)] opacity-0 shadow-2xl shadow-black/50 transition-opacity group-hover:opacity-100'
+import * as Tooltip from '@radix-ui/react-tooltip'
+import { cn, menuSurface } from '../../lib/ui'
 
 export function ContextWindowIndicator({
   usedTokens,
@@ -12,25 +13,34 @@ export function ContextWindowIndicator({
   const compactUsed = `${Math.round(usedTokens / 1000)}k`
   const compactTotal = `${Math.round(contextWindow / 1000)}k`
   const fillDegrees = Math.round((percentUsed / 100) * 360)
+  const label = `${percentUsed}% of context used, ${percentLeft}% left`
 
   return (
-    <div className="group relative flex h-5 w-5 items-center justify-center text-[var(--app-text-muted)]">
-      <div
-        className="flex h-3 w-3 items-center justify-center rounded-full"
-        style={{
-          background: percentUsed === 0
-            ? 'transparent'
-            : `conic-gradient(var(--app-text) ${fillDegrees}deg, rgba(127,135,148,0.35) ${fillDegrees}deg)`,
-          boxShadow: percentUsed === 0 ? 'inset 0 0 0 2px rgba(127,135,148,0.35)' : 'none',
-        }}
-      >
-        {percentUsed > 0 && <div className="h-1.5 w-1.5 rounded-full bg-[var(--app-surface)]" />}
-      </div>
-      <div className={TOOLTIP_CLASS}>
-        <div className="mb-1 text-xs text-[var(--app-text-muted)]">Context window:</div>
-        <div>{percentUsed}% used ({percentLeft}% left)</div>
-        <div>{compactUsed} / {compactTotal} tokens used</div>
-      </div>
-    </div>
+    <Tooltip.Provider delayDuration={350} skipDelayDuration={100}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button type="button" className="flex h-5 w-5 items-center justify-center rounded-full text-app-text-muted" aria-label={label}>
+            <span
+              className="flex h-3 w-3 items-center justify-center rounded-full"
+              style={{
+                background: percentUsed === 0
+                  ? 'transparent'
+                  : `conic-gradient(var(--app-text) ${fillDegrees}deg, rgba(127,135,148,0.35) ${fillDegrees}deg)`,
+                boxShadow: percentUsed === 0 ? 'inset 0 0 0 2px rgba(127,135,148,0.35)' : 'none',
+              }}
+            >
+              {percentUsed > 0 && <span className="h-1.5 w-1.5 rounded-full bg-app-surface" />}
+            </span>
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content side="top" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1500] w-44 px-3 py-2 text-center text-xs text-app-text')}>
+            <div className="text-app-text-muted">Context window</div>
+            <div className="mt-1">{percentUsed}% used · {percentLeft}% left</div>
+            <div className="mt-0.5 text-caption text-app-text-muted">{compactUsed} / {compactTotal} tokens</div>
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
   )
 }

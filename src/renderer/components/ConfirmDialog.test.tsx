@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmDialogContent } from './ConfirmDialog'
 
 describe('ConfirmDialog', () => {
   it('renders accessible confirmation copy, error text, and busy state', () => {
     const html = renderToStaticMarkup(
-      <ConfirmDialog
+      <ConfirmDialogContent
         title="Delete session"
         description="Delete Codex session?"
         confirmLabel="Delete"

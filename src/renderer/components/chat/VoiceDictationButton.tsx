@@ -1,4 +1,5 @@
 import { Mic } from 'lucide-react'
+import { cn, iconButton } from '../../lib/ui'
 
 interface VoiceDictationButtonProps {
   listening: boolean
@@ -11,11 +12,7 @@ export function VoiceDictationButton({ listening, onClick }: VoiceDictationButto
       type="button"
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className={[
-        'rounded p-1 transition hover:bg-[var(--app-surface-2)] hover:text-[var(--app-text)]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]',
-        listening ? 'bg-[var(--app-danger)]/15 text-[var(--app-danger)]' : 'text-[var(--app-text-muted)]',
-      ].join(' ')}
+      className={cn(iconButton(), listening && 'bg-app-danger/15 text-app-danger hover:text-app-danger')}
       aria-label={listening ? 'Stop voice dictation' : 'Start voice dictation'}
       title={listening ? 'Stop voice dictation' : 'Start voice dictation'}
       aria-pressed={listening}

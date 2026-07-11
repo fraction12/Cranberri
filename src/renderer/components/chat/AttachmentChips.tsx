@@ -7,9 +7,8 @@ interface AttachmentChipsProps {
 }
 
 const ATTACHMENT_CHIP_CLASS = [
-  'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)]',
-  'bg-[var(--app-surface-2)] px-1.5 py-1 text-caption text-[var(--app-text)]',
-  'hover:bg-[var(--app-border)]',
+  'inline-flex max-w-full items-center gap-1.5 rounded-lg bg-app-surface-2 px-1.5 py-1',
+  'text-caption text-app-text ring-1 ring-app-border/55 hover:bg-app-border/70',
 ].join(' ')
 
 export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps) {
@@ -33,11 +32,11 @@ export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps)
               <img
                 src={preview.src}
                 alt=""
-                className="h-8 w-10 rounded border border-[var(--app-border)] object-cover"
+                className="h-8 w-10 rounded-md object-cover"
                 loading="lazy"
               />
             ) : (
-              <span className="flex h-8 w-8 items-center justify-center rounded border border-[var(--app-border)] bg-[var(--app-surface)]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-app-surface">
                 <FileText className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
               </span>
             )}

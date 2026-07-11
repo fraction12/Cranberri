@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronRight, Gauge, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type { CodexAccountUsageReadResult, CodexRateLimitWindow, CodexRateLimitsReadResult } from '@/shared/codex'
+import { buttonStyle } from '../lib/ui'
+import { ConfirmDialog } from './ConfirmDialog'
 
 function windowLabel(window?: CodexRateLimitWindow): string {
-  if (!window) return '—'
+  if (!window) return 'N/A'
   const mins = window.windowDurationMins
-  if (mins === 0) return '—'
+  if (mins === 0) return 'N/A'
   if (mins % 10080 === 0) return 'Weekly'
   if (mins % 1440 === 0) return `${mins / 1440}d`
   if (mins % 60 === 0) return `${mins / 60}h`
@@ -30,7 +33,7 @@ function formatResetsAt(resetsAtSeconds: number): string {
 }
 
 function formatTokenCount(tokens: number): string {
-  if (!Number.isFinite(tokens)) return '—'
+  if (!Number.isFinite(tokens)) return 'N/A'
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
   return String(Math.round(tokens))
@@ -123,6 +126,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
       setConfirmOpen(false)
       setPanelOpen(false)
       await fetchLimits()
+      toast.success('Rate-limit reset claimed')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
@@ -141,7 +145,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
       </div>
 
       {error && !data && (
-        <div className="text-caption text-app-text-muted">Usage unavailable</div>
+        <button type="button" onClick={() => void fetchLimits()} className="text-left text-caption text-app-danger hover:underline">Could not load usage. Retry</button>
       )}
 
       {data && (
@@ -157,7 +161,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
             <ChevronRight className={`h-3 w-3 transition-transform ${panelOpen ? 'rotate-90' : ''}`} />
           </button>
           {panelOpen && (
-            <div className="mt-2 space-y-1 border-t border-app-border pt-2">
+            <div className="mt-2 space-y-1 rounded-md bg-app-surface/60 px-2 py-2">
               {primary && (
                 <div className="flex items-center justify-between text-caption text-app-text-muted">
                   <span>Primary resets</span>
@@ -171,7 +175,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
                 </div>
               )}
               {accountUsage && (
-                <div className="space-y-2 border-t border-app-border pt-2">
+                <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between text-caption text-app-text-muted">
                     <span>Lifetime tokens</span>
                     <span className="text-app-text">{formatTokenCount(accountUsage.summary.lifetimeTokens)}</span>
@@ -187,7 +191,7 @@ export function UsageMeter({ className = '' }: { className?: string }) {
                 type="button"
                 disabled={availableResets <= 0 || claiming}
                 onClick={() => setConfirmOpen(true)}
-                className="mt-1 w-full rounded-lg border border-app-border bg-app-surface-2 px-2 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-40"
+                className={`${buttonStyle({ tone: 'secondary', size: 'small' })} mt-1 w-full`}
               >
                 {claiming ? 'Claiming…' : 'Claim 1 reset'}
               </button>
@@ -198,40 +202,16 @@ export function UsageMeter({ className = '' }: { className?: string }) {
       )}
 
       {confirmOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--app-overlay)]"
-          onClick={() => !claiming && setConfirmOpen(false)}
-        >
-          <div
-            className="w-[340px] rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="text-sm font-medium text-app-text">Claim rate-limit reset?</div>
-            <div className="mt-1 text-xs text-app-text-muted">
-              This consumes <strong>one whole reset</strong>. You will have{' '}
-              <strong>{Math.max(0, availableResets - 1)}</strong> remaining afterward. This cannot be undone.
-            </div>
-            {error && <div className="mt-2 text-xs text-app-danger">{error}</div>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={claiming}
-                onClick={() => setConfirmOpen(false)}
-                className="rounded-lg px-3 py-1.5 text-xs text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={claiming || availableResets <= 0}
-                onClick={handleClaim}
-                className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50"
-              >
-                {claiming ? 'Claiming…' : 'Claim reset'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Claim rate-limit reset"
+          description={<>This uses one reset and leaves <strong>{Math.max(0, availableResets - 1)}</strong> remaining. This cannot be undone.</>}
+          confirmLabel="Claim reset"
+          busyLabel="Claiming"
+          busy={claiming}
+          error={error}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => void handleClaim()}
+        />
       )}
     </div>
   )

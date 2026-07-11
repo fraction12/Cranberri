@@ -20,9 +20,8 @@ function CompactMessage({ message }: { message: CodexMessage }) {
       : ['', message.content]
 
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <div className="h-px flex-1 bg-[var(--app-border)]" />
-      <div className="flex items-center gap-2 text-[var(--app-text-muted)]">
+    <div className="flex justify-center text-xs">
+      <div className="flex items-center gap-2 rounded-full bg-app-surface/70 px-2.5 py-1 text-app-text-muted">
         {isPending && (
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
@@ -33,7 +32,6 @@ function CompactMessage({ message }: { message: CodexMessage }) {
         {muted && <span>{muted}</span>}
         <span className="text-[var(--app-text)]">{bright}</span>
       </div>
-      <div className="h-px flex-1 bg-[var(--app-border)]" />
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ChevronRight, Folder } from 'lucide-react'
+import { AlertCircle, ChevronRight, File, Folder, Loader2 } from 'lucide-react'
 import type { FileTreeNode } from '@/shared/git'
 
 interface FileTreeProps {
   nodes?: FileTreeNode[]
   isLoading: boolean
+  error?: Error | null
   selectedPath: string | null
   onSelectFile: (path: string) => void
   depth?: number
@@ -13,6 +14,7 @@ interface FileTreeProps {
 export function FileTree({
   nodes,
   isLoading,
+  error,
   selectedPath,
   onSelectFile,
   depth = 0,
@@ -20,7 +22,17 @@ export function FileTree({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
   if (isLoading) {
-    return <div className="p-3 text-sm text-app-text-muted">Loading files...</div>
+    return <div className="flex items-center gap-2 p-3 text-sm text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading files</div>
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
+        <span className="font-medium text-app-text">Files could not be loaded</span>
+        <span className="mt-1 text-caption">{error.message}</span>
+      </div>
+    )
   }
 
   if (!nodes?.length) {
@@ -47,7 +59,7 @@ export function FileTree({
   })
 
   return (
-    <ul className="text-sm">
+    <ul className="py-1 text-sm" role={depth === 0 ? 'tree' : 'group'}>
       {sorted.map((node) => {
         const name = node.path.split('/').pop() ?? node.path
         const isExpanded = expanded.has(node.path)
@@ -57,8 +69,9 @@ export function FileTree({
               <button
                 type="button"
                 onClick={() => toggle(node.path)}
-                className="flex w-full items-center gap-1 px-3 py-1 text-left hover:bg-app-surface-2/50"
+                className="flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left hover:bg-app-surface-2/55"
                 style={{ paddingLeft: `${12 + depth * 16}px` }}
+                aria-expanded={isExpanded}
               >
                 <ChevronRight className={`h-3 w-3 ${isExpanded ? 'rotate-90' : ''}`} />
                 <Folder className="h-3.5 w-3.5 text-app-text-muted" />
@@ -68,6 +81,7 @@ export function FileTree({
                 <FileTree
                   nodes={node.children}
                   isLoading={false}
+                  error={null}
                   selectedPath={selectedPath}
                   onSelectFile={onSelectFile}
                   depth={depth + 1}
@@ -77,16 +91,19 @@ export function FileTree({
           )
         }
         return (
-          <li
-            key={node.path}
-            onClick={() => onSelectFile(node.path)}
-            className={`cursor-pointer truncate px-3 py-1 hover:bg-app-surface-2/50 ${
-              selectedPath === node.path ? 'bg-app-surface-2' : ''
-            }`}
-            style={{ paddingLeft: `${12 + depth * 16}px` }}
-            title={node.path}
-          >
-            {name}
+          <li key={node.path} role="treeitem">
+            <button
+              type="button"
+              onClick={() => onSelectFile(node.path)}
+              className={`flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left hover:bg-app-surface-2/55 ${
+                selectedPath === node.path ? 'bg-app-surface-2' : ''
+              }`}
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+              title={node.path}
+            >
+              <File className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+            </button>
           </li>
         )
       })}

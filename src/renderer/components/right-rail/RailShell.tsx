@@ -25,7 +25,7 @@ interface BottomPanelNavProps {
 
 export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailTabsProps) {
   return (
-    <div className="flex h-9 shrink-0 border-b border-app-border" role="tablist" aria-label="Right rail">
+    <div className="grid h-10 shrink-0 grid-cols-3 gap-1 bg-app-surface p-1" role="tablist" aria-label="Right rail">
       <TabButton
         active={activeTab === 'files'}
         onClick={() => onSelectTab('files')}
@@ -54,8 +54,8 @@ export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailT
 
 export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings }: BottomPanelContentProps) {
   return (
-    <div className="basis-1/2 min-h-0 border-t border-app-border bg-app-bg">
-      <div className="flex h-8 shrink-0 items-center border-b border-app-border bg-app-surface-2 px-3">
+    <div className="flex basis-1/2 min-h-0 flex-col bg-app-bg">
+      <div className="flex h-9 shrink-0 items-center bg-app-surface px-3 pt-1">
         <div className="flex items-center gap-2 text-xs font-medium text-app-text">
           {bottomPanel === 'issue' && <Ticket className="h-3.5 w-3.5 text-app-text-muted" />}
           {bottomPanel === 'processes' && <Activity className="h-3.5 w-3.5 text-app-text-muted" />}
@@ -64,24 +64,26 @@ export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings 
           <span>{bottomPanel === 'issue' ? 'Issue' : bottomPanel === 'processes' ? 'Processes' : bottomPanel === 'github' ? 'GitHub' : 'Tools'}</span>
         </div>
       </div>
-      {bottomPanel === 'issue' ? (
-        <div className="p-3 text-sm text-app-text-muted">
-          No Linear issue linked.
-        </div>
-      ) : bottomPanel === 'processes' ? (
-        <ProcessesPanel repoPath={repoPath} />
-      ) : bottomPanel === 'github' ? (
-        <GitHubPanel repoPath={repoPath} />
-      ) : (
-        <ToolsPanel onOpenSettings={onOpenToolsSettings} />
-      )}
+      <div className="min-h-0 flex-1">
+        {bottomPanel === 'issue' ? (
+          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-app-text-muted">
+            No linked issue
+          </div>
+        ) : bottomPanel === 'processes' ? (
+          <ProcessesPanel repoPath={repoPath} />
+        ) : bottomPanel === 'github' ? (
+          <GitHubPanel repoPath={repoPath} />
+        ) : (
+          <ToolsPanel onOpenSettings={onOpenToolsSettings} />
+        )}
+      </div>
     </div>
   )
 }
 
 export function BottomPanelNav({ bottomPanel, onTogglePanel }: BottomPanelNavProps) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 border-t border-app-border bg-app-surface px-3 text-caption text-app-text">
+    <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2 text-caption text-app-text">
       <PanelNavButton
         active={bottomPanel === 'issue'}
         onClick={() => onTogglePanel('issue')}
@@ -133,13 +135,13 @@ function TabButton({
       id={`right-rail-${tab}-tab`}
       aria-controls={`right-rail-${tab}-panel`}
       aria-selected={active}
-      className={`flex flex-1 items-center justify-center gap-1.5 text-xs hover:text-app-text ${
-        active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'
+      className={`flex h-8 items-center justify-center gap-1.5 rounded-md text-xs transition-colors duration-fast ease-standard hover:text-app-text ${
+        active ? 'bg-app-bg text-app-text shadow-[inset_0_0_0_1px_var(--app-inset)]' : 'text-app-text-muted hover:bg-app-surface-2/65'
       }`}
     >
       {icon}
       {label}
-      {Boolean(count) && <span className="text-micro text-app-text-muted">{count}</span>}
+      {Boolean(count) && <span className="min-w-4 rounded-full bg-app-accent/14 px-1 text-center text-micro font-medium text-app-accent">{count}</span>}
     </button>
   )
 }
@@ -159,10 +161,11 @@ function PanelNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg p-2 transition-colors ${
-        active ? 'bg-app-border text-app-text shadow-inner' : 'text-app-text-muted hover:bg-app-surface-2 hover:text-app-text'
+      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-fast ease-standard ${
+        active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/70 hover:text-app-text'
       }`}
       title={title}
+      aria-label={title}
     >
       {icon}
     </button>

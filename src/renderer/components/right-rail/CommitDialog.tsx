@@ -1,5 +1,6 @@
-import { createPortal } from 'react-dom'
+import * as Dialog from '@radix-ui/react-dialog'
 import { Loader2, Sparkles, X } from 'lucide-react'
+import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton } from '../../lib/ui'
 
 export interface CommitState {
   status: 'idle' | 'committing' | 'success' | 'error'
@@ -24,15 +25,6 @@ interface CommitDialogProps {
   onCommit: () => void
 }
 
-const inputClassName =
-  'mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case text-app-text outline-none focus:border-app-text-muted'
-const textareaClassName =
-  'mt-1 h-24 w-full resize-none rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm normal-case text-app-text outline-none focus:border-app-text-muted'
-const secondaryButtonClassName =
-  'rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs text-app-text-muted hover:text-app-text'
-const primaryButtonClassName =
-  'rounded-lg bg-app-surface-2 px-3 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40'
-
 export function CommitDialog({
   title,
   summary,
@@ -45,83 +37,76 @@ export function CommitDialog({
   onDraft,
   onCommit,
 }: CommitDialogProps) {
-  const draftDisabled = !canDraft || draftState.status === 'drafting' || commitState.status === 'committing'
+  const busy = commitState.status === 'committing'
+  const draftDisabled = !canDraft || draftState.status === 'drafting' || busy
 
-  return createPortal(
-    <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-[var(--app-overlay)] px-4">
-      <div className="w-full max-w-md rounded-xl border border-app-border bg-app-surface p-4 shadow-2xl shadow-black/60">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium text-app-text">Commit changes</div>
-            <div className="mt-1 text-caption text-app-text-muted">
-              Stages all current changes and commits them.
+  return (
+    <Dialog.Root open onOpenChange={(open) => { if (!open && !busy) onClose() }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[1500] bg-[var(--app-overlay)]" />
+        <Dialog.Content
+          className={cn(dialogSurface, 'fixed left-1/2 top-1/2 z-[1501] w-[min(460px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 p-5')}
+          onEscapeKeyDown={(event) => { if (busy) event.preventDefault() }}
+          onPointerDownOutside={(event) => { if (busy) event.preventDefault() }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Dialog.Title className="text-sm font-semibold text-app-text">Commit changes</Dialog.Title>
+              <Dialog.Description className="mt-1 text-xs text-app-text-muted">Stage and commit the current working tree.</Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <button type="button" disabled={busy} className={iconButton()} title="Close" aria-label="Close commit dialog">
+                <X className="h-4 w-4" />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          <label className="mt-5 block text-xs font-medium text-app-text">
+            Title
+            <input
+              autoFocus
+              value={title}
+              onChange={(event) => onTitleChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) onCommit()
+              }}
+              className={cn(fieldStyle, 'mt-1.5 w-full')}
+              placeholder="fix(git): describe the change"
+            />
+          </label>
+          <label className="mt-4 block text-xs font-medium text-app-text">
+            Summary
+            <textarea
+              value={summary}
+              onChange={(event) => onSummaryChange(event.target.value)}
+              className={cn(fieldStyle, 'mt-1.5 h-24 w-full resize-none py-2')}
+              placeholder="Optional context for the commit body"
+            />
+          </label>
+
+          {(draftState.status === 'error' || commitState.status === 'error') && (
+            <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">
+              {draftState.message ?? commitState.message}
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <button type="button" onClick={onDraft} disabled={draftDisabled} className={buttonStyle({ tone: 'ghost', size: 'small' })} title="Draft from current changes">
+              {draftState.status === 'drafting' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {draftState.status === 'drafting' ? 'Drafting' : 'Draft with Codex'}
+            </button>
+            <div className="flex gap-2">
+              <Dialog.Close asChild>
+                <button type="button" disabled={busy} className={buttonStyle({ tone: 'ghost', size: 'small' })}>Cancel</button>
+              </Dialog.Close>
+              <button type="button" onClick={onCommit} disabled={!title.trim() || busy} className={buttonStyle({ tone: 'primary', size: 'small' })}>
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {busy ? 'Committing' : 'Commit'}
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-            title="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <label className="block text-caption font-medium uppercase text-app-text-muted">
-          Title
-          <input
-            autoFocus
-            value={title}
-            onChange={(event) => onTitleChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) onCommit()
-            }}
-            className={inputClassName}
-            placeholder="fix(git): commit from changes panel"
-          />
-        </label>
-        <label className="mt-3 block text-caption font-medium uppercase text-app-text-muted">
-          Summary
-          <textarea
-            value={summary}
-            onChange={(event) => onSummaryChange(event.target.value)}
-            className={textareaClassName}
-            placeholder="Optional body explaining what changed."
-          />
-        </label>
-        {(draftState.message || commitState.message) && (
-          <div className={`mt-3 text-xs ${draftState.status === 'error' || commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
-            {draftState.message ?? commitState.message}
-          </div>
-        )}
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={onDraft}
-            disabled={draftDisabled}
-            className={secondaryButtonClassName}
-            title="Ask Codex to draft a commit message from the current changes"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              {draftState.status === 'drafting' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {draftState.status === 'drafting' ? 'Drafting...' : 'Draft'}
-            </span>
-          </button>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className={secondaryButtonClassName}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={onCommit}
-              disabled={!title.trim() || commitState.status === 'committing'}
-              className={primaryButtonClassName}
-            >
-              {commitState.status === 'committing' ? 'Committing...' : 'Commit'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

@@ -1,5 +1,5 @@
 import { Loader2, RefreshCw, Search } from 'lucide-react'
-import { cn, iconButton } from '../../lib/ui'
+import { cn, fieldStyle, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
 import { TOOL_CATALOG_FILTER_OPTIONS, type ToolCatalogFilter } from './tool-catalog-settings-model'
 
 interface ToolCatalogControlsProps {
@@ -32,7 +32,7 @@ export function ToolCatalogControls({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Search tools"
-            className="h-9 w-full rounded-md border border-app-border bg-app-bg pl-8 pr-3 text-xs text-app-text outline-none placeholder:text-app-text-muted focus:border-app-accent"
+            className={cn(fieldStyle, 'w-full pl-8 pr-3 text-xs')}
           />
         </label>
         {onRefresh && (
@@ -50,7 +50,7 @@ export function ToolCatalogControls({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-4 gap-1 rounded-md bg-app-bg p-1" role="group" aria-label="Tool catalog filter">
+      <div className={cn(segmentedControl, 'grid-cols-4')} role="group" aria-label="Tool catalog filter">
         {TOOL_CATALOG_FILTER_OPTIONS.map((option) => (
           <button
             key={option.value}
@@ -58,10 +58,11 @@ export function ToolCatalogControls({
             aria-pressed={filter === option.value}
             onClick={() => onFilterChange(option.value)}
             className={cn(
-              'h-8 rounded px-2 text-caption font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent',
+              segmentedItem,
+              'h-8 px-2 text-caption font-medium',
               filter === option.value
-                ? 'bg-app-surface-2 text-app-text'
-                : 'text-app-text-muted hover:bg-app-surface-2/60 hover:text-app-text',
+                ? segmentedItemActive
+                : '',
             )}
           >
             {option.label}

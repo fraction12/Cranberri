@@ -1,11 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useWorkspace } from '../state/workspace'
 import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
 import { BrowserWindow as BrowserPane } from './BrowserWindow'
-import { Plus, MessageSquare, Terminal, X, Globe } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Globe, MessageSquare, MessageSquarePlus, SquareTerminal, Terminal, X } from 'lucide-react'
 import {
   CLOSE_PROCESS_TERMINAL_EVENT,
   OPEN_PROCESS_TERMINAL_EVENT,
@@ -20,6 +20,7 @@ import {
   sendChatContextDetailFromEvent,
 } from './chat/chat-context-events'
 import { ConfirmDialog } from './ConfirmDialog'
+import { cn, iconButton } from '../lib/ui'
 import type { CodexUserInput } from '@/shared/codex'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
@@ -34,6 +35,43 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   const { openSession, closeThreadWindow } = useCodexActions()
   const { getThreadForWindow } = useCodexWindows()
   const [terminalCloseTarget, setTerminalCloseTarget] = useState<{ windowId: string; termId: string } | null>(null)
+  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
+  const tabStripRef = useRef<HTMLDivElement>(null)
+
+  const syncTabOverflow = useCallback(() => {
+    const strip = tabStripRef.current
+    if (!strip) return
+    const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth)
+    setTabOverflow({
+      left: strip.scrollLeft > 1,
+      right: strip.scrollLeft < maxScrollLeft - 1,
+    })
+  }, [])
+
+  const scrollTabs = useCallback((direction: -1 | 1) => {
+    tabStripRef.current?.scrollBy({ left: direction * 180, behavior: 'smooth' })
+  }, [])
+
+  useEffect(() => {
+    const strip = tabStripRef.current
+    if (!strip || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(syncTabOverflow)
+    observer.observe(strip)
+    const frame = requestAnimationFrame(syncTabOverflow)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [syncTabOverflow, windows.length])
+
+  useEffect(() => {
+    const strip = tabStripRef.current
+    const activeTab = strip?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (!strip || !activeTab) return
+    activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+    const frame = requestAnimationFrame(syncTabOverflow)
+    return () => cancelAnimationFrame(frame)
+  }, [activeWindowId, syncTabOverflow])
 
   useEffect(() => {
     const onOpenSession = (event: Event) => {
@@ -169,59 +207,103 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="h-9 flex items-center border-b border-app-border bg-app-surface shrink-0 px-2 gap-1">
-        {windows.map((win) => (
-          <button
-            key={win.id}
-            type="button"
-            aria-label={`Switch to ${win.title}`}
-            onClick={() => setActiveWindow(win.id)}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs max-w-[160px] ${
-              activeWindowId === win.id
-                ? 'bg-app-surface-2 text-app-text'
-                : 'text-app-text-muted hover:bg-app-surface-2/50'
-            }`}
+      <div className="relative z-10 flex h-9 shrink-0 items-center gap-1 bg-app-surface px-1.5 shadow-sm">
+        <div className="relative min-w-0 flex-1">
+          <div
+            ref={tabStripRef}
+            className="workspace-tab-strip flex h-full min-w-0 items-center gap-1 overflow-x-auto"
+            role="tablist"
+            aria-label="Workspace tabs"
+            onScroll={syncTabOverflow}
           >
-            {win.type === 'chat' ? <MessageSquare className="w-3.5 h-3.5" /> : win.type === 'terminal' ? <Terminal className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5" />}
-            <span className="truncate">{win.title}</span>
+            {windows.map((win) => {
+              const active = activeWindowId === win.id
+              return (
+                <div
+                  key={win.id}
+                  className={cn(
+                    'group flex h-7 max-w-[176px] shrink-0 items-center rounded-md transition-colors duration-fast ease-standard',
+                    active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/60 hover:text-app-text',
+                  )}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-label={`Switch to ${win.title}`}
+                    onClick={() => setActiveWindow(win.id)}
+                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-2 pr-1 text-xs"
+                  >
+                    {win.type === 'chat' ? <MessageSquare className="h-3.5 w-3.5 shrink-0" /> : win.type === 'terminal' ? <Terminal className="h-3.5 w-3.5 shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">{win.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Close ${win.title}`}
+                    onClick={() => closeWorkspaceWindow(win.id)}
+                    className={cn(
+                      'mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-app-text-subtle transition-opacity hover:bg-app-border/70 hover:text-app-text',
+                      active ? 'opacity-80' : 'opacity-0 group-hover:opacity-80 focus-visible:opacity-100',
+                    )}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          {tabOverflow.left && (
             <button
               type="button"
-              aria-label={`Close ${win.title}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                closeWorkspaceWindow(win.id)
-              }}
-              className="ml-1 p-0.5 rounded hover:bg-app-border"
+              onClick={() => scrollTabs(-1)}
+              className="absolute inset-y-0 left-0 flex w-7 items-center justify-center bg-app-surface text-app-text-muted shadow-[5px_0_8px_var(--app-surface)] hover:text-app-text"
+              title="Scroll tabs left"
+              aria-label="Scroll tabs left"
             >
-              <X className="w-3 h-3" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-          </button>
-        ))}
-        <div className="flex-1" />
+          )}
+          {tabOverflow.right && (
+            <button
+              type="button"
+              onClick={() => scrollTabs(1)}
+              className="absolute inset-y-0 right-0 flex w-7 items-center justify-center bg-app-surface text-app-text-muted shadow-[-5px_0_8px_var(--app-surface)] hover:text-app-text"
+              title="Scroll tabs right"
+              aria-label="Scroll tabs right"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5 pl-1">
         <button
           type="button"
           onClick={() => openChat()}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
+          className={iconButton()}
+          title="New chat"
+          aria-label="New chat"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <MessageSquare className="w-3.5 h-3.5" />
+          <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
           onClick={() => openTerminal()}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
+          className={iconButton()}
+          title="New terminal"
+          aria-label="New terminal"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <Terminal className="w-3.5 h-3.5" />
+          <SquareTerminal className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
           onClick={() => openBrowser()}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
+          className={iconButton()}
+          title="New browser"
+          aria-label="New browser"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <Globe className="w-3.5 h-3.5" />
+          <Globe className="h-3.5 w-3.5" />
         </button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 relative">

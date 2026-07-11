@@ -4,6 +4,8 @@ import { Download, Loader2, MessageSquare, RefreshCw, Search } from 'lucide-reac
 import { toast } from 'sonner'
 import type { CodexPluginInfo, CodexSkillInfo } from '@/shared/codex'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
+import { useCodexWindows } from '../state/codex'
+import { refreshToolCatalogQueries } from '../state/tools'
 import { createSendChatContextEvent } from './chat/chat-context-events'
 import {
   appChatContext,
@@ -15,6 +17,7 @@ import {
 } from './codex-resources'
 import { createCodexResourceContextCapturedEvent } from './codex-resource-context-events'
 import { SettingsPage, SettingsSection } from './settings/settings-page'
+import { buttonStyle, cn, fieldStyle, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../lib/ui'
 
 type ExtensionView = 'installed' | 'browse' | 'connections' | 'skills'
 
@@ -27,6 +30,7 @@ const EXTENSION_VIEWS: Array<{ value: ExtensionView; label: string }> = [
 
 export function CodexResourcesSection() {
   const queryClient = useQueryClient()
+  const { activeThreadId } = useCodexWindows()
   const [view, setView] = useState<ExtensionView>('installed')
   const [search, setSearch] = useState('')
   const pluginsQuery = useQuery({ queryKey: ['codex', 'plugins'], queryFn: async () => (await window.cranberri.codex.plugins()).plugins })
@@ -60,6 +64,7 @@ export function CodexResourcesSection() {
         queryClient.invalidateQueries({ queryKey: ['codex', 'plugins'] }),
         queryClient.invalidateQueries({ queryKey: ['codex', 'skills'] }),
         queryClient.invalidateQueries({ queryKey: ['tools', 'registry'] }),
+        refreshToolCatalogQueries(queryClient, activeThreadId),
       ])
       if (notify) toast.success('Extensions refreshed')
     } catch (error) {
@@ -113,7 +118,7 @@ export function CodexResourcesSection() {
             type="button"
             onClick={() => updatePlugins.mutate()}
             disabled={updatePlugins.isPending}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-app-surface-2 px-2.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50"
+            className={buttonStyle({ tone: 'secondary', size: 'small' })}
           >
             <Download className="h-3.5 w-3.5" />
             Update plugins
@@ -122,7 +127,7 @@ export function CodexResourcesSection() {
             type="button"
             onClick={() => void refreshResources(true)}
             disabled={refreshing}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+            className={iconButton()}
             aria-label="Refresh extensions"
             title="Refresh extensions"
           >
@@ -131,14 +136,14 @@ export function CodexResourcesSection() {
         </>
       )}
     >
-      <div className="grid grid-cols-4 gap-1 rounded-md bg-app-bg p-1" role="group" aria-label="Extension view">
+      <div className={cn(segmentedControl, 'grid-cols-4')} role="group" aria-label="Extension view">
         {EXTENSION_VIEWS.map((option) => (
           <button
             key={option.value}
             type="button"
             aria-pressed={view === option.value}
             onClick={() => { setView(option.value); setSearch('') }}
-            className={`h-8 rounded px-2 text-caption font-medium ${view === option.value ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:text-app-text'}`}
+            className={cn(segmentedItem, 'h-8 px-2 text-caption font-medium', view === option.value && segmentedItemActive)}
           >
             {option.label}
           </button>
@@ -153,7 +158,7 @@ export function CodexResourcesSection() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder={`Search ${EXTENSION_VIEWS.find((option) => option.value === view)?.label.toLowerCase()}`}
-          className="h-9 w-full rounded-md border border-app-border bg-app-bg pl-8 pr-3 text-sm text-app-text outline-none focus:border-app-accent"
+          className={cn(fieldStyle, 'w-full pl-8 pr-3')}
         />
       </label>
 
@@ -164,7 +169,7 @@ export function CodexResourcesSection() {
         </div>
       )}
       {connectionPartial && view === 'connections' && (
-        <div role="status" className="rounded-md bg-app-warning/5 px-3 py-3 text-xs text-app-text-muted">Some Codex connections are unavailable in this runtime.</div>
+        <div role="status" className="rounded-md bg-app-warning/8 px-3 py-3 text-xs text-app-text-muted">Some connections could not be verified in this runtime.</div>
       )}
       {initialLoading ? <LoadingRow /> : (
         <ExtensionViewContent
@@ -229,7 +234,7 @@ function ExtensionViewContent({
                 <div className="truncate text-sm text-app-text">{skill.displayName}</div>
                 <div className="mt-0.5 truncate text-caption text-app-text-muted">{skill.description || skillSourceLabel(skill)}</div>
               </div>
-              <button type="button" onClick={() => onSendSkill(skill)} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Add ${skill.displayName} to chat`} title="Add to chat">
+              <button type="button" onClick={() => onSendSkill(skill)} className={iconButton()} aria-label={`Add ${skill.displayName} to chat`} title="Add to chat">
                 <MessageSquare className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -264,7 +269,7 @@ function PluginList({ title, plugins, empty, onInstall, pendingId, footer }: {
               <div className="mt-0.5 truncate text-caption text-app-text-muted">{plugin.description || plugin.prompt || 'Codex plugin'}</div>
             </div>
             {onInstall ? (
-              <button type="button" onClick={() => onInstall(plugin)} disabled={pendingId === plugin.id} className="rounded-md bg-app-surface-2 px-2.5 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50">
+              <button type="button" onClick={() => onInstall(plugin)} disabled={pendingId === plugin.id} className={buttonStyle({ tone: 'secondary', size: 'small' })}>
                 {pendingId === plugin.id ? 'Installing...' : 'Install'}
               </button>
             ) : <span className={`text-micro ${plugin.enabled ? 'text-app-success' : 'text-app-text-muted'}`}>{plugin.enabled ? 'Enabled' : 'Installed'}</span>}
@@ -315,7 +320,7 @@ function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: 
         <div className="truncate text-sm text-app-text">{name}</div>
         <div className="mt-0.5 truncate text-caption text-app-text-muted">{detail}</div>
       </div>
-      <button type="button" onClick={onSend} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Add ${name} to chat`} title="Add to chat">
+      <button type="button" onClick={onSend} className={iconButton()} aria-label={`Add ${name} to chat`} title="Add to chat">
         <MessageSquare className="h-3.5 w-3.5" />
       </button>
     </div>
@@ -323,7 +328,7 @@ function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: 
 }
 
 function LoadingRow() {
-  return <div className="flex items-center gap-2 rounded-md bg-app-bg px-3 py-4 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading extensions...</div>
+  return <div className="flex items-center gap-2 px-2 py-4 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading extensions</div>
 }
 
 function EmptyRow({ label }: { label: string }) {

@@ -3,6 +3,7 @@ import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
 import { createSendChatContextEvent } from './chat-context-events'
 import { assistantResponseChatContext, stripCodexAppDirectives } from './assistant-response-context'
+import { iconButton } from '../../lib/ui'
 import type { CodexMessage, CodexSkillInfo } from '@/shared/codex'
 
 type SkillRenderer = (text: string, skills: CodexSkillInfo[]) => ReactNode[]
@@ -10,9 +11,8 @@ const MarkdownContent = lazy(() => import('./MarkdownContent').then((module) => 
 const PING_DOT_CLASS = 'absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40'
 const CHAT_MESSAGE_TYPOGRAPHY_CLASS = 'text-base leading-7'
 const USER_BUBBLE_CLASS = [
-  'max-w-[76%] rounded-2xl bg-[var(--app-surface)] px-2.5 py-1.5',
+  'max-w-[78%] rounded-[14px] bg-app-surface-2/70 px-3 py-2',
   `${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`,
-  'shadow-[inset_0_0_0_1px_var(--app-inset)]',
 ].join(' ')
 
 function MessageActions({ text }: { text: string }) {
@@ -25,11 +25,11 @@ function MessageActions({ text }: { text: string }) {
   }
 
   return (
-    <div className="mt-4 flex items-center gap-3 text-[var(--app-text-muted)] opacity-80">
+    <div className="mt-3 flex items-center gap-1 text-app-text-muted opacity-75">
       <button
         type="button"
         onClick={() => navigator.clipboard.writeText(visibleText).catch((error) => console.error('Failed to copy response:', error))}
-        className="rounded p-0.5 hover:text-[var(--app-text)]"
+        className={iconButton()}
         aria-label="Copy response"
         title="Copy response"
       >
@@ -38,7 +38,7 @@ function MessageActions({ text }: { text: string }) {
       <button
         type="button"
         onClick={sendToChat}
-        className="rounded p-0.5 hover:text-[var(--app-text)]"
+        className={iconButton()}
         aria-label="Send response to chat"
         title="Send response to chat"
       >
@@ -87,7 +87,7 @@ export function ReasoningGroup({
       <button
         type="button"
         onClick={onToggle}
-        className="mb-2 flex items-center gap-2 text-xs hover:text-[var(--app-text)]"
+        className="mb-1 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs hover:bg-app-surface-2/55 hover:text-app-text"
       >
         {isRunning ? (
           <span className="relative flex h-2.5 w-2.5">
@@ -101,7 +101,7 @@ export function ReasoningGroup({
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
-        <div className="space-y-5 border-l border-[var(--app-border)] pl-4">
+        <div className="space-y-4 rounded-md bg-app-surface/55 px-3 py-3">
           {messages.map((message) => (
             <TranscriptMessage key={message.id} msg={message} renderSkillText={renderSkillText} />
           ))}
@@ -122,7 +122,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
 }) {
   if (msg.role === 'system' && /^Error:/i.test(msg.content.trim())) {
     return (
-      <div role="alert" className="border-l-2 border-app-danger bg-app-danger/5 px-3 py-2 text-sm leading-5 text-app-danger">
+      <div role="alert" className="rounded-md bg-app-danger/8 px-3 py-2 text-sm leading-5 text-app-danger">
         <div className="whitespace-pre-wrap">{formatInlineCodexText(msg.content)}</div>
       </div>
     )
@@ -149,7 +149,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const fallbackText = stripCodexAppDirectives(msg.content)
 
   return (
-    <article className={`max-w-full ${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`}>
+    <article className={`group max-w-full ${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`}>
       <div className="break-words">
         <Suspense fallback={<div className="whitespace-pre-wrap">{formatInlineCodexText(fallbackText)}</div>}>
           <MarkdownContent text={msg.content} hideAppDirectives streaming={msg.pending} />

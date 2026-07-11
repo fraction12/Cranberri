@@ -1,5 +1,6 @@
-import { lazy, Suspense, type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronLeft, Copy, ExternalLink, FileDiff, FolderOpen, Hash, Loader2, Menu, MessageSquare, Search } from 'lucide-react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useState } from 'react'
+import { ChevronLeft, FileDiff, GitCommitHorizontal, Hash, Loader2, MessageSquare, Search } from 'lucide-react'
+import { toast } from 'sonner'
 import { useGitStatus, useGitFiles } from '../state/git'
 import { useCodexThreads } from '../state/codex'
 import { useRepos } from '../state/repos'
@@ -24,25 +25,12 @@ import {
   type RightRailTab,
 } from './right-rail/RailShell'
 import type { GitFileStatus } from '@/shared/git'
+import { buttonStyle, cn, compactFieldStyle, iconButton } from '../lib/ui'
 
-const DIFF_MENU_WIDTH = 176
-const VIEWPORT_PADDING = 8
 const DiffViewer = lazy(() => import('./right-rail/DiffViewer').then((module) => ({ default: module.DiffViewer })))
 
 function preloadDiffRenderer(): void {
   void import('./right-rail/DiffViewer').then((module) => module.preloadDiffRenderer())
-}
-
-function getDiffMenuPosition(button: HTMLButtonElement | null) {
-  const rect = button?.getBoundingClientRect()
-  if (!rect) return null
-  return {
-    top: Math.min(rect.bottom + 4, window.innerHeight - VIEWPORT_PADDING),
-    left: Math.min(
-      Math.max(VIEWPORT_PADDING, rect.right - DIFF_MENU_WIDTH),
-      window.innerWidth - DIFF_MENU_WIDTH - VIEWPORT_PADDING,
-    ),
-  }
 }
 
 export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => void }) {
@@ -51,8 +39,6 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const [bottomPanel, setBottomPanel] = useState<BottomPanelKind | null>(null)
   const [filesMode, setFilesMode] = useState<'changes' | 'all'>('changes')
   const [wrapDiffContent, setWrapDiffContent] = useState(false)
-  const [diffMenuOpen, setDiffMenuOpen] = useState(false)
-  const [diffMenuPosition, setDiffMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const [commitState, setCommitState] = useState<CommitState>({ status: 'idle', message: null })
   const [commitDraftState, setCommitDraftState] = useState<CommitDraftState>({ status: 'idle', message: null })
   const [commitDialogOpen, setCommitDialogOpen] = useState(false)
@@ -64,12 +50,11 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const [lineDialogOpen, setLineDialogOpen] = useState(false)
   const [lineInput, setLineInput] = useState('1')
   const [lineError, setLineError] = useState<string | null>(null)
-  const diffMenuButtonRef = useRef<HTMLButtonElement>(null)
 
   const showChanges = activeTab === 'files' && filesMode === 'changes'
   const showAllFiles = activeTab === 'files' && filesMode === 'all'
-  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
-  const { data: allFiles, isLoading: filesLoading } = useGitFiles(showAllFiles)
+  const { data: status, isLoading: statusLoading, isError: statusFailed, error: statusError, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
+  const { data: allFiles, isLoading: filesLoading, isError: filesFailed, error: filesError } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
   const { activeThread } = useCodexThreads()
   const agentCount = activeThread?.workers?.length ?? 0
@@ -104,7 +89,6 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     setSelectedFile(null)
     setSelectedLine(null)
     setEditorSearchRequest(0)
-    setDiffMenuOpen(false)
     setLineDialogOpen(false)
     setContextState({ status: 'idle', message: null })
     setActiveTab('files')
@@ -138,12 +122,12 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       window.dispatchEvent(createSendChatContextEvent({
         text: repoFileChatContext(context),
       }))
-      setContextState({ status: 'idle', message: 'File context sent to chat' })
-      window.setTimeout(() => {
-        setContextState((state) => state.message === 'File context sent to chat' ? { status: 'idle', message: null } : state)
-      }, 3000)
+      setContextState({ status: 'idle', message: null })
+      toast.success('File context added to chat')
     } catch (error) {
-      setContextState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to send file context' })
+      const message = error instanceof Error ? error.message : 'Failed to send file context'
+      setContextState({ status: 'error', message: null })
+      toast.error(message)
     }
   }, [activeRepo, contextState.status, selectedFile])
 
@@ -153,9 +137,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     try {
       const result = await window.cranberri.git.commit(activeRepo.path, commitTitle, commitSummary)
       setCommitState({ status: 'success', message: `Committed ${result.hash.slice(0, 7)} · ${result.title}` })
-      window.setTimeout(() => {
-        setCommitState((state) => state.status === 'success' ? { status: 'idle', message: null } : state)
-      }, 5000)
+      toast.success(`Committed ${result.hash.slice(0, 7)}`)
       setCommitDialogOpen(false)
       setCommitTitle('')
       setCommitSummary('')
@@ -181,10 +163,8 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       const draft = await window.cranberri.git.draftCommitMessage(activeRepo.path)
       setCommitTitle(draft.title)
       setCommitSummary(draft.summary)
-      setCommitDraftState({ status: 'idle', message: 'Drafted from current changes' })
-      window.setTimeout(() => {
-        setCommitDraftState((state) => state.message === 'Drafted from current changes' ? { status: 'idle', message: null } : state)
-      }, 3000)
+      setCommitDraftState({ status: 'idle', message: null })
+      toast.success('Commit message drafted')
     } catch (error) {
       setCommitDraftState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to draft commit message' })
     }
@@ -192,11 +172,12 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
 
   const copySelectedFilePath = useCallback(async () => {
     if (!selectedFile) return
-    await navigator.clipboard.writeText(selectedFile.path)
-    setContextState({ status: 'idle', message: 'File path copied' })
-    window.setTimeout(() => {
-      setContextState((state) => state.message === 'File path copied' ? { status: 'idle', message: null } : state)
-    }, 2500)
+    try {
+      await navigator.clipboard.writeText(selectedFile.path)
+      toast.success('Relative path copied')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to copy the file path')
+    }
   }, [selectedFile])
 
   const copySelectedFileContent = useCallback(async () => {
@@ -205,12 +186,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       const ref = selectedFile.status === 'deleted' ? 'HEAD' : 'WORKING'
       const content = await window.cranberri.git.rawContent(activeRepo.path, selectedFile.path, ref)
       await navigator.clipboard.writeText(content)
-      setContextState({ status: 'idle', message: 'File content copied' })
-      window.setTimeout(() => {
-        setContextState((state) => state.message === 'File content copied' ? { status: 'idle', message: null } : state)
-      }, 2500)
+      toast.success('File contents copied')
     } catch (error) {
-      setContextState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to copy file content' })
+      toast.error(error instanceof Error ? error.message : 'Failed to copy file contents')
     }
   }, [activeRepo, selectedFile])
 
@@ -220,10 +198,6 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     const nextLine = Math.floor(line)
     setSelectedLine(nextLine)
     setActiveTab('diff')
-    setContextState({ status: 'idle', message: `Focused line ${nextLine}` })
-    window.setTimeout(() => {
-      setContextState((state) => state.message === `Focused line ${nextLine}` ? { status: 'idle', message: null } : state)
-    }, 2500)
   }, [selectedFile])
 
   const openGoToLineDialog = useCallback(() => {
@@ -250,12 +224,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
     try {
       await navigator.clipboard.writeText(repoAbsolutePath(activeRepo.path, selectedFile.path))
-      setContextState({ status: 'idle', message: 'Absolute file path copied' })
-      window.setTimeout(() => {
-        setContextState((state) => state.message === 'Absolute file path copied' ? { status: 'idle', message: null } : state)
-      }, 2500)
+      toast.success('Absolute path copied')
     } catch (error) {
-      setContextState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to copy absolute file path' })
+      toast.error(error instanceof Error ? error.message : 'Failed to copy the absolute path')
     }
   }, [activeRepo, selectedFile])
 
@@ -263,12 +234,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
     try {
       await window.cranberri.openPath(repoAbsolutePath(activeRepo.path, selectedFile.path))
-      setContextState({ status: 'idle', message: 'File opened' })
-      window.setTimeout(() => {
-        setContextState((state) => state.message === 'File opened' ? { status: 'idle', message: null } : state)
-      }, 2500)
+      toast.success('File opened')
     } catch (error) {
-      setContextState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to open file' })
+      toast.error(error instanceof Error ? error.message : 'Failed to open the file')
     }
   }, [activeRepo, selectedFile])
 
@@ -276,12 +244,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
     try {
       await window.cranberri.revealPath(repoAbsolutePath(activeRepo.path, selectedFile.path))
-      setContextState({ status: 'idle', message: 'File revealed' })
-      window.setTimeout(() => {
-        setContextState((state) => state.message === 'File revealed' ? { status: 'idle', message: null } : state)
-      }, 2500)
+      toast.success('Revealed in Finder')
     } catch (error) {
-      setContextState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to reveal file' })
+      toast.error(error instanceof Error ? error.message : 'Failed to reveal the file')
     }
   }, [activeRepo, selectedFile])
 
@@ -322,7 +287,6 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
           if (command.tab === 'files') {
             setSelectedFile(null)
             setSelectedLine(null)
-            setDiffMenuOpen(false)
             setLineDialogOpen(false)
             setContextState({ status: 'idle', message: null })
           } else if (command.tab === 'diff') {
@@ -335,33 +299,8 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     return () => window.removeEventListener(OPEN_RIGHT_RAIL_COMMAND_EVENT, onOpenRailCommand)
   }, [copySelectedFileContent, copySelectedFilePath, draftCommitMessage, focusSelectedFileLine, openCommitDialog, openGoToLineDialog, selectedFile?.status, sendSelectedFileToChat])
 
-  useLayoutEffect(() => {
-    if (!diffMenuOpen) return
-    setDiffMenuPosition(getDiffMenuPosition(diffMenuButtonRef.current))
-  }, [diffMenuOpen])
-
-  useEffect(() => {
-    if (!diffMenuOpen) return undefined
-
-    const close = (event: PointerEvent) => {
-      const path = event.composedPath()
-      if (path.some((node) => node instanceof HTMLElement && node.dataset.diffMenu === 'true')) return
-      setDiffMenuOpen(false)
-    }
-    const reposition = () => setDiffMenuPosition(getDiffMenuPosition(diffMenuButtonRef.current))
-
-    document.addEventListener('pointerdown', close)
-    window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
-    }
-  }, [diffMenuOpen])
-
   return (
-    <div className="flex flex-col h-full bg-app-surface">
+    <div className="flex h-full flex-col bg-app-surface">
       {commitDialogOpen && (
         <CommitDialog
           title={commitTitle}
@@ -381,39 +320,36 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       <div className={`${bottomPanel ? 'basis-1/2' : 'flex-1'} min-h-0 overflow-hidden relative`}>
         {activeTab === 'files' && (
           <div id="right-rail-files-panel" role="tabpanel" aria-labelledby="right-rail-files-tab" className="absolute inset-0 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-app-border shrink-0">
-              <span className="text-xs font-medium text-app-text-muted uppercase">{filesMode === 'changes' ? 'Changes' : 'All Files'}</span>
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
+              <span className="text-xs font-semibold text-app-text">{filesMode === 'changes' ? 'Changes' : 'All files'}</span>
               <div className="flex items-center gap-1.5">
                 {filesMode === 'changes' && (
                   <button
                     type="button"
                     onClick={openCommitDialog}
                     disabled={!activeRepo || !status?.length || commitState.status === 'committing'}
-                    className="text-micro px-2 py-1 rounded bg-app-surface-2 text-app-text hover:bg-app-border disabled:cursor-not-allowed disabled:opacity-40"
+                    className={buttonStyle({ tone: 'secondary', size: 'compact' })}
                     title="Write a commit message and commit these changes"
                   >
+                    <GitCommitHorizontal className="h-3.5 w-3.5" />
                     {commitState.status === 'committing' ? 'Committing…' : 'Commit'}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setFilesMode((m) => (m === 'changes' ? 'all' : 'changes'))}
-                  className="text-micro px-2 py-1 rounded bg-app-surface-2 hover:bg-app-border text-app-text"
+                  className={buttonStyle({ tone: 'ghost', size: 'compact' })}
                 >
                   {filesMode === 'changes' ? 'Show all files' : 'Show changes'}
                 </button>
               </div>
             </div>
-            {commitState.message && filesMode === 'changes' && (
-              <div className={`border-b border-app-border px-3 py-1.5 text-caption ${commitState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
-                {commitState.message}
-              </div>
-            )}
             <div className="flex-1 min-h-0 overflow-y-auto">
               {filesMode === 'changes' ? (
                 <ChangeList
                   status={status}
                   statusLoading={statusLoading}
+                  error={statusFailed ? statusError : null}
                   selectedFile={selectedFile}
                   onSelectFile={handleSelectFile}
                 />
@@ -421,6 +357,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                 <FileTree
                   nodes={allFiles}
                   isLoading={filesLoading}
+                  error={filesFailed ? filesError : null}
                   selectedPath={selectedFile?.path ?? null}
                   onSelectFile={(path) => handleSelectFile({ path, status: 'tracked' })}
                 />
@@ -433,18 +370,18 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
           <div id="right-rail-diff-panel" role="tabpanel" aria-labelledby="right-rail-diff-tab" className="absolute inset-0 flex flex-col overflow-hidden">
             {selectedFile ? (
               <div className="flex flex-col h-full">
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface-2 shrink-0">
-                  <button type="button" onClick={handleBack} className="p-1 rounded hover:bg-app-surface">
-                    <ChevronLeft className="w-4 h-4" />
+                <div className="flex h-10 shrink-0 items-center gap-1.5 bg-app-surface-2/45 px-2 shadow-sm">
+                  <button type="button" onClick={handleBack} className={iconButton()} title="Back to files" aria-label="Back to files">
+                    <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium" title={selectedFile.path}>{selectedFile.path}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-app-text" title={selectedFile.path}>{selectedFile.path}</span>
                   <DiffStats filePath={selectedFile.path} />
                   {selectedFile.status === 'tracked' && (
                     <>
                       <button
                         type="button"
                         onClick={() => setEditorSearchRequest((request) => request + 1)}
-                        className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                        className={iconButton()}
                         title="Search selected file"
                         aria-label="Search selected file"
                       >
@@ -453,7 +390,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                       <button
                         type="button"
                         onClick={openGoToLineDialog}
-                        className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                        className={iconButton()}
                         title="Go to line in selected file"
                         aria-label="Go to line in selected file"
                       >
@@ -463,91 +400,31 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                   )}
                   <button
                     type="button"
-                    onClick={() => void copySelectedFilePath()}
-                    className="rounded px-1.5 py-1 text-micro font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text"
-                    title="Copy selected file path"
-                    aria-label="Copy selected file path"
-                  >
-                    Path
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copySelectedFileContent()}
-                    disabled={!activeRepo}
-                    className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
-                    title="Copy selected file content"
-                    aria-label="Copy selected file content"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copySelectedFileAbsolutePath()}
-                    disabled={!activeRepo || selectedFile.status === 'deleted'}
-                    className="rounded px-1.5 py-1 text-micro font-medium text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
-                    title="Copy selected file absolute path"
-                    aria-label="Copy selected file absolute path"
-                  >
-                    Abs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openSelectedFileExternal()}
-                    disabled={!activeRepo || selectedFile.status === 'deleted'}
-                    className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
-                    title="Open selected file"
-                    aria-label="Open selected file"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void revealSelectedFile()}
-                    disabled={!activeRepo || selectedFile.status === 'deleted'}
-                    className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
-                    title="Reveal selected file in Finder"
-                    aria-label="Reveal selected file in Finder"
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => void sendSelectedFileToChat()}
                     disabled={!activeRepo || contextState.status === 'sending'}
-                    className="rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text disabled:opacity-40"
+                    className={iconButton()}
                     title="Send selected file context to chat"
                     aria-label="Send selected file context to chat"
                   >
                     {contextState.status === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
                   </button>
-                  <button
-                    ref={diffMenuButtonRef}
-                    type="button"
-                    data-diff-menu="true"
-                    onClick={() => setDiffMenuOpen((open) => !open)}
-                    className={`ml-auto rounded p-1 text-app-text-muted hover:bg-app-surface hover:text-app-text ${diffMenuOpen ? 'bg-app-surface text-app-text' : ''}`}
-                    title="Diff options"
-                  >
-                    <Menu className="w-4 h-4" />
-                  </button>
-                  {diffMenuOpen && diffMenuPosition && (
-                    <DiffOptionsMenu
-                      position={diffMenuPosition}
-                      wrapContent={wrapDiffContent}
-                      onToggleWrapContent={() => setWrapDiffContent((value) => !value)}
-                    />
-                  )}
+                  <DiffOptionsMenu
+                    wrapContent={wrapDiffContent}
+                    canReadFile={Boolean(activeRepo)}
+                    canOpenFile={Boolean(activeRepo && selectedFile.status !== 'deleted')}
+                    onToggleWrapContent={() => setWrapDiffContent((value) => !value)}
+                    onCopyPath={() => void copySelectedFilePath()}
+                    onCopyAbsolutePath={() => void copySelectedFileAbsolutePath()}
+                    onCopyContent={() => void copySelectedFileContent()}
+                    onOpenFile={() => void openSelectedFileExternal()}
+                    onRevealFile={() => void revealSelectedFile()}
+                  />
                 </div>
-                {contextState.message && (
-                  <div className={`border-b border-app-border px-3 py-1.5 text-caption ${contextState.status === 'error' ? 'text-app-danger' : 'text-app-text-muted'}`}>
-                    {contextState.message}
-                  </div>
-                )}
                 {lineDialogOpen && selectedFile.status === 'tracked' && (
                   <form
                     role="dialog"
                     aria-label="Go to line"
-                    className="flex items-center gap-2 border-b border-app-border bg-app-surface px-3 py-2"
+                    className="flex items-center gap-2 bg-app-surface-2/45 px-3 py-2 shadow-sm"
                     onSubmit={submitGoToLine}
                   >
                     <label htmlFor="right-rail-go-to-line" className="text-caption font-medium text-app-text-muted">Line</label>
@@ -555,7 +432,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                       id="right-rail-go-to-line"
                       autoFocus
                       inputMode="numeric"
-                      className="h-7 w-20 rounded border border-app-border bg-app-bg px-2 text-xs text-app-text outline-none focus:border-app-accent"
+                      className={cn(compactFieldStyle, 'w-20')}
                       value={lineInput}
                       onChange={(event) => {
                         setLineInput(event.target.value)
@@ -564,13 +441,13 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                     />
                     <button
                       type="submit"
-                      className="h-7 rounded bg-app-accent px-2 text-caption font-semibold text-app-accent-contrast hover:bg-app-accent/90"
+                      className={buttonStyle({ tone: 'primary', size: 'compact' })}
                     >
                       Go
                     </button>
                     <button
                       type="button"
-                      className="h-7 rounded px-2 text-caption font-medium text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                      className={buttonStyle({ tone: 'ghost', size: 'compact' })}
                       onClick={() => {
                         setLineDialogOpen(false)
                         setLineError(null)
@@ -594,9 +471,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-sm text-app-text-muted p-4 text-center">
-                <FileDiff className="w-8 h-8 mb-2 opacity-50" />
-                Select a file from the Files tab to view its diff.
+              <div className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+                <FileDiff className="mb-2 h-7 w-7 opacity-45" />
+                Choose a file in Files to inspect it.
               </div>
             )}
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Globe, MessageSquare, Terminal, X } from 'lucide-react'
+import { Activity, AlertCircle, Globe, Loader2, MessageSquare, RefreshCw, Terminal, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { createOpenProcessBrowserEvent } from '../process-browser-events'
 import { createCloseProcessTerminalEvent, createOpenProcessTerminalEvent } from '../process-terminal-events'
 import { createSendChatContextEvent } from '../chat/chat-context-events'
@@ -8,15 +9,14 @@ import { processChatContext } from '../process-chat-context'
 import { canFocusProcessTerminal, processRowMetadata } from './process-row-model'
 import { ConfirmDialog } from '../ConfirmDialog'
 import type { AgentProcessInfo } from '@/shared/processes'
+import { buttonStyle, cn, iconButton } from '../../lib/ui'
 
 interface ProcessesPanelProps {
   repoPath: string | null
 }
 
 const processRowClassName =
-  'group flex w-full items-start gap-2 rounded-lg bg-app-surface/70 p-2 text-xs transition hover:bg-app-surface-2'
-const terminateButtonClassName =
-  'rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-danger disabled:cursor-wait disabled:opacity-40 group-hover:opacity-100'
+  'group flex w-full items-start gap-1 rounded-md px-2 py-2 text-xs transition-colors duration-fast ease-standard hover:bg-app-surface-2/55'
 
 export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
   const [processes, setProcesses] = useState<AgentProcessInfo[]>([])
@@ -24,6 +24,7 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [terminatingId, setTerminatingId] = useState<string | null>(null)
   const [terminateTarget, setTerminateTarget] = useState<AgentProcessInfo | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const requestTerminate = (processInfo: AgentProcessInfo) => {
     if (!repoPath || terminatingId) return
@@ -42,9 +43,13 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
         window.dispatchEvent(createCloseProcessTerminalEvent(processInfo))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to close process')
-      const result = await window.cranberri.processes.list(repoPath)
-      setProcesses(result.processes)
+      toast.error(err instanceof Error ? err.message : 'Failed to close process')
+      try {
+        const result = await window.cranberri.processes.list(repoPath)
+        setProcesses(result.processes)
+      } catch (reloadError) {
+        setError(reloadError instanceof Error ? reloadError.message : 'Failed to reload processes')
+      }
     } finally {
       setTerminateTarget(null)
       setTerminatingId(null)
@@ -82,23 +87,40 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [repoPath])
+  }, [reloadKey, repoPath])
 
   if (!repoPath) {
-    return <div className="p-3 text-sm text-app-text-muted">Select a repo to inspect running processes.</div>
+    return <ProcessEmpty label="Select a repo to inspect running processes." />
   }
 
-  if (error) {
-    return <div className="p-3 text-sm text-app-danger">{error}</div>
+  if (error && processes.length === 0) {
+    return (
+      <div role="alert" className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
+        <span>{error}</span>
+        <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-app-text hover:underline">
+          <RefreshCw className="h-3.5 w-3.5" /> Retry
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div className="h-[calc(100%-2rem)] overflow-y-auto p-2">
+    <div className="h-full overflow-y-auto p-2">
+      {error && processes.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-app-warning/7 px-2.5 py-2 text-caption text-app-text-muted" role="status" title={error}>
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-app-warning" />
+          <span className="min-w-0 flex-1">Process list may be out of date.</span>
+          <button type="button" onClick={() => setReloadKey((key) => key + 1)} className={buttonStyle({ tone: 'ghost', size: 'compact' })}>
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        </div>
+      )}
       {loading && processes.length === 0 && (
-        <div className="p-2 text-xs text-app-text-muted">Scanning repo processes...</div>
+        <div className="flex items-center gap-2 p-2 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Scanning repo processes</div>
       )}
       {!loading && processes.length === 0 && (
-        <div className="p-2 text-xs text-app-text-muted">No running processes found for this repo.</div>
+        <ProcessEmpty label="No running processes." />
       )}
       <div className="space-y-1">
         {processes.map((processInfo) => (
@@ -106,6 +128,7 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
             key={processInfo.id}
             processInfo={processInfo}
             terminating={terminatingId === processInfo.id}
+            stale={Boolean(error)}
             onTerminate={requestTerminate}
           />
         ))}
@@ -134,10 +157,12 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
 function ProcessRow({
   processInfo,
   terminating,
+  stale,
   onTerminate,
 }: {
   processInfo: AgentProcessInfo
   terminating: boolean
+  stale: boolean
   onTerminate: (processInfo: AgentProcessInfo) => void
 }) {
   const openTerminal = () => {
@@ -156,21 +181,12 @@ function ProcessRow({
   return (
     <div className={processRowClassName}>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro uppercase text-app-text-muted">
-            {processInfo.kind}
-          </span>
-          <span className="text-micro text-app-text-muted">{processInfo.id}</span>
-        </div>
-        <div className="mt-1 truncate font-mono text-caption text-app-text" title={processInfo.command}>
+        <div className="truncate font-mono text-caption text-app-text" title={processInfo.command}>
           {processInfo.command}
         </div>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {metadata.map((item) => (
-            <span key={item} className="rounded bg-app-bg px-1.5 py-0.5 text-micro text-app-text-muted">
-              {item}
-            </span>
-          ))}
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-micro text-app-text-muted">
+          <span className="capitalize">{processInfo.kind}</span>
+          {metadata.map((item) => <span key={item}>{item}</span>)}
         </div>
         {processInfo.cwd && (
           <div className="mt-1 truncate text-micro text-app-text-muted" title={processInfo.cwd}>
@@ -182,7 +198,7 @@ function ProcessRow({
         <button
           type="button"
           onClick={openTerminal}
-          className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+          className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
           title="Focus process terminal"
           aria-label="Focus process terminal"
         >
@@ -192,7 +208,7 @@ function ProcessRow({
       <button
         type="button"
         onClick={sendContextToChat}
-        className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+        className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
         title="Send process context to chat"
         aria-label="Send process context to chat"
       >
@@ -202,7 +218,7 @@ function ProcessRow({
         <button
           type="button"
           onClick={openBrowser}
-          className="rounded p-1 text-app-text-muted opacity-70 hover:bg-app-border hover:text-app-text group-hover:opacity-100"
+          className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
           title="Open browser"
           aria-label="Open browser"
         >
@@ -212,13 +228,22 @@ function ProcessRow({
       <button
         type="button"
         onClick={() => void onTerminate(processInfo)}
-        disabled={terminating}
-        className={terminateButtonClassName}
-        title="Close process"
-        aria-label="Close process"
+        disabled={terminating || stale}
+        className={cn(iconButton({ tone: 'danger' }), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
+        title={stale ? 'Refresh the process list before closing' : 'Close process'}
+        aria-label={stale ? 'Refresh the process list before closing' : 'Close process'}
       >
         <X className="h-3.5 w-3.5" />
       </button>
+    </div>
+  )
+}
+
+function ProcessEmpty({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+      <Activity className="mb-2 h-7 w-7 opacity-45" />
+      {label}
     </div>
   )
 }

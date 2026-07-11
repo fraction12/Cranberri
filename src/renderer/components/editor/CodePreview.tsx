@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { boundedCodeText, displayLanguage, focusedCodePreview, languageFromFileName, type FocusedCodePreviewLine } from './code-utils'
 import { useAppearance } from '../../state/appearance-context'
+import { cn, iconButton } from '../../lib/ui'
 
 const DEFAULT_MAX_LINES = 1200
 const MAX_HIGHLIGHT_CHARS = 40000
@@ -69,18 +70,18 @@ export function CodePreview({
 
   return (
     <figure
-      className={`my-4 overflow-hidden rounded-lg border border-app-border bg-app-surface text-code ${className}`}
+      className={cn('my-4 overflow-hidden rounded-lg bg-app-surface text-code ring-1 ring-app-border/70', className)}
       data-code-preview="true"
       data-language={resolvedLanguage}
     >
-      <figcaption className="flex h-8 items-center justify-between border-b border-app-border bg-app-surface-2 px-3 text-micro uppercase text-app-text-muted">
+      <figcaption className="flex h-8 items-center justify-between bg-app-surface-2/70 px-3 text-caption text-app-text-muted">
         <span className="truncate">{filePath ?? resolvedLanguage}</span>
         <span className="flex items-center gap-2">
           <span>{focused.focusLine ? `line ${focused.focusLine}` : highlightFailed || !canHighlight ? 'plain' : resolvedLanguage}</span>
           <button
             type="button"
             onClick={() => void copyCode()}
-            className="rounded p-0.5 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+            className={cn(iconButton(), 'h-6 w-6')}
             aria-label="Copy code"
             title="Copy code"
           >
@@ -102,11 +103,11 @@ export function CodePreview({
         </pre>
       )}
       {isFocusedPreview && (focused.truncatedBefore || focused.truncatedAfter) ? (
-        <div className="border-t border-app-border bg-app-surface-2 px-3 py-1.5 text-micro text-app-text-muted">
+        <div className="bg-app-surface-2/70 px-3 py-1.5 text-micro text-app-text-muted">
           Showing lines {focused.lines[0]?.number ?? 1}-{focused.lines.at(-1)?.number ?? focused.lineCount} of {focused.lineCount}.
         </div>
       ) : bounded.truncated && (
-        <div className="border-t border-app-border bg-app-surface-2 px-3 py-1.5 text-micro text-app-text-muted">
+        <div className="bg-app-surface-2/70 px-3 py-1.5 text-micro text-app-text-muted">
           Showing {maxLines} of {bounded.lineCount} lines.
         </div>
       )}
@@ -127,7 +128,7 @@ function FocusedPlainPreview({ preview }: { preview: ReturnType<typeof focusedCo
 function CodeLine({ line }: { line: FocusedCodePreviewLine }) {
   return (
     <span className={`block whitespace-pre ${line.focused ? 'bg-app-accent/15 text-app-text' : ''}`} data-focused-line={line.focused ? 'true' : undefined}>
-      <span className="inline-block w-12 select-none border-r border-app-border/70 pr-2 text-right text-app-text-muted">{line.number}</span>
+      <span className="inline-block w-12 select-none pr-2 text-right text-app-text-subtle">{line.number}</span>
       <code className="pl-3">{line.text || ' '}</code>
       {'\n'}
     </span>
@@ -136,7 +137,7 @@ function CodeLine({ line }: { line: FocusedCodePreviewLine }) {
 
 function CodeGap({ label }: { label: string }) {
   return (
-    <span className="block border-y border-app-border/60 bg-app-surface-2 px-3 py-1 text-caption text-app-text-muted">
+    <span className="block bg-app-surface-2/70 px-3 py-1 text-caption text-app-text-muted">
       {label}
       {'\n'}
     </span>
@@ -150,7 +151,7 @@ export function FileCodePreview({ code, filePath, focusLine }: { code: string; f
       filePath={filePath}
       language={languageFromFileName(filePath)}
       focusLine={focusLine}
-      className="m-0 h-full rounded-none border-0"
+      className="m-0 h-full rounded-none ring-0"
     />
   )
 }

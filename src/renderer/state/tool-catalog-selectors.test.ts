@@ -116,7 +116,7 @@ describe('tool catalog selectors', () => {
     expect(toolTaskStatusLabel(signedOut.task.status)).toBe('Authentication required')
     expect(toolAvailability(signedOut)).toBe('needs-attention')
     expect(toolAvailabilityLabel(orphan)).toBe('Provider unavailable')
-    expect(toolAvailabilityLabel(entry('codex:exec_command', 'exec_command', { kind: 'codex' }))).toBe('Unavailable')
+    expect(toolAvailabilityLabel(entry('codex:exec_command', 'exec_command', { kind: 'codex' }))).toBe('Not ready')
     expect(toolAvailabilityLabel(entry('cli:git', 'git', { kind: 'cli' }, {
       machine: { ...signedOut.machine, status: 'installed', diagnosticCode: null },
     }))).toBe('Ready')

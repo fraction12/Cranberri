@@ -77,27 +77,35 @@ const ACCENT_COLORS: Record<AppAccent, string> = {
   violet: '#8b5cf6',
 }
 
+const LIGHT_ACCENT_COLORS: Record<AppAccent, string> = {
+  green: '#15803d',
+  blue: '#2563eb',
+  orange: '#c2410c',
+  rose: '#e11d48',
+  violet: '#7c3aed',
+}
+
 function mermaidThemeVariables(theme: 'light' | 'dark', accent: AppAccent) {
   if (theme === 'light') {
     return {
       background: '#ffffff',
-      primaryColor: '#ededf0',
-      primaryTextColor: '#202123',
-      primaryBorderColor: ACCENT_COLORS[accent],
-      lineColor: '#67676f',
-      secondaryColor: '#f7f7f8',
-      tertiaryColor: '#ffffff',
+      primaryColor: '#ebebee',
+      primaryTextColor: '#1f2023',
+      primaryBorderColor: LIGHT_ACCENT_COLORS[accent],
+      lineColor: '#63636c',
+      secondaryColor: '#f6f6f8',
+      tertiaryColor: '#fcfcfd',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
     }
   }
   return {
-    background: '#0f0f11',
-    primaryColor: '#27272a',
-    primaryTextColor: '#fafafa',
+    background: '#111113',
+    primaryColor: '#222226',
+    primaryTextColor: '#f4f4f5',
     primaryBorderColor: ACCENT_COLORS[accent],
-    lineColor: '#a1a1aa',
-    secondaryColor: '#18181b',
-    tertiaryColor: '#27272a',
+    lineColor: '#a6a6af',
+    secondaryColor: '#17171a',
+    tertiaryColor: '#1c1c20',
     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
   }
 }

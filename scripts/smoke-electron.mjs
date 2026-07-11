@@ -13,13 +13,15 @@ const appExecutable = process.platform === 'darwin'
 
 const SMOKE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lUzf1wAAAABJRU5ErkJggg=='
 const smokeScreenshotDir = process.env.CRANBERRI_SMOKE_SCREENSHOT_DIR
+const useRendererScreenshots = process.env.CRANBERRI_SMOKE_RENDERER_SCREENSHOTS === '1'
+let screenshotElectronApp = null
 
 if (!fs.existsSync(appExecutable)) {
   throw new Error(`Packaged app not found at ${appExecutable}. Run npm run package:dir first.`)
 }
 
-function createFixtureRepo(rootDir) {
-  const repoPath = path.join(rootDir, 'cranberri-smoke-repo')
+function createFixtureRepo(rootDir, repoName = 'cranberri-smoke-repo', dirty = true) {
+  const repoPath = path.join(rootDir, repoName)
   fs.mkdirSync(repoPath, { recursive: true })
   fs.writeFileSync(path.join(repoPath, 'README.md'), [
     '# Cranberri smoke repo',
@@ -41,17 +43,25 @@ function createFixtureRepo(rootDir) {
   execFileSync('git', ['-c', 'user.name=Cranberri Smoke', '-c', 'user.email=smoke@example.invalid', 'commit', '--quiet', '-m', 'Initial smoke fixture'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['branch', 'smoke/context'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['tag', 'v0.0.0-smoke'], { cwd: repoPath, stdio: 'ignore' })
-  fs.appendFileSync(path.join(repoPath, 'README.md'), 'Modified marker: cranberri-diff-smoke-ready.\n')
+  if (dirty) fs.appendFileSync(path.join(repoPath, 'README.md'), 'Modified marker: cranberri-diff-smoke-ready.\n')
   return repoPath
 }
 
-function seedRegisteredRepo(userDataDir, repoPath) {
+function seedRegisteredRepo(userDataDir, repoPath, secondaryRepoPath = null) {
+  const repos = [{
+    id: 'smoke-repo',
+    name: path.basename(repoPath),
+    path: repoPath,
+  }]
+  if (secondaryRepoPath) {
+    repos.push({
+      id: 'smoke-repo-secondary',
+      name: path.basename(secondaryRepoPath),
+      path: secondaryRepoPath,
+    })
+  }
   fs.writeFileSync(path.join(userDataDir, 'repos.json'), JSON.stringify({
-    repos: [{
-      id: 'smoke-repo',
-      name: path.basename(repoPath),
-      path: repoPath,
-    }],
+    repos,
     activeRepoId: 'smoke-repo',
   }, null, 2))
 }
@@ -62,8 +72,29 @@ function smokeStep(label) {
 
 async function captureSmokeScreenshot(page, name) {
   if (!smokeScreenshotDir) return
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  }))
+  await page.waitForTimeout(50)
+  if (screenshotElectronApp && !useRendererScreenshots) {
+    await captureNativeSmokeScreenshot(screenshotElectronApp, name)
+    return
+  }
   fs.mkdirSync(smokeScreenshotDir, { recursive: true })
   await page.screenshot({ path: path.join(smokeScreenshotDir, `${name}.png`) })
+}
+
+async function captureNativeSmokeScreenshot(electronApp, name) {
+  if (!smokeScreenshotDir) return
+  fs.mkdirSync(smokeScreenshotDir, { recursive: true })
+  const base64 = await electronApp.evaluate(async ({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (!window) throw new Error('Main window not found')
+    window.webContents.invalidate()
+    await new Promise((resolve) => setTimeout(resolve, 75))
+    return (await window.capturePage()).toPNG().toString('base64')
+  })
+  fs.writeFileSync(path.join(smokeScreenshotDir, `${name}.png`), Buffer.from(base64, 'base64'))
 }
 
 async function launchApp(userDataDir, extraEnv = {}) {
@@ -81,6 +112,24 @@ async function mainWindowChildViewCount(electronApp) {
   return electronApp.evaluate(({ BrowserWindow }) => (
     BrowserWindow.getAllWindows()[0]?.contentView.children.length ?? -1
   ))
+}
+
+async function setAttachedBrowserBackground(electronApp, color) {
+  return electronApp.evaluate(async ({ BrowserWindow }, nextColor) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (!window) throw new Error('Main window not found')
+    const browserView = window.contentView.children.find((view) => (
+      'webContents' in view && !view.webContents.isDestroyed()
+    ))
+    if (!browserView || !('webContents' in browserView)) {
+      throw new Error('Attached browser view not found')
+    }
+    return browserView.webContents.executeJavaScript(`
+      document.documentElement.style.background = ${JSON.stringify(nextColor)};
+      document.body.style.background = ${JSON.stringify(nextColor)};
+      getComputedStyle(document.body).backgroundColor;
+    `)
+  }, color)
 }
 
 async function waitForMainWindowChildViewCount(electronApp, expected, label) {
@@ -115,6 +164,7 @@ async function smokePage(electronApp, run) {
 
   await page.waitForLoadState('domcontentloaded')
   await page.locator('header').getByText('Cranberri', { exact: true }).waitFor({ timeout: 10_000 })
+  screenshotElectronApp = electronApp
 
   try {
     await run(page)
@@ -125,6 +175,8 @@ async function smokePage(electronApp, run) {
     ].filter(Boolean).join('\n')
     if (diagnostics) throw new Error(`${error instanceof Error ? error.message : String(error)}\n${diagnostics}`, { cause: error })
     throw error
+  } finally {
+    if (screenshotElectronApp === electronApp) screenshotElectronApp = null
   }
 
   if (pageErrors.length > 0) {
@@ -180,6 +232,27 @@ async function runClipboardCommand(page, action, label, expectedParts, timeout =
   return page.evaluate(() => navigator.clipboard.readText())
 }
 
+async function waitForVisibleToastsToClear(page, timeout = 10_000) {
+  await page.mouse.move(24, 24)
+  try {
+    await page.waitForFunction(
+      () => !document.querySelector('[data-sonner-toast][data-visible="true"]'),
+      undefined,
+      { timeout },
+    )
+  } catch (error) {
+    const toastStates = await page.locator('[data-sonner-toast]').evaluateAll((toasts) => (
+      toasts.map((toast) => ({
+        text: toast.textContent,
+        visible: toast.getAttribute('data-visible'),
+        removed: toast.getAttribute('data-removed'),
+        mounted: toast.getAttribute('data-mounted'),
+      }))
+    ))
+    throw new Error(`Visible toasts did not clear: ${JSON.stringify(toastStates)}`, { cause: error })
+  }
+}
+
 async function clickButtonByTitle(page, title, timeout = 10_000) {
   await page.waitForFunction((expectedTitle) => {
     return [...document.querySelectorAll('button')]
@@ -211,6 +284,7 @@ async function openCommandPalette(page) {
     await input.waitFor({ state: 'detached', timeout: 10_000 })
   }
   const trigger = page.getByLabel('Open command palette')
+  await trigger.focus()
   await trigger.evaluate((button) => {
     if (!(button instanceof HTMLButtonElement)) throw new Error('Open command palette button not found')
     button.click()
@@ -256,9 +330,12 @@ async function runFreshStartupSmoke() {
       }
       if (fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update result was not cleared after its toast')
       await page.getByText('No repo selected').waitFor({ timeout: 10_000 })
+      await waitForVisibleToastsToClear(page)
 
       await page.getByLabel('Open settings').click()
       await page.getByText('Settings').waitFor({ timeout: 10_000 })
+      await page.getByText('Checking Codex connection...', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+      await captureSmokeScreenshot(page, 'settings-general-light')
       const defaultModel = page.getByLabel('Default model')
       const defaultEffort = page.getByLabel('Default reasoning effort')
       const defaultSpeed = page.getByLabel('Default speed')
@@ -287,11 +364,41 @@ async function runFreshStartupSmoke() {
         document.documentElement.style.getPropertyValue('--app-ui-font-size') === '15px'
         && getComputedStyle(document.documentElement).fontSize === '16px'
       ))
+      await page.waitForTimeout(200)
       await captureSmokeScreenshot(page, 'appearance-light')
       if (smokeScreenshotDir) {
         await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Dark' }).click()
         await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+        await page.waitForFunction(() => document.querySelector('button[aria-pressed="true"]')?.textContent?.trim() === 'Dark')
+        await page.waitForTimeout(200)
         await captureSmokeScreenshot(page, 'appearance-dark')
+
+        await page.getByRole('button', { name: 'General', exact: true }).click()
+        await page.getByRole('heading', { name: 'General', exact: true }).waitFor({ timeout: 10_000 })
+        await captureSmokeScreenshot(page, 'settings-general-dark')
+        await page.getByRole('button', { name: 'Tools', exact: true }).click()
+        await page.getByPlaceholder('Search tools').waitFor({ timeout: 10_000 })
+        await page.getByText('Loading tools...', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+        await captureSmokeScreenshot(page, 'settings-tools-dark')
+        await page.getByRole('button', { name: 'Extensions', exact: true }).click()
+        await page.getByRole('heading', { name: 'Extensions', exact: true }).waitFor({ timeout: 10_000 })
+        await page.getByText('Loading extensions', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+        await captureSmokeScreenshot(page, 'settings-extensions-dark')
+        await page.getByRole('button', { name: 'Updates', exact: true }).click()
+        await page.getByRole('heading', { name: 'Updates', exact: true }).waitFor({ timeout: 10_000 })
+        await captureSmokeScreenshot(page, 'settings-updates-dark')
+        await page.getByRole('button', { name: 'Diagnostics', exact: true }).click()
+        await page.getByRole('heading', { name: 'Diagnostics', exact: true }).waitFor({ timeout: 10_000 })
+        await page.getByText('Reading diagnostics...', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+        await captureSmokeScreenshot(page, 'settings-diagnostics-dark')
+        await page.getByRole('button', { name: 'Shortcuts', exact: true }).click()
+        await page.getByRole('heading', { name: 'Shortcuts', exact: true }).waitFor({ timeout: 10_000 })
+        await captureSmokeScreenshot(page, 'settings-shortcuts-dark')
+        await page.getByRole('button', { name: 'About', exact: true }).click()
+        await page.getByRole('heading', { name: 'About', exact: true }).waitFor({ timeout: 10_000 })
+        await captureSmokeScreenshot(page, 'settings-about-dark')
+
+        await page.getByRole('button', { name: 'Appearance', exact: true }).click()
         await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Light' }).click()
         await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
       }
@@ -312,14 +419,19 @@ async function runFreshStartupSmoke() {
       if (process.platform === 'darwin') {
         await page.getByLabel('Open Apple Events automation settings').waitFor({ timeout: 10_000 })
       }
+      await waitForVisibleToastsToClear(page)
+      await captureSmokeScreenshot(page, 'settings-diagnostics-light')
       await page.getByRole('button', { name: 'Extensions' }).click()
       await page.getByRole('heading', { name: 'Extensions' }).waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Installed' }).waitFor({ timeout: 10_000 })
+      await page.getByText('Loading extensions', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+      await captureSmokeScreenshot(page, 'settings-extensions-light')
       const settingsContent = page.locator('main[aria-live="polite"]')
       await settingsContent.evaluate((element) => { element.scrollTop = element.scrollHeight })
       await page.getByRole('button', { name: 'Updates' }).click()
       await page.getByRole('heading', { name: 'Updates' }).waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => document.querySelector('main[aria-live="polite"]')?.scrollTop === 0)
+      await captureSmokeScreenshot(page, 'settings-updates-light')
       if (await page.getByText('Install result', { exact: true }).count()) {
         throw new Error('Completed update results should be shown as toasts, not modal content')
       }
@@ -348,14 +460,89 @@ async function runFreshStartupSmoke() {
 
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => document.activeElement?.getAttribute('placeholder') === 'Run command or switch repo...')
+      await page.keyboard.press('Tab')
+      await page.waitForFunction(() => {
+        const dialog = document.querySelector('[role="dialog"]')
+        return dialog instanceof HTMLElement && dialog.contains(document.activeElement)
+      })
       await page.getByPlaceholder('Run command or switch repo...').fill('settings')
       await page.getByText('Open settings').waitFor({ timeout: 10_000 })
+      await page.getByText('Loading Codex capabilities...', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+      await waitForVisibleToastsToClear(page)
+      await captureSmokeScreenshot(page, 'command-palette-light')
       await page.keyboard.press('Escape')
       await page.getByPlaceholder('Run command or switch repo...').waitFor({ state: 'detached', timeout: 10_000 })
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Open command palette')
     })
   } finally {
     await closeElectronApp(electronApp)
     fs.rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+async function runIdleToolCatalogSmoke() {
+  smokeStep('idle tool catalog enrichment')
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-idle-tools-'))
+  const electronApp = await launchApp(userDataDir, { CRANBERRI_FAKE_CODEX: '1' })
+
+  try {
+    await smokePage(electronApp, async (page) => {
+      await page.getByText('No repo selected').waitFor({ timeout: 10_000 })
+      await page.getByLabel('Open settings').click()
+      const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+      await settingsDialog.getByRole('button', { name: 'Tools', exact: true }).click()
+      const search = settingsDialog.getByPlaceholder('Search tools')
+      await search.waitFor({ timeout: 10_000 })
+      await search.fill('inspect_fixture')
+      await settingsDialog.getByLabel('Tool catalog').locator('article')
+        .filter({ hasText: 'inspect_fixture' })
+        .first()
+        .waitFor({ timeout: 20_000 })
+      await settingsDialog.getByLabel('Close settings').click()
+    })
+  } finally {
+    await closeElectronApp(electronApp)
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+async function runRealCodexSmoke() {
+  smokeStep('real Codex app-server first turn')
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-real-codex-'))
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-real-fixture-'))
+  const repoPath = createFixtureRepo(fixtureRoot, 'cranberri-real-codex-repo', false)
+  seedRegisteredRepo(userDataDir, repoPath)
+  const electronApp = await launchApp(userDataDir, {
+    CRANBERRI_FAKE_CODEX: '0',
+    GITHUB_TOKEN: '',
+    GH_TOKEN: '',
+  })
+
+  try {
+    await smokePage(electronApp, async (page) => {
+      await page.getByText(repoPath).waitFor({ timeout: 10_000 })
+      const composer = page.getByRole('textbox', { name: 'Chat message' })
+      await composer.waitFor({ timeout: 20_000 })
+      await composer.fill('Reply with exactly the five lowercase words cranberri, real, codex, smoke, and ready joined by hyphens. Do not use tools or modify files.')
+      await page.getByLabel('Send message').click()
+      await waitForAssistantArticleText(page, 'cranberri-real-codex-smoke-ready', 1, 180_000)
+      if (await page.getByText(/Fake Codex received:/).count()) {
+        throw new Error('Real Codex smoke used FakeCodexClient')
+      }
+      await page.waitForFunction(async (targetRepoPath) => {
+        const result = await window.cranberri.codex.listThreads(targetRepoPath, { archived: false, limit: 10 })
+        return result.sessions.length > 0
+      }, repoPath, { timeout: 30_000 })
+      const changedFiles = await page.evaluate((targetRepoPath) => window.cranberri.git.status(targetRepoPath), repoPath)
+      if (changedFiles.length > 0) {
+        throw new Error(`Real Codex smoke modified its clean fixture: ${JSON.stringify(changedFiles)}`)
+      }
+    })
+  } finally {
+    await closeElectronApp(electronApp)
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
   }
 }
 
@@ -364,7 +551,8 @@ async function runRepoWorkspaceSmoke() {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-repo-'))
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-fixture-'))
   const repoPath = createFixtureRepo(fixtureRoot)
-  seedRegisteredRepo(userDataDir, repoPath)
+  const secondaryRepoPath = createFixtureRepo(fixtureRoot, 'cranberri-secondary-repo')
+  seedRegisteredRepo(userDataDir, repoPath, secondaryRepoPath)
   const browserUrl = pathToFileURL(path.join(repoPath, 'index.html')).toString()
   const electronApp = await launchApp(userDataDir, {
     CRANBERRI_FAKE_CODEX: '1',
@@ -377,10 +565,28 @@ async function runRepoWorkspaceSmoke() {
     await smokePage(electronApp, async (page) => {
       smokeStep('repo and chat basics')
       await page.getByText(repoPath).waitFor({ timeout: 10_000 })
-      await resizeMainWindow(electronApp, 900, 280, 800, 240)
+      await resizeMainWindow(electronApp, 900, 250, 800, 240)
       await page.waitForFunction(() => window.innerHeight < 320)
       const modelSelector = page.getByRole('button', { name: 'Configure model, reasoning, and speed' })
       await modelSelector.click()
+      const modelMenu = page.locator('[data-model-selector-menu="root"]')
+      await modelMenu.waitFor({ timeout: 10_000 })
+      const menuMetrics = await modelMenu.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
+        scrollHeight: element.scrollHeight,
+      }))
+      if (menuMetrics.overflowY !== 'auto' || menuMetrics.scrollHeight - menuMetrics.clientHeight < 16) {
+        throw new Error(`Model menu is not scrollable in a constrained window: ${JSON.stringify(menuMetrics)}`)
+      }
+      await modelMenu.hover()
+      await page.mouse.wheel(0, 180)
+      await page.waitForFunction(() => {
+        const menu = document.querySelector('[data-model-selector-menu="root"]')
+        return menu instanceof HTMLElement && menu.scrollTop > 0
+      })
+      await modelMenu.waitFor({ state: 'visible', timeout: 2_000 })
+      await modelMenu.evaluate((element) => { element.scrollTop = 0 })
       await page.getByRole('menuitem', { name: /GPT-5\.5/ }).hover()
       const modelSubmenu = page.locator('[data-model-selector-submenu="model"]')
       await modelSubmenu.waitFor({ timeout: 10_000 })
@@ -391,17 +597,54 @@ async function runRepoWorkspaceSmoke() {
           scrollHeight: element.scrollHeight,
         }
       })
-      if (submenuMetrics.overflowY !== 'auto' || submenuMetrics.scrollHeight <= submenuMetrics.clientHeight) {
+      if (submenuMetrics.overflowY !== 'auto' || submenuMetrics.scrollHeight - submenuMetrics.clientHeight < 16) {
         throw new Error(`Model submenu is not scrollable in a constrained window: ${JSON.stringify(submenuMetrics)}`)
       }
-      await modelSubmenu.hover()
-      await page.mouse.wheel(0, 240)
-      await page.waitForFunction(() => {
+      const submenuBox = await modelSubmenu.boundingBox()
+      if (!submenuBox) throw new Error('Model submenu did not expose a visible bounding box')
+      const initialSubmenuScroll = await modelSubmenu.evaluate((element) => element.scrollTop)
+      const maximumSubmenuScroll = submenuMetrics.scrollHeight - submenuMetrics.clientHeight
+      const pointer = {
+        x: submenuBox.x + Math.min(24, submenuBox.width / 2),
+        y: submenuBox.y + Math.min(40, submenuBox.height / 2),
+      }
+      await page.mouse.move(
+        pointer.x,
+        pointer.y,
+      )
+      const wheelTarget = await page.evaluate(({ x, y }) => {
+        const target = document.elementFromPoint(x, y)
         const submenu = document.querySelector('[data-model-selector-submenu="model"]')
-        return submenu instanceof HTMLElement && submenu.scrollTop > 0
+        return {
+          target: target instanceof HTMLElement ? target.outerHTML.slice(0, 240) : null,
+          insideSubmenu: Boolean(target && submenu?.contains(target)),
+        }
+      }, pointer)
+      await page.mouse.wheel(0, initialSubmenuScroll < maximumSubmenuScroll ? 240 : -240)
+      await page.waitForTimeout(250)
+      const finalSubmenuScroll = await page.evaluate(() => {
+        const submenu = document.querySelector('[data-model-selector-submenu="model"]')
+        return submenu instanceof HTMLElement ? submenu.scrollTop : null
       })
+      if (finalSubmenuScroll === null || finalSubmenuScroll === initialSubmenuScroll) {
+        throw new Error(`Model submenu did not move under wheel input: ${JSON.stringify({
+          initialSubmenuScroll,
+          maximumSubmenuScroll,
+          finalSubmenuScroll,
+          pointer,
+          wheelTarget,
+        })}`)
+      }
       await modelSubmenu.waitFor({ state: 'visible', timeout: 2_000 })
+      await modelSubmenu.evaluate((element) => { element.scrollTop = 0 })
       await captureSmokeScreenshot(page, 'model-selector')
+      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape')
+      await page.waitForFunction(() => (
+        document.querySelector('button[aria-label="Configure model, reasoning, and speed"]')?.getAttribute('aria-expanded') !== 'true'
+      ))
+      await modelSelector.click()
+      await page.getByRole('menuitem', { name: /GPT-5\.5/ }).hover()
       await page.getByRole('menuitemradio', { name: /GPT-5\.6-Sol Most capable/ }).click()
       await page.waitForFunction(() => {
         const toolbar = document.querySelector('[data-composer-toolbar="true"]')
@@ -422,6 +665,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByRole('menuitemradio', { name: /Fast 1\.5x speed/ }).click()
       await modelSelector.click()
       await page.getByRole('menuitem', { name: /GPT-5\.6-Sol/ }).hover()
+      await captureSmokeScreenshot(page, 'model-selector-regular')
       await page.getByRole('menuitemradio', { name: /GPT-5\.4-Mini Efficient coding/ }).click()
       await page.waitForFunction(() => {
         const trigger = document.querySelector('button[aria-label="Configure model, reasoning, and speed"]')
@@ -436,8 +680,27 @@ async function runRepoWorkspaceSmoke() {
       }
       await page.keyboard.press('Escape')
       await page.keyboard.press('Escape')
+      await page.getByLabel('Add context').click()
+      await page.getByRole('menuitem', { name: /^Goal/ }).click()
+      await page.getByTitle('Remove goal').waitFor({ timeout: 10_000 })
+      await page.getByLabel('Add context').click()
+      await page.getByRole('menuitem', { name: /^Plan mode/ }).click()
+      await page.getByTitle('Turn off plan mode').waitFor({ timeout: 10_000 })
+      if (await page.getByTitle('Remove goal').count()) {
+        throw new Error('Plan mode did not replace Goal mode')
+      }
+      await page.getByLabel('Add context').click()
+      await page.getByRole('menuitem', { name: /^Goal/ }).click()
+      await page.getByTitle('Remove goal').waitFor({ timeout: 10_000 })
+      if (await page.getByTitle('Turn off plan mode').count()) {
+        throw new Error('Goal mode did not replace Plan mode')
+      }
+      await page.getByTitle('Remove goal').click()
       const composer = page.getByRole('textbox', { name: 'Chat message' })
       await composer.fill(Array.from({ length: 40 }, (_, index) => `Long composer line ${index + 1}`).join('\n'))
+      if (await page.getByText('Ask Codex to inspect, edit, or explain this repo.', { exact: true }).count() !== 0) {
+        throw new Error('New-chat empty state remained visible behind a composer draft')
+      }
       await page.waitForFunction(() => {
         const textarea = document.querySelector('textarea[aria-label="Chat message"]')
         if (!(textarea instanceof HTMLTextAreaElement)) return false
@@ -472,7 +735,10 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Open commit dialog action was disabled: ${await openCommitAction.textContent()}`)
       }
       await openCommitAction.click()
-      await page.getByText('Stages all current changes and commits them.').waitFor({ timeout: 10_000 })
+      const commitDialog = page.getByRole('dialog', { name: 'Commit changes' })
+      await commitDialog.waitFor({ timeout: 10_000 })
+      await commitDialog.getByText('Stage and commit the current working tree.').waitFor()
+      await captureSmokeScreenshot(page, 'commit-dialog-light')
       await page.getByRole('button', { name: 'Cancel' }).click()
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('draft commit message')
@@ -505,6 +771,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: cranberri fake codex smoke').waitFor({ timeout: 10_000 })
       await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'chat-transcript-light')
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-smoke-reject-turn')
       await page.getByLabel('Send message').click()
       await page.getByText('Error: Fake Codex rejected turn').waitFor({ timeout: 10_000 })
@@ -1096,6 +1363,7 @@ async function runRepoWorkspaceSmoke() {
       if (await rgToolRow.getByText('Recent use').count()) {
         throw new Error('Shell command activity was incorrectly attributed to rg')
       }
+      await captureSmokeScreenshot(page, 'tools-rail-light')
       const telemetryLeakedShellText = await page.evaluate(async () => {
         const result = await window.cranberri.telemetry.readEvents(200)
         return result.events.some((event) => JSON.stringify(event).includes('cranberri-shell-private-sentinel'))
@@ -1113,16 +1381,20 @@ async function runRepoWorkspaceSmoke() {
           ?.textContent
           ?.includes('Search marker: cranberri-electron-smoke-search.')
       }, { timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'diff-reader-light')
+      await page.getByLabel('File options').click()
       await page.getByLabel('Copy selected file absolute path').click()
       await page.waitForFunction(async (expectedPath) => {
         return await navigator.clipboard.readText() === expectedPath
       }, path.join(repoPath, 'README.md'), { timeout: 10_000 })
-      if (await page.getByLabel('Open selected file').isDisabled()) {
+      await page.getByLabel('File options').click()
+      if (await page.getByLabel('Open selected file').getAttribute('data-disabled') !== null) {
         throw new Error('Right-rail open selected file button was disabled')
       }
-      if (await page.getByLabel('Reveal selected file in Finder').isDisabled()) {
+      if (await page.getByLabel('Reveal selected file in Finder').getAttribute('data-disabled') !== null) {
         throw new Error('Right-rail reveal selected file button was disabled')
       }
+      await page.keyboard.press('Escape')
       await page.getByLabel('Search selected file').click()
       await page.locator('.cm-panel.cm-search input').first().waitFor({ timeout: 10_000 })
       await page.keyboard.press('Escape')
@@ -1221,7 +1493,7 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Copy selected file content action was disabled: ${await copySelectedFileContentAction.textContent()}`)
       }
       await copySelectedFileContentAction.click()
-      await page.getByText('File content copied').waitFor({ timeout: 10_000 })
+      await page.getByText('File contents copied').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('copy selected file absolute path')
       const copySelectedFileAbsolutePathAction = page.locator('[cmdk-item]').filter({ hasText: 'Copy selected file absolute path' }).first()
@@ -1230,7 +1502,7 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Copy selected file absolute path action was disabled: ${await copySelectedFileAbsolutePathAction.textContent()}`)
       }
       await copySelectedFileAbsolutePathAction.click()
-      await page.getByText('Copy selected file absolute path').waitFor({ timeout: 10_000 })
+      await page.getByText('Absolute path copied').waitFor({ timeout: 10_000 })
       await page.waitForFunction(async (expectedPath) => {
         return await navigator.clipboard.readText() === expectedPath
       }, path.join(repoPath, 'README.md'), { timeout: 10_000 })
@@ -1602,8 +1874,9 @@ async function runRepoWorkspaceSmoke() {
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('show all repo files')
       await page.locator('[cmdk-item]').filter({ hasText: 'Show all repo files' }).first().click()
-      await page.getByText('All Files', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByText('All files', { exact: true }).waitFor({ timeout: 10_000 })
       await page.getByTitle('README.md').waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'files-all-light')
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('show tools')
       await page.locator('[cmdk-item]').filter({ hasText: 'Show tools' }).first().click()
@@ -1618,7 +1891,11 @@ async function runRepoWorkspaceSmoke() {
       await rgRow.getByLabel('Test rg').click()
       await rgRow.getByLabel('Test rg').waitFor({ timeout: 10_000 })
       await rgRow.getByText('Ready', { exact: true }).first().waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'tools-panel-light')
       await page.getByLabel('Manage tools').click()
+      await page.getByPlaceholder('Search tools').waitFor({ timeout: 10_000 })
+      await page.getByLabel('Tool catalog').locator('article').first().waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'settings-tools-fake-light')
       await page.getByPlaceholder('Search tools').fill('inspect_fixture')
       const inspectToolRow = page.getByLabel('Tool catalog').locator('article').filter({ hasText: 'inspect_fixture' }).first()
       await inspectToolRow.getByLabel('Show inspect_fixture in Tools rail').click()
@@ -1635,6 +1912,7 @@ async function runRepoWorkspaceSmoke() {
       await page.keyboard.type('printf "cranberri-terminal-context-ready\\n"')
       await page.keyboard.press('Enter')
       await page.getByText('cranberri-terminal-context-ready', { exact: true }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'terminal-light')
       await page.getByLabel('Send terminal context to chat').click()
       await page.waitForFunction(() => {
         return [...document.querySelectorAll('textarea')]
@@ -1725,10 +2003,10 @@ async function runRepoWorkspaceSmoke() {
       await page.locator('[cmdk-item]').filter({ hasText: 'Close active terminal search' }).first().click()
       await terminalSearchInput.waitFor({ state: 'hidden', timeout: 10_000 })
       smokeStep('terminal close confirmation')
-      const terminalTab = page.getByLabel('Switch to Terminal 1')
-      await terminalTab.locator('button').click()
+      await page.getByLabel('Close Terminal 1').click()
       const closeTerminalDialog = page.getByRole('dialog', { name: 'Close terminal' })
       await closeTerminalDialog.waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'terminal-close-dialog-light')
       await closeTerminalDialog.getByRole('button', { name: 'Cancel' }).click()
       await closeTerminalDialog.waitFor({ state: 'detached', timeout: 10_000 })
       await page.getByLabel('Switch to Terminal 1').waitFor({ timeout: 10_000 })
@@ -1825,7 +2103,16 @@ async function runRepoWorkspaceSmoke() {
         const input = document.querySelector('input[name="browser-address"]')
         return input instanceof HTMLInputElement && input.value === url
       }, browserUrl, { timeout: 10_000 })
-      await clickButtonByTitle(page, 'Copy browser URL')
+      const browserActions = page.getByTitle('Browser actions')
+      await browserActions.click()
+      await page.keyboard.press('Escape')
+      await page.waitForFunction(() => document.querySelector('button[title="Browser actions"]')?.getAttribute('aria-busy') !== 'true')
+      await page.waitForTimeout(500)
+      if (await page.getByTitle('Copy browser URL').count()) {
+        throw new Error('Canceled Browser actions opened after its preview capture completed')
+      }
+      await browserActions.click()
+      await page.getByTitle('Copy browser URL').click()
       await page.waitForFunction(async (url) => {
         return await navigator.clipboard.readText() === url
       }, browserUrl, { timeout: 10_000 })
@@ -1833,6 +2120,7 @@ async function runRepoWorkspaceSmoke() {
       let snapshotReady = false
       for (let attempt = 0; attempt < 15; attempt += 1) {
         await page.waitForTimeout(attempt === 0 ? 750 : 1_000)
+        await page.getByTitle('Browser actions').click()
         await page.getByTitle('Capture page text').click()
         snapshotReady = await page.getByText('cranberri-browser-smoke-ready').waitFor({ timeout: 3_000 })
           .then(() => true)
@@ -1849,6 +2137,7 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
       const attachedBrowserChildViews = await mainWindowChildViewCount(electronApp)
       if (attachedBrowserChildViews < 1) throw new Error('Active browser did not attach a native child view')
+      await captureNativeSmokeScreenshot(electronApp, 'browser-native-light')
       await openCommandPalette(page)
       await page.waitForFunction(() => Boolean(document.querySelector('[data-browser-surface-obscured="true"]')))
       await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Quick Search did not detach the browser surface')
@@ -1866,6 +2155,57 @@ async function runRepoWorkspaceSmoke() {
         const text = await navigator.clipboard.readText()
         return text.includes('Browser page context:') && text.includes('cranberri-browser-smoke-ready')
       }, { timeout: 10_000 })
+
+      await setAttachedBrowserBackground(electronApp, 'rgb(215, 38, 61)')
+      await page.getByTitle('Browser actions').click()
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Browser actions did not freeze the red browser surface')
+      await page.keyboard.press('Escape')
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Closing Browser actions did not restore the browser surface')
+      await page.waitForTimeout(500)
+      await setAttachedBrowserBackground(electronApp, 'rgb(34, 197, 94)')
+
+      const repoOptionsLabel = `Options for ${path.basename(repoPath)}`
+      await page.getByLabel(repoOptionsLabel).click()
+      await page.getByRole('menuitem', { name: 'Remove repository' }).click()
+      const removeRepoDialog = page.getByRole('dialog', { name: 'Remove repository' })
+      await removeRepoDialog.waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-browser-surface-obscured="true"]')))
+      const frozenBrowserImage = page.locator('[data-browser-surface-frozen="true"] img')
+      await frozenBrowserImage.waitFor({ timeout: 10_000 })
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Repository confirmation did not detach the browser surface')
+      const frozenBrowserPixel = await frozenBrowserImage.evaluate(async (image) => {
+        if (!(image instanceof HTMLImageElement)) return null
+        await image.decode()
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d')
+        if (!context) return null
+        context.drawImage(image, 0, 0)
+        const x = Math.max(0, Math.floor(canvas.width * 0.9) - 1)
+        const y = Math.max(0, Math.floor(canvas.height * 0.9) - 1)
+        return [...context.getImageData(x, y, 1, 1).data]
+      })
+      if (!frozenBrowserPixel || frozenBrowserPixel[1] < frozenBrowserPixel[0] + 60 || frozenBrowserPixel[1] < frozenBrowserPixel[2] + 60) {
+        throw new Error(`Frozen browser surface did not capture the latest scripted DOM state: ${JSON.stringify(frozenBrowserPixel)}`)
+      }
+      await page.waitForFunction(() => {
+        const dialog = document.querySelector('[role="dialog"]')
+        return dialog instanceof HTMLElement && dialog.contains(document.activeElement)
+      })
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await page.waitForFunction(() => {
+        const dialog = document.querySelector('[role="dialog"]')
+        return dialog instanceof HTMLElement && dialog.contains(document.activeElement)
+      })
+      await captureSmokeScreenshot(page, 'browser-remove-repo-dialog-light')
+      await page.keyboard.press('Escape')
+      await removeRepoDialog.waitFor({ state: 'detached', timeout: 10_000 })
+      await page.waitForFunction(() => !document.querySelector('[data-browser-surface-obscured="true"]'))
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Closing repository confirmation did not reattach the browser surface')
+      await page.waitForFunction((label) => document.activeElement?.getAttribute('aria-label') === label, repoOptionsLabel, { timeout: 10_000 })
+
       await page.getByLabel('Open settings').click()
       await page.getByLabel('Close settings').waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => Boolean(document.querySelector('[data-browser-surface-obscured="true"]')))
@@ -1879,6 +2219,7 @@ async function runRepoWorkspaceSmoke() {
       snapshotReady = false
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await page.waitForTimeout(attempt === 0 ? 750 : 1_000)
+        await page.getByTitle('Browser actions').click()
         await page.getByTitle('Capture page text').click()
         snapshotReady = await page.getByText('cranberri-browser-smoke-ready').waitFor({ timeout: 3_000 })
           .then(() => true)
@@ -2041,8 +2382,14 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('stop browser inspection')
       await page.locator('[cmdk-item]').filter({ hasText: 'Stop active browser inspection' }).first().click()
       await page.getByLabel(/Switch to (Browser|Smoke Browser Page)/).click()
+      await page.getByTitle('Browser actions').click()
+      await page.locator('[data-browser-surface-frozen="true"] img').waitFor({ timeout: 10_000 })
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Browser actions menu did not detach the browser surface')
+      await captureSmokeScreenshot(page, 'browser-actions-menu-light')
       await page.getByTitle('Capture screenshot').click()
       await page.getByAltText('Captured browser screenshot').waitFor({ timeout: 10_000 })
+      await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Browser capture did not reattach the browser surface')
+      await captureSmokeScreenshot(page, 'browser-captures-light')
       await clickButtonByTitle(page, 'Copy screenshot path')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
@@ -2121,6 +2468,55 @@ async function runRepoWorkspaceSmoke() {
         return text.includes('browser-captures') && text.endsWith('.png')
       }, { timeout: 10_000 })
 
+      smokeStep('visual theme and window matrix')
+      await waitForVisibleToastsToClear(page)
+      await page.getByLabel('Switch to Smoke Codex Thread').click()
+      await page.getByLabel('Open settings').click()
+      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Dark' }).click()
+      await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+      await page.getByLabel('Close settings').click()
+      await page.getByLabel('Close settings').waitFor({ state: 'detached', timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'workspace-chat-dark')
+      await openCommandPalette(page)
+      await captureSmokeScreenshot(page, 'command-palette-dark')
+      await page.keyboard.press('Escape')
+      await page.getByPlaceholder('Run command or switch repo...').waitFor({ state: 'detached', timeout: 10_000 })
+      await page.getByRole('tab', { name: /Agents/ }).click()
+      await captureSmokeScreenshot(page, 'agents-dark')
+      await page.getByTitle('GitHub').click()
+      await page.getByText('fraction12/Cranberri', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByText('Loading repo', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
+      await captureSmokeScreenshot(page, 'github-panel-dark')
+      await page.getByTitle('Repo processes').click()
+      await page.getByText('Cranberri terminal', { exact: true }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'processes-panel-dark')
+
+      await resizeMainWindow(electronApp, 900, 600, 900, 600)
+      await page.waitForFunction(() => window.innerWidth <= 920 && window.innerHeight <= 620)
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
+      await page.waitForFunction(() => (
+        [...document.querySelectorAll('button')]
+          .some((button) => button.getAttribute('aria-label')?.startsWith('Scroll tabs ') && button.getClientRects().length > 0)
+      ))
+      await captureSmokeScreenshot(page, 'workspace-narrow-dark')
+      const wideSize = await electronApp.evaluate(({ BrowserWindow, screen }) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        if (!window) throw new Error('Main window not found')
+        const workArea = screen.getDisplayMatching(window.getBounds()).workAreaSize
+        return {
+          width: Math.max(900, Math.min(1800, workArea.width)),
+          height: Math.max(600, Math.min(1100, workArea.height)),
+        }
+      })
+      await resizeMainWindow(electronApp, wideSize.width, wideSize.height, 900, 600)
+      await page.waitForFunction(({ width, height }) => (
+        window.innerWidth >= width - 80 && window.innerHeight >= height - 100
+      ), wideSize)
+      await captureSmokeScreenshot(page, 'workspace-wide-dark')
+      await resizeMainWindow(electronApp, 1400, 900, 900, 600)
+      await page.waitForFunction(() => window.innerWidth > 1300 && window.innerHeight > 800)
+
       smokeStep('session management')
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('pin active chat')
@@ -2156,8 +2552,9 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Rename active chat action was disabled: ${await renameActiveChatAction.textContent()}`)
       }
       await renameActiveChatAction.click()
-      const renameDialog = page.getByRole('dialog', { name: 'Rename Codex session' })
+      const renameDialog = page.getByRole('dialog', { name: 'Rename session' })
       await renameDialog.waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'rename-session-dialog-dark')
       await renameDialog.getByRole('textbox', { name: 'Name' }).fill('Renamed Smoke Codex Thread')
       await renameDialog.getByRole('button', { name: 'Rename' }).click()
       await page.waitForFunction(async (targetRepoPath) => {
@@ -2177,6 +2574,67 @@ async function runRepoWorkspaceSmoke() {
         const result = await window.cranberri.codex.listThreads(targetRepoPath, { archived: true, limit: 20 })
         return result.sessions.some((session) => session.archived)
       }, repoPath, { timeout: 10_000 })
+
+      smokeStep('cross-repo session management')
+      const secondaryRepoName = path.basename(secondaryRepoPath)
+      const secondaryRepo = page.locator('[data-repo-id="smoke-repo-secondary"]')
+      await secondaryRepo.getByRole('button', { name: `Expand sessions for ${secondaryRepoName}` }).click()
+      await secondaryRepo.getByRole('button', { name: /Show archived/ }).click()
+
+      await page.evaluate(() => {
+        window.__cranberriSmokeSessionChanges = []
+        window.addEventListener('cranberri:codex-sessions-changed', (event) => {
+          window.__cranberriSmokeSessionChanges.push(event.detail)
+        })
+      })
+      const resetSessionChanges = async () => page.evaluate(() => {
+        window.__cranberriSmokeSessionChanges = []
+      })
+      const waitForSecondaryRepoChange = async () => page.waitForFunction((targetRepoPath) => (
+        window.__cranberriSmokeSessionChanges.some((detail) => detail?.repoPath === targetRepoPath)
+      ), secondaryRepoPath, { timeout: 10_000 })
+
+      let inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
+      await inactiveSession.waitFor({ timeout: 10_000 })
+      await resetSessionChanges()
+      await inactiveSession.getByRole('button', { name: 'Options for Renamed Smoke Codex Thread' }).click()
+      await page.getByRole('menuitem', { name: 'Unarchive' }).click()
+      await waitForSecondaryRepoChange()
+
+      inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
+      await inactiveSession.waitFor({ timeout: 10_000 })
+      await resetSessionChanges()
+      await inactiveSession.getByRole('button', { name: 'Options for Renamed Smoke Codex Thread' }).click()
+      await page.getByRole('menuitem', { name: 'Rename' }).click()
+      const inactiveRenameDialog = page.getByRole('dialog', { name: 'Rename session' })
+      await inactiveRenameDialog.getByRole('textbox', { name: 'Session name' }).fill('Inactive Repo Managed Session')
+      await inactiveRenameDialog.getByRole('button', { name: 'Rename' }).click()
+      await waitForSecondaryRepoChange()
+
+      inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
+      await inactiveSession.waitFor({ timeout: 10_000 })
+      await resetSessionChanges()
+      await inactiveSession.getByRole('button', { name: 'Options for Inactive Repo Managed Session' }).click()
+      await page.getByRole('menuitem', { name: 'Archive' }).click()
+      await waitForSecondaryRepoChange()
+
+      inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
+      await inactiveSession.waitFor({ timeout: 10_000 })
+      await resetSessionChanges()
+      const inactiveSessionOptionsLabel = 'Options for Inactive Repo Managed Session'
+      await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
+      await page.getByRole('menuitem', { name: 'Delete' }).click()
+      let inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
+      await inactiveDeleteDialog.waitFor({ timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await inactiveDeleteDialog.waitFor({ state: 'detached', timeout: 10_000 })
+      await page.waitForFunction((label) => document.activeElement?.getAttribute('aria-label') === label, inactiveSessionOptionsLabel, { timeout: 10_000 })
+      await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
+      await page.getByRole('menuitem', { name: 'Delete' }).click()
+      inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
+      await inactiveDeleteDialog.getByRole('button', { name: 'Delete' }).click()
+      await waitForSecondaryRepoChange()
+      await inactiveSession.waitFor({ state: 'detached', timeout: 10_000 })
       smokeStep('repo workspace assertions complete')
     })
   } finally {
@@ -2187,7 +2645,10 @@ async function runRepoWorkspaceSmoke() {
   }
 }
 
-await runFreshStartupSmoke()
-await runRepoWorkspaceSmoke()
+const smokeOnly = process.env.CRANBERRI_SMOKE_ONLY
+if (!smokeOnly || smokeOnly === 'fresh') await runFreshStartupSmoke()
+if (!smokeOnly || smokeOnly === 'fresh' || smokeOnly === 'idle') await runIdleToolCatalogSmoke()
+if (!smokeOnly || smokeOnly === 'repo') await runRepoWorkspaceSmoke()
+if (smokeOnly === 'real') await runRealCodexSmoke()
 
 console.log('Electron smoke passed')

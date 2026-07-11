@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Command, Download, FileText, Keyboard, Palette, PlugZap, Wrench, X } from 'lucide-react'
+import * as Dialog from '@radix-ui/react-dialog'
+import { Activity, Command, Download, FileText, Keyboard, Loader2, Palette, PlugZap, Wrench, X } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
+import { cn, dialogSurface, iconButton } from '../lib/ui'
 import { CodexResourcesSection } from './CodexResourcesSection'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { AppearanceSettings } from './settings/AppearanceSettings'
@@ -40,57 +42,60 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
     if (!open) return
     setActiveTab(initialTab)
     window.cranberri.getVersion().then(setVersion).catch(() => setVersion('Unavailable'))
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [initialTab, onClose, open])
 
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 })
   }, [activeTab])
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-[var(--app-overlay)] p-6" onMouseDown={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-dialog-title"
-        className="flex h-[min(640px,calc(100vh-48px))] w-full max-w-[800px] flex-col overflow-hidden rounded-lg border border-app-border bg-app-surface shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="flex h-12 shrink-0 items-center justify-between px-4">
-          <h1 id="settings-dialog-title" className="text-sm font-semibold text-app-text">Settings</h1>
-          <button type="button" onClick={onClose} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label="Close settings">
-            <X className="h-4 w-4" />
-          </button>
-        </header>
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[2000] bg-[var(--app-overlay)] data-[state=closed]:animate-none" />
+        <Dialog.Content
+          className={cn(
+            dialogSurface,
+            'fixed left-1/2 top-1/2 z-[2001] flex h-[min(680px,calc(100vh-32px))] w-[min(860px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden',
+          )}
+          aria-describedby={undefined}
+        >
+          <header className="flex h-12 shrink-0 items-center justify-between px-4">
+            <Dialog.Title className="text-sm font-semibold text-app-text">Settings</Dialog.Title>
+            <Dialog.Close asChild>
+              <button type="button" className={iconButton()} aria-label="Close settings" title="Close settings">
+                <X className="h-4 w-4" />
+              </button>
+            </Dialog.Close>
+          </header>
 
-        <div className="flex min-h-0 flex-1">
-          <nav className="w-44 shrink-0 bg-app-bg p-2" aria-label="Settings pages">
-            {TABS.map((tab) => (
-              <SidebarButton key={tab.value} active={activeTab === tab.value} {...tab} onClick={setActiveTab} />
-            ))}
-          </nav>
+          <div className="flex min-h-0 flex-1 bg-app-surface">
+            <nav className="w-48 shrink-0 bg-app-bg/70 px-2.5 py-3" aria-label="Settings pages">
+              {TABS.map((tab) => (
+                <SidebarButton key={tab.value} active={activeTab === tab.value} {...tab} onClick={setActiveTab} />
+              ))}
+            </nav>
 
-          <main ref={contentRef} className="min-w-0 flex-1 overflow-y-auto p-5" aria-live="polite">
-            {loading ? <div className="text-sm text-app-text-muted">Loading settings...</div> : (
-              <SettingsContent
-                activeTab={activeTab}
-                version={version}
-                update={update}
-                settings={settings}
-                updateSection={updateSection}
-                onNavigate={setActiveTab}
-              />
-            )}
-          </main>
-        </div>
-      </div>
-    </div>
+            <main ref={contentRef} className="min-w-0 flex-1 overflow-y-auto px-7 py-6" aria-live="polite">
+              {loading ? (
+                <div className="flex items-center gap-2 text-sm text-app-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading settings
+                </div>
+              ) : (
+                <SettingsContent
+                  activeTab={activeTab}
+                  version={version}
+                  update={update}
+                  settings={settings}
+                  updateSection={updateSection}
+                  onNavigate={setActiveTab}
+                />
+              )}
+            </main>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
@@ -124,7 +129,12 @@ function SidebarButton({ active, value, icon: Icon, label, onClick }: {
       type="button"
       onClick={() => onClick(value)}
       aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/60 hover:text-app-text'}`}
+      className={cn(
+        'mb-0.5 flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors duration-fast ease-standard',
+        active
+          ? 'bg-app-surface-2/85 text-app-text shadow-sm'
+          : 'text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text',
+      )}
     >
       <Icon className="h-4 w-4" />
       {label}
@@ -137,8 +147,11 @@ function ShortcutsSettings() {
     <SettingsPage title="Shortcuts" description="Keyboard commands available throughout Cranberri.">
       <SettingsList>
         <ShortcutRow label="Open settings" keys={['⌘', ',']} />
+        <ShortcutRow label="Open command menu" keys={['⌘', 'K']} />
         <ShortcutRow label="Send message" keys={['Enter']} />
         <ShortcutRow label="New line in composer" keys={['Shift', 'Enter']} />
+        <ShortcutRow label="Find in terminal" keys={['⌘', 'F']} />
+        <ShortcutRow label="Commit changes" keys={['⌘', 'Enter']} />
       </SettingsList>
     </SettingsPage>
   )
@@ -148,7 +161,7 @@ function ShortcutRow({ label, keys }: { label: string; keys: string[] }) {
   return (
     <SettingsRow label={label}>
       <div className="flex items-center gap-1">
-        {keys.map((key) => <kbd key={key} className="rounded bg-app-surface-2 px-1.5 py-0.5 text-xs text-app-text-muted">{key}</kbd>)}
+        {keys.map((key) => <kbd key={key} className="min-w-6 rounded bg-app-bg px-1.5 py-0.5 text-center font-mono text-caption text-app-text-muted ring-1 ring-app-border/70">{key}</kbd>)}
       </div>
     </SettingsRow>
   )

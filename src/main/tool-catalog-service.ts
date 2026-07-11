@@ -455,14 +455,24 @@ export class ToolCatalogService {
     ))
   }
 
-  async list(context: ToolCatalogRequestContext): Promise<ToolCatalogSnapshot> {
-    if (!this.isFresh()) await this.runFullRefresh()
-    return this.snapshot(context)
+  async list(
+    context: ToolCatalogRequestContext | Promise<ToolCatalogRequestContext>,
+  ): Promise<ToolCatalogSnapshot> {
+    const [resolvedContext] = await Promise.all([
+      context,
+      this.isFresh() ? Promise.resolve() : this.runFullRefresh(),
+    ])
+    return this.snapshot(resolvedContext)
   }
 
-  async refresh(context: ToolCatalogRequestContext): Promise<ToolCatalogSnapshot> {
-    await this.runFullRefresh(true)
-    return this.snapshot(context)
+  async refresh(
+    context: ToolCatalogRequestContext | Promise<ToolCatalogRequestContext>,
+  ): Promise<ToolCatalogSnapshot> {
+    const [resolvedContext] = await Promise.all([
+      context,
+      this.runFullRefresh(true),
+    ])
+    return this.snapshot(resolvedContext)
   }
 
   async test(catalogId: ToolCatalogId, context: ToolCatalogRequestContext): Promise<ToolCatalogSnapshot> {

@@ -5,17 +5,16 @@ export interface ToolGroupProps {
   label: string
   children: ReactNode
   className?: string
-  divided?: boolean
 }
 
-export function ToolGroup({ label, children, className, divided = true }: ToolGroupProps) {
+export function ToolGroup({ label, children, className }: ToolGroupProps) {
   const headingId = useId()
   return (
-    <section aria-labelledby={headingId} className={cn(divided && 'border-b border-app-border last:border-b-0', className)}>
-      <h3 id={headingId} className="px-3 py-1.5 text-micro font-semibold uppercase text-app-text-muted">
+    <section aria-labelledby={headingId} className={cn('mb-2 px-1', className)}>
+      <h3 id={headingId} className="px-2 pb-1 pt-2 text-caption font-medium text-app-text-muted">
         {label}
       </h3>
-      <div className={cn(divided ? 'divide-y divide-app-border border-t border-app-border' : 'space-y-1')}>{children}</div>
+      <div className="space-y-0.5">{children}</div>
     </section>
   )
 }

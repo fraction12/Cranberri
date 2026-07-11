@@ -31,7 +31,7 @@ const SOURCE_LABELS: Record<ToolCatalogSourceKind, string> = {
 }
 
 const MACHINE_STATUS_LABELS: Record<ToolCatalogMachineStatus, string> = {
-  unknown: 'Unavailable',
+  unknown: 'Not ready',
   available: 'Ready',
   installed: 'Installed',
   missing: 'Not installed',
@@ -42,7 +42,7 @@ const MACHINE_STATUS_LABELS: Record<ToolCatalogMachineStatus, string> = {
 
 const TASK_STATUS_LABELS: Record<ToolCatalogTaskStatus, string> = {
   'no-active-task': 'No active task',
-  unknown: 'Unavailable',
+  unknown: 'Not ready',
   addressable: 'Ready',
   usable: 'Used successfully',
   unavailable: 'Unavailable',
@@ -114,7 +114,7 @@ export function toolAvailabilityLabel(entry: ToolCatalogEntry): string {
     return toolMachineStatusLabel(entry.machine.status)
   }
   if (ATTENTION_TASK_STATUSES.has(entry.task.status)) return toolTaskStatusLabel(entry.task.status)
-  return toolAvailability(entry) === 'available' ? 'Ready' : 'Unavailable'
+  return toolAvailability(entry) === 'available' ? 'Ready' : 'Not ready'
 }
 
 export const toolMembership = sharedToolMembership

@@ -43,6 +43,8 @@ import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { TranscriptList } from './chat/TranscriptList'
 import { VoiceDictationButton } from './chat/VoiceDictationButton'
+import { PlanModePill } from './chat/PlanModePill'
+import { buttonStyle, cn, menuSurface } from '../lib/ui'
 import {
   appendDictationTranscript,
   speechRecognitionConstructor,
@@ -73,11 +75,11 @@ const PLAN_MODE_PROMPT = [
 ].join(' ')
 const COMPOSER_SCRIM_CLASS = [
   'pointer-events-none absolute inset-x-0 bottom-0 z-[900] bg-gradient-to-t',
-  'from-[var(--app-bg)] via-[var(--app-bg)]/95 to-transparent px-6 pb-4 pt-16',
+  'from-[var(--app-bg)] via-[var(--app-bg)]/95 to-transparent px-4 pb-4 pt-14 sm:px-6',
 ].join(' ')
 const COMPOSER_CARD_CLASS = [
-  'pointer-events-auto relative mx-auto w-full max-w-[760px] rounded-3xl border',
-  'border-[var(--app-border)] bg-[var(--app-surface)] p-3 shadow-2xl shadow-black/30',
+  'pointer-events-auto relative mx-auto w-full max-w-[780px] rounded-[18px]',
+  'bg-app-surface/95 p-3 shadow-xl ring-1 ring-app-border/75 transition-shadow duration-fast ease-standard focus-within:ring-2 focus-within:ring-app-accent/40',
 ].join(' ')
 const COMPOSER_MIN_HEIGHT = 44
 const COMPOSER_MAX_HEIGHT = 160
@@ -85,15 +87,15 @@ const TEXTAREA_CLASS = [
   'relative z-10 block min-h-[44px] max-h-[160px] w-full resize-none overflow-y-hidden bg-transparent px-0 text-sm leading-5',
   'text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]',
 ].join(' ')
-const SKILL_MENU_CLASS = [
-  'absolute inset-x-0 bottom-full mb-4 max-h-[420px] rounded-3xl border',
-  'border-[var(--app-border)] bg-[var(--app-surface)] p-5 shadow-2xl shadow-black/40',
-].join(' ')
+const SKILL_MENU_CLASS = cn(
+  menuSurface,
+  'absolute inset-x-0 bottom-full mb-2 max-h-[min(420px,calc(100vh-24px))] overflow-hidden p-2',
+)
 const COMPOSER_GHOST_VIEWPORT_CLASS =
   'pointer-events-none absolute inset-0 overflow-hidden px-1 text-sm leading-5 text-app-text'
 const SEND_BUTTON_CLASS = [
-  'flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-text)]',
-  'text-[var(--app-bg)] transition hover:bg-[var(--app-text)] disabled:opacity-40',
+  'flex h-8 w-8 items-center justify-center rounded-full bg-app-text text-app-bg',
+  'transition-colors duration-fast ease-standard hover:bg-app-text/85 disabled:pointer-events-none disabled:opacity-35',
 ].join(' ')
 
 interface ContextInputAttachment {
@@ -160,6 +162,8 @@ export function ChatWindow({ id }: { id: string }) {
   const [skills, setSkills] = useState<CodexSkillInfo[]>([])
   const [skillIndex, setSkillIndex] = useState(0)
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
+  const [composerInset, setComposerInset] = useState(188)
+  const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerGhostTextRef = useRef<HTMLDivElement>(null)
@@ -232,6 +236,16 @@ export function ChatWindow({ id }: { id: string }) {
   }, [])
 
   useEffect(() => {
+    const composer = composerRef.current
+    if (!composer || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(([entry]) => {
+      setComposerInset(Math.ceil(entry.contentRect.height) + 72)
+    })
+    observer.observe(composer)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
     const onInsertChatContext = (event: Event) => {
       const detail = insertChatContextDetailFromEvent(event)
       if (!detail || detail.windowId !== id) return
@@ -300,7 +314,7 @@ export function ChatWindow({ id }: { id: string }) {
     if (thread?.isRunning || isNearBottom) {
       scrollTranscriptToBottom()
     }
-  }, [thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
+  }, [composerInset, thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
@@ -393,7 +407,7 @@ export function ChatWindow({ id }: { id: string }) {
   const buildMessage = (text: string): { displayText: string; input: CodexUserInput[] } => {
     const inputParts: CodexUserInput[] = []
     if (goalMode) inputParts.push({ type: 'text', text: GOAL_PROMPT })
-    if (planMode) inputParts.push({ type: 'text', text: PLAN_MODE_PROMPT })
+    else if (planMode) inputParts.push({ type: 'text', text: PLAN_MODE_PROMPT })
     if (attachments.length > 0) {
       inputParts.push({
         type: 'text',
@@ -459,6 +473,18 @@ export function ChatWindow({ id }: { id: string }) {
   const attachFiles = async () => {
     const result = await window.cranberri.codex.pickFiles()
     if (result.paths.length > 0) setAttachments((current) => [...current, ...result.paths])
+  }
+
+  const resolveApproval = async (approvalId: string, decision: 'approve' | 'deny') => {
+    if (!threadId || resolvingApprovalId) return
+    setResolvingApprovalId(approvalId)
+    try {
+      await approve(threadId, approvalId, decision)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not resolve the approval request.')
+    } finally {
+      setResolvingApprovalId(null)
+    }
   }
 
   const appendVoiceTranscript = (transcript: string) => {
@@ -608,10 +634,11 @@ export function ChatWindow({ id }: { id: string }) {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-6 pb-36 pt-8"
+          className="h-full overflow-y-auto px-5 pt-7 sm:px-6"
+          style={{ paddingBottom: composerInset }}
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-5">
-            {(!thread || thread.messages.length === 0) && (
+          <div className="mx-auto flex min-h-full w-full max-w-[780px] flex-col justify-end gap-5">
+            {(!thread || thread.messages.length === 0) && !hasComposerContent && (
               <div className="pt-16 text-center text-xs text-[var(--app-text-muted)]">
                 {NEW_THREAD_EMPTY_STATE}
               </div>
@@ -625,20 +652,24 @@ export function ChatWindow({ id }: { id: string }) {
             {thread?.pendingApprovals.map((approval) => (
               <div
                 key={approval.id}
-                className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 text-xs text-[var(--app-text)]"
+                className="rounded-lg bg-app-surface px-3.5 py-3 text-xs text-app-text ring-1 ring-app-border/60"
               >
-                <div className="mb-1 font-medium">Approval needed</div>
-                <div className="mb-3 text-[var(--app-text)]">{approval.description}</div>
+                <div className="font-semibold">Approval needed</div>
+                <div className="mb-3 mt-1 text-app-text-muted">{approval.description}</div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => threadId && approve(threadId, approval.id, 'approve')}
-                    className="flex items-center gap-1 rounded-md bg-[var(--app-text)] px-2 py-1 text-xs text-[var(--app-bg)]"
+                    type="button"
+                    onClick={() => void resolveApproval(approval.id, 'approve')}
+                    disabled={resolvingApprovalId !== null}
+                    className={buttonStyle({ tone: 'primary', size: 'small' })}
                   >
                     <Check className="h-3 w-3" /> Approve
                   </button>
                   <button
-                    onClick={() => threadId && approve(threadId, approval.id, 'deny')}
-                    className="flex items-center gap-1 rounded-md bg-[var(--app-surface-2)] px-2 py-1 text-xs text-[var(--app-text)]"
+                    type="button"
+                    onClick={() => void resolveApproval(approval.id, 'deny')}
+                    disabled={resolvingApprovalId !== null}
+                    className={buttonStyle({ tone: 'secondary', size: 'small' })}
                   >
                     <X className="h-3 w-3" /> Deny
                   </button>
@@ -673,15 +704,17 @@ export function ChatWindow({ id }: { id: string }) {
             />
             {showSkills && (
               <div className={SKILL_MENU_CLASS}>
-                <div className="mb-4 text-sm text-[var(--app-text-muted)]">Skills</div>
-                <div className="max-h-[340px] space-y-1 overflow-y-auto pr-1">
+                <div className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Commands and skills</div>
+                <div className="max-h-[350px] space-y-0.5 overflow-y-auto pr-1" role="listbox" aria-label="Commands and skills">
                   {compactCommand.map((command, index) => (
                     <button
                       key={command.id}
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={insertCompactCommand}
-                      className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${
+                      role="option"
+                      aria-selected={index === skillIndex}
+                      className={`flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${
                         index === skillIndex ? 'bg-[var(--app-surface-2)]' : ''
                       }`}
                     >
@@ -709,7 +742,9 @@ export function ChatWindow({ id }: { id: string }) {
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => { if (!selected) insertSkill(skill) }}
                           disabled={selected}
-                          className={`flex w-full items-center gap-3 rounded-lg px-1 py-1.5 text-left ${
+                          role="option"
+                          aria-selected={active}
+                          className={`flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${
                             active ? 'bg-[var(--app-surface-2)]' : ''
                           } ${selected ? 'cursor-default opacity-55' : ''}`}
                         >
@@ -835,8 +870,16 @@ export function ChatWindow({ id }: { id: string }) {
               <div className="flex shrink-0 items-center gap-3">
                 <AddMenu
                   onAttachFiles={attachFiles}
-                  onGoal={() => setGoalMode((value) => !value)}
-                  onPlanMode={() => setPlanMode((value) => !value)}
+                  onGoal={() => {
+                    const nextGoalMode = !goalMode
+                    setGoalMode(nextGoalMode)
+                    if (nextGoalMode) setPlanMode(false)
+                  }}
+                  onPlanMode={() => {
+                    const nextPlanMode = !planMode
+                    setPlanMode(nextPlanMode)
+                    if (nextPlanMode) setGoalMode(false)
+                  }}
                   onPlugin={usePlugin}
                 />
                 <ApprovalSelector
@@ -845,6 +888,9 @@ export function ChatWindow({ id }: { id: string }) {
                 />
                 {goalMode && (
                   <GoalModePill onRemove={() => setGoalMode(false)} />
+                )}
+                {planMode && (
+                  <PlanModePill onRemove={() => setPlanMode(false)} />
                 )}
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-2 xl:gap-3">
@@ -857,6 +903,7 @@ export function ChatWindow({ id }: { id: string }) {
                   disabled={primaryActionIsStop ? !threadId : !hasComposerContent}
                   className={SEND_BUTTON_CLASS}
                   aria-label={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
+                  title={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
                 >
                   {primaryActionIsStop ? <Square className="h-3 w-3 fill-current" /> : <ArrowUp className="h-4 w-4" />}
                 </button>
@@ -881,7 +928,7 @@ function ContextInputChips({ attachments, onRemove }: { attachments: ContextInpu
             key={attachment.id}
             type="button"
             onClick={() => onRemove(attachment.id)}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-2)] px-1.5 py-1 text-caption text-[var(--app-text)] hover:bg-[var(--app-border)]"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-app-surface-2 px-1.5 py-1 text-caption text-app-text ring-1 ring-app-border/55 hover:bg-app-border/70"
             title={`Remove ${attachment.label}`}
             aria-label={`Remove context attachment ${attachment.label}`}
           >
@@ -889,11 +936,11 @@ function ContextInputChips({ attachments, onRemove }: { attachments: ContextInpu
               <img
                 src={preview.src}
                 alt=""
-                className="h-8 w-10 rounded border border-[var(--app-border)] object-cover"
+                className="h-8 w-10 rounded-md object-cover"
                 loading="lazy"
               />
             ) : (
-              <span className="flex h-8 w-8 items-center justify-center rounded border border-[var(--app-border)] bg-[var(--app-surface)]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-app-surface">
                 <Image className="h-3.5 w-3.5 text-app-text-muted" />
               </span>
             )}

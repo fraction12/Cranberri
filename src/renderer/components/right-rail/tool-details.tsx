@@ -1,6 +1,6 @@
 import { MessageSquare } from 'lucide-react'
 import type { ToolCatalogEntry } from '@/shared/tools'
-import { cn } from '../../lib/ui'
+import { buttonStyle, cn } from '../../lib/ui'
 import {
   toolAvailability,
   toolAvailabilityLabel,
@@ -50,7 +50,7 @@ export function ToolDetails({ entry, divided = true, onSend }: { entry: ToolCata
   const canSend = Boolean(onSend && (entry.machine.diagnosticCode || attention))
 
   return (
-    <div className={cn('bg-app-bg/45 px-8 py-3 text-caption text-app-text-muted', divided ? 'border-t border-app-border' : 'mx-2 mb-2 rounded-md')}>
+    <div className={cn('mx-2 mb-2 rounded-md bg-app-bg/65 px-3 py-3 text-caption text-app-text-muted', divided && 'ml-7')}>
       <p className="text-xs leading-5 text-app-text">{entry.description}</p>
       <dl className="mt-2 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1">
         <dt>Status</dt>
@@ -87,7 +87,7 @@ export function ToolDetails({ entry, divided = true, onSend }: { entry: ToolCata
       {canSend && (
         <button
           type="button"
-          className="mt-3 inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-caption text-app-text-muted hover:bg-app-surface-2 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+          className={cn(buttonStyle({ tone: 'ghost', size: 'compact' }), 'mt-3')}
           onClick={onSend}
         >
           <MessageSquare className="h-3.5 w-3.5" />

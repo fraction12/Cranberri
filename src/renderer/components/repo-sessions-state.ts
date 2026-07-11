@@ -1,3 +1,5 @@
+import type { CodexSessionSummary } from '@/shared/codex'
+
 export function shouldAutoLoadRepoSessions({
   loaded,
   loading,
@@ -8,4 +10,15 @@ export function shouldAutoLoadRepoSessions({
   loadError: string | null
 }): boolean {
   return !loaded && !loading && !loadError
+}
+
+export function mergeHydratedPinnedSessions(
+  recent: CodexSessionSummary[],
+  archived: CodexSessionSummary[],
+  hydrated: CodexSessionSummary[],
+): { recent: CodexSessionSummary[]; archived: CodexSessionSummary[] } {
+  return {
+    recent: [...recent, ...hydrated.filter((session) => !session.archived)],
+    archived: [...archived, ...hydrated.filter((session) => session.archived)],
+  }
 }

@@ -7,7 +7,7 @@ export function DiffStats({ filePath }: { filePath: string }) {
   if (additions === 0 && deletions === 0) return null
 
   return (
-    <div className="ml-auto flex items-center gap-2 text-micro font-medium">
+    <div className="flex shrink-0 items-center gap-2 text-micro font-medium">
       {additions > 0 && <span className="text-app-success">+{additions}</span>}
       {deletions > 0 && <span className="text-app-danger">&minus;{deletions}</span>}
     </div>

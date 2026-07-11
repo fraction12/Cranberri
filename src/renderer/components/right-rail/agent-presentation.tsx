@@ -10,7 +10,7 @@ const STATUS_LABELS: Record<CodexWorkerStatus, string> = {
   completed: 'Completed',
   errored: 'Failed',
   shutdown: 'Closed',
-  notFound: 'Unavailable',
+  notFound: 'Not found',
 }
 
 export function agentDisplayName(agent: CodexWorker): string {

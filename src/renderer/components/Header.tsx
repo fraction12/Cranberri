@@ -1,5 +1,7 @@
 import { Command, Settings } from 'lucide-react'
 import { useRepos } from '../state/repos'
+import { iconButton } from '../lib/ui'
+import appIcon from '../../../buildResources/icon-1024.png'
 
 interface HeaderProps {
   commandPaletteOpen: boolean
@@ -11,21 +13,24 @@ export function Header({ commandPaletteOpen, onOpenSettings, onOpenCommandPalett
   const { activeRepo } = useRepos()
 
   return (
-    <header className="flex h-10 shrink-0 items-center justify-between border-b border-app-border bg-app-surface px-3 pl-[80px]">
-      <div className="header-drag flex h-full flex-1 items-center gap-2">
-        <span className="text-base leading-none" aria-hidden="true">🫐</span>
-        <span className="text-sm font-semibold">Cranberri</span>
+    <header className="relative z-10 flex h-10 shrink-0 items-center justify-between bg-app-surface px-2.5 pl-[80px] shadow-sm">
+      <div className="header-drag flex h-full min-w-0 flex-1 items-center gap-1.5">
+        <span className="relative h-5 w-5 shrink-0 overflow-hidden" aria-hidden="true">
+          <img src={appIcon} alt="" className="absolute left-1/2 top-1/2 h-[38px] w-[38px] max-w-none -translate-x-1/2 -translate-y-1/2" />
+        </span>
+        <span className="text-sm font-semibold text-app-text">Cranberri</span>
       </div>
-      <div className="flex items-center gap-3 text-xs text-app-text-muted">
+      <div className="flex min-w-0 items-center gap-1.5 text-caption text-app-text-subtle">
         {activeRepo ? (
-          <span className="header-drag truncate font-mono max-w-[400px]" title={activeRepo.path}>{activeRepo.path}</span>
+          <span className="header-drag max-w-[min(44vw,560px)] truncate font-mono" title={activeRepo.path}>{activeRepo.path}</span>
         ) : (
           <span className="header-drag">No repo selected</span>
         )}
         <button
+          id="command-palette-trigger"
           type="button"
           onClick={onOpenCommandPalette}
-          className="no-drag rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+          className={`no-drag ${iconButton()}`}
           title="Command palette (⌘K)"
           aria-label="Open command palette"
           aria-haspopup="dialog"
@@ -34,9 +39,10 @@ export function Header({ commandPaletteOpen, onOpenSettings, onOpenCommandPalett
           <Command className="w-4 h-4" />
         </button>
         <button
+          id="settings-trigger"
           type="button"
           onClick={onOpenSettings}
-          className="no-drag rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+          className={`no-drag ${iconButton()}`}
           title="Settings (⌘,)"
           aria-label="Open settings"
         >

@@ -1,7 +1,7 @@
-export const LEFT_RAIL_MIN_WIDTH = 256
-export const RIGHT_RAIL_MIN_WIDTH = 320
-export const CENTER_MIN_WIDTH = 520
-export const RAIL_RESIZER_WIDTH = 7
+export const LEFT_RAIL_MIN_WIDTH = 224
+export const RIGHT_RAIL_MIN_WIDTH = 288
+export const CENTER_MIN_WIDTH = 360
+export const RAIL_RESIZER_WIDTH = 5
 
 export function availableRailWidth(layoutWidth: number): number {
   return Math.max(

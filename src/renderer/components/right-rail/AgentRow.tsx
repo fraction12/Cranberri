@@ -3,6 +3,7 @@ import { ArrowUpRight, Loader2, MessageSquare, Send, Square } from 'lucide-react
 import type { CodexWorker } from '@/shared/codex'
 import { codexWorkerIsActive } from '@/shared/codex-workers'
 import { AgentStatusIcon, agentDisplayName, agentStatusLabel } from './agent-presentation'
+import { buttonStyle, cn, compactFieldStyle, iconButton } from '../../lib/ui'
 
 interface AgentRowProps {
   agent: CodexWorker
@@ -40,11 +41,11 @@ export function AgentRow({
   const summary = agent.message || [agent.model, agent.reasoningEffort].filter(Boolean).join(' · ') || agent.role || 'No recent activity'
 
   return (
-    <article className={`rounded-md ${selected ? 'bg-app-bg' : 'hover:bg-app-bg/60'}`}>
+    <article className={cn('rounded-md transition-colors duration-fast ease-standard', selected ? 'bg-app-surface-2/65' : 'hover:bg-app-bg/70')}>
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 px-2.5 py-2.5 text-left"
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
         aria-label={`View ${name}`}
         aria-expanded={selected}
         data-worker-id={agent.threadId}
@@ -62,14 +63,14 @@ export function AgentRow({
       </button>
 
       {selected && (
-        <div className="space-y-2 px-3 pb-3 pl-8" data-worker-detail={agent.threadId}>
+        <div className="space-y-2 px-2.5 pb-2.5 pl-8" data-worker-detail={agent.threadId}>
           <div className="flex justify-end">
             <div className="flex items-center gap-0.5">
               {agent.status !== 'notFound' && (
                 <button
                   type="button"
                   onClick={onToggleMessage}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                  className={iconButton()}
                   title={active ? 'Steer agent' : 'Resume agent'}
                   aria-label={active ? `Steer ${name}` : `Resume ${name}`}
                 >
@@ -81,7 +82,7 @@ export function AgentRow({
                   type="button"
                   onClick={onStop}
                   disabled={stopping}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-danger disabled:opacity-40"
+                  className={iconButton({ tone: 'danger' })}
                   title="Stop agent"
                   aria-label={`Stop ${name}`}
                 >
@@ -91,7 +92,7 @@ export function AgentRow({
               <button
                 type="button"
                 onClick={onOpen}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                className={iconButton()}
                 title="Open agent task"
                 aria-label={`Open ${name}`}
               >
@@ -107,12 +108,12 @@ export function AgentRow({
                 value={message}
                 onChange={(event) => onMessageChange(event.target.value)}
                 placeholder={active ? 'Steer this agent...' : 'Resume with a new instruction...'}
-                className="h-8 min-w-0 flex-1 rounded-md border border-app-border bg-app-surface px-2 text-xs text-app-text outline-none focus:border-app-text-muted"
+                className={cn(compactFieldStyle, 'flex-1 bg-app-surface')}
               />
               <button
                 type="submit"
                 disabled={busy || !message.trim()}
-                className="flex h-8 w-8 items-center justify-center rounded-md bg-app-text text-app-bg disabled:opacity-40"
+                className={buttonStyle({ tone: 'primary', size: 'icon' })}
                 aria-label="Send agent instruction"
               >
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}

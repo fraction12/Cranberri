@@ -6,8 +6,10 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs))
 }
 
+export const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-accent focus-visible:outline-offset-2'
+
 export const iconButton = cva(
-  'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent disabled:pointer-events-none disabled:opacity-40',
+  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-app-text-muted transition-colors duration-fast ease-standard hover:bg-app-surface-2 hover:text-app-text ${focusRing} disabled:pointer-events-none disabled:opacity-40`,
   {
     variants: {
       tone: {
@@ -23,3 +25,48 @@ export const iconButton = cva(
 )
 
 export type IconButtonVariants = VariantProps<typeof iconButton>
+
+export const buttonStyle = cva(
+  `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium transition-colors duration-fast ease-standard ${focusRing} disabled:pointer-events-none disabled:opacity-40`,
+  {
+    variants: {
+      tone: {
+        primary: 'bg-app-accent text-app-accent-contrast hover:bg-app-accent/88',
+        secondary: 'bg-app-surface-2 text-app-text hover:bg-app-border/80',
+        ghost: 'text-app-text-muted hover:bg-app-surface-2 hover:text-app-text',
+        danger: 'bg-app-danger text-white hover:bg-app-danger/88',
+      },
+      size: {
+        compact: 'h-7 px-2 text-caption',
+        small: 'h-8 px-2.5 text-xs',
+        medium: 'h-9 px-3 text-sm',
+        icon: 'h-8 w-8 p-0',
+      },
+    },
+    defaultVariants: {
+      tone: 'secondary',
+      size: 'small',
+    },
+  },
+)
+
+export type ButtonStyleVariants = VariantProps<typeof buttonStyle>
+
+export const fieldStyle = cn(
+  'h-9 min-w-0 rounded-md border border-app-border bg-app-bg px-2.5 text-sm text-app-text',
+  'placeholder:text-app-text-subtle hover:border-app-border-strong',
+  `transition-colors duration-fast ease-standard ${focusRing}`,
+  'disabled:opacity-45',
+)
+
+export const compactFieldStyle = cn(fieldStyle, 'h-8 px-2 text-xs')
+
+export const menuSurface = 'rounded-lg bg-app-elevated p-1.5 shadow-2xl ring-1 ring-app-border/80'
+export const dialogSurface = 'rounded-lg bg-app-elevated shadow-2xl ring-1 ring-app-border/80'
+export const segmentedControl = 'grid gap-1 rounded-lg bg-app-bg p-1 ring-1 ring-app-border/55'
+export const segmentedItem = cn(
+  'rounded-md text-app-text-muted transition-colors duration-fast ease-standard hover:bg-app-surface-2/35 hover:text-app-text',
+  focusRing,
+)
+
+export const segmentedItemActive = 'bg-app-surface-2 text-app-text shadow-sm ring-1 ring-app-border-strong/65 hover:bg-app-surface-2'

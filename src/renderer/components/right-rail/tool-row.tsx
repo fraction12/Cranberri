@@ -14,6 +14,7 @@ export interface ToolRowProps {
   busy?: boolean
   endAction?: ReactNode
   divided?: boolean
+  showDescription?: boolean
   onExpandedChange: (toolId: ToolCatalogId, expanded: boolean) => void
   onTest: (toolId: ToolCatalogId) => void
   onOpenSettings: (toolId: ToolCatalogId) => void
@@ -26,6 +27,7 @@ export function ToolRow({
   busy = false,
   endAction,
   divided = true,
+  showDescription = true,
   onExpandedChange,
   onTest,
   onOpenSettings,
@@ -40,14 +42,14 @@ export function ToolRow({
   const sendDiagnostic = useCallback(() => onSendDiagnostic?.(entry.id), [entry.id, onSendDiagnostic])
 
   return (
-    <article aria-busy={busy || undefined} className={cn('group', !divided && 'rounded-md hover:bg-app-bg')}>
-      <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5">
+    <article aria-busy={busy || undefined} className={cn('group rounded-md transition-colors duration-fast ease-standard', expanded ? 'bg-app-surface-2/60' : 'hover:bg-app-bg/75')}>
+      <div className={cn('grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5', showDescription ? 'min-h-12' : 'min-h-10')}>
         <button
           type="button"
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={toggleExpanded}
-          className="min-w-0 rounded px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+          className="min-w-0 rounded-md px-1 py-0.5 text-left"
         >
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-app-text-muted transition-transform', expanded && 'rotate-90')} />
@@ -60,9 +62,11 @@ export function ToolRow({
               {toolAvailabilityLabel(entry)}
             </span>
           </span>
-          <span className="mt-0.5 block truncate pl-5 text-caption text-app-text-muted" title={entry.description ?? undefined}>
-            {entry.description ?? 'No description available.'}
-          </span>
+          {showDescription && entry.description && (
+            <span className="mt-0.5 block truncate pl-5 text-caption text-app-text-muted" title={entry.description}>
+              {entry.description}
+            </span>
+          )}
         </button>
         <div className="flex items-center gap-0.5">
           {endAction}

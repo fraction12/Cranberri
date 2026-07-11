@@ -71,10 +71,13 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTabValue>('general')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [rendererModalOpen, setRendererModalOpen] = useState(false)
   const [leftRailWidth, setLeftRailWidth] = useState(LEFT_RAIL_MIN_WIDTH)
   const [rightRailWidth, setRightRailWidth] = useState(RIGHT_RAIL_MIN_WIDTH)
   const leftRailWidthRef = useRef(leftRailWidth)
   const rightRailWidthRef = useRef(rightRailWidth)
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
+  const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null)
   const activeRailResizeCleanupRef = useRef<(() => void) | null>(null)
   const layoutRef = useRef<HTMLDivElement>(null)
 
@@ -100,10 +103,34 @@ function AppShell() {
     activeRailResizeCleanupRef.current = cleanup
   }, [])
 
+  const restoreModalFocus = useCallback((target: HTMLElement | null, fallbackId: string) => {
+    requestAnimationFrame(() => {
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="dialog"][aria-modal="true"]')) return
+      const fallback = document.getElementById(fallbackId)
+      const focusTarget = target?.isConnected ? target : fallback
+      if (focusTarget instanceof HTMLElement) focusTarget.focus({ preventScroll: true })
+    })
+  }, [])
+
   const openSettings = useCallback((tab: SettingsTabValue = 'general') => {
+    if (!settingsOpen) {
+      settingsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
     setSettingsTab(tab)
     setSettingsOpen(true)
-  }, [])
+  }, [settingsOpen])
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false)
+    restoreModalFocus(settingsReturnFocusRef.current, 'settings-trigger')
+  }, [restoreModalFocus])
+
+  const setCommandPaletteVisibility = useCallback((open: boolean) => {
+    if (open && !commandPaletteOpen) {
+      commandPaletteReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    setCommandPaletteOpen(open)
+    if (!open) restoreModalFocus(commandPaletteReturnFocusRef.current, 'command-palette-trigger')
+  }, [commandPaletteOpen, restoreModalFocus])
   const openToolsSettings = useCallback(() => openSettings('tools'), [openSettings])
 
   const clampRailsToLayout = useCallback(() => {
@@ -129,19 +156,13 @@ function AppShell() {
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        setCommandPaletteOpen((open) => !open)
-      }
-      if (event.key === 'Escape' && settingsOpen) {
-        setSettingsOpen(false)
-      }
-      if (event.key === 'Escape' && commandPaletteOpen) {
-        setCommandPaletteOpen(false)
+        setCommandPaletteVisibility(!commandPaletteOpen)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [commandPaletteOpen, openSettings, settingsOpen])
+  }, [commandPaletteOpen, openSettings, setCommandPaletteVisibility])
 
   useEffect(() => {
     const onResize = () => clampRailsToLayout()
@@ -153,6 +174,23 @@ function AppShell() {
   useEffect(() => {
     const cleanupRef = activeRailResizeCleanupRef
     return () => cleanupRef.current?.()
+  }, [])
+
+  useEffect(() => {
+    const syncRendererModalState = () => {
+      setRendererModalOpen(Boolean(document.querySelector(
+        '[role="dialog"][data-state="open"], [role="dialog"][aria-modal="true"]',
+      )))
+    }
+    const observer = new MutationObserver(syncRendererModalState)
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-modal', 'data-state'],
+      childList: true,
+      subtree: true,
+    })
+    syncRendererModalState()
+    return () => observer.disconnect()
   }, [])
 
   const startLeftResize = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -182,11 +220,11 @@ function AppShell() {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-app-bg text-app-text">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-app-bg text-app-text">
       <Header
         commandPaletteOpen={commandPaletteOpen}
         onOpenSettings={() => openSettings()}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenCommandPalette={() => setCommandPaletteVisibility(true)}
       />
       <div ref={layoutRef} className="flex flex-1 min-h-0 w-full overflow-hidden">
         <div className="h-full shrink-0" style={{ width: leftRailWidth }}>
@@ -196,40 +234,40 @@ function AppShell() {
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize repo rail"
-          className="group relative h-full shrink-0 cursor-col-resize bg-app-border/40 transition-colors hover:bg-app-border"
+          className="group relative h-full shrink-0 cursor-col-resize bg-transparent"
           style={{ width: RAIL_RESIZER_WIDTH }}
           onPointerDown={startLeftResize}
         >
-          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-border group-hover:bg-app-text-muted" />
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-border/55 transition-colors duration-fast group-hover:bg-app-border-strong" />
         </div>
         <div className="flex-1 min-w-0 flex h-full min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 h-full overflow-hidden">
-            <StableWorkspace browserSurfaceObscured={settingsOpen || commandPaletteOpen} />
+            <StableWorkspace browserSurfaceObscured={settingsOpen || commandPaletteOpen || rendererModalOpen} />
           </div>
         </div>
         <div
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize files rail"
-          className="group relative h-full shrink-0 cursor-col-resize bg-app-border/40 transition-colors hover:bg-app-border"
+          className="group relative h-full shrink-0 cursor-col-resize bg-transparent"
           style={{ width: RAIL_RESIZER_WIDTH }}
           onPointerDown={startRightResize}
         >
-          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-border group-hover:bg-app-text-muted" />
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-border/55 transition-colors duration-fast group-hover:bg-app-border-strong" />
         </div>
-        <div className="h-full overflow-hidden border-l border-app-border bg-app-surface shrink-0" style={{ width: rightRailWidth }}>
+        <div className="h-full shrink-0 overflow-hidden bg-app-surface" style={{ width: rightRailWidth }}>
           <StableRightRail onOpenToolsSettings={openToolsSettings} />
         </div>
       </div>
       {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsDialog open initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />
+          <SettingsDialog open initialTab={settingsTab} onClose={closeSettings} />
         </Suspense>
       )}
       <Suspense fallback={null}>
         <CommandPalette
           open={commandPaletteOpen}
-          onOpenChange={setCommandPaletteOpen}
+          onOpenChange={setCommandPaletteVisibility}
           onOpenSettings={openSettings}
         />
       </Suspense>

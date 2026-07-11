@@ -1,32 +1,68 @@
-import { createPortal } from 'react-dom'
-import { Check } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { Check, Copy, ExternalLink, FileText, FolderOpen, MoreHorizontal, WrapText } from 'lucide-react'
+import { cn, iconButton, menuSurface } from '../../lib/ui'
 
 interface DiffOptionsMenuProps {
-  position: { top: number; left: number }
   wrapContent: boolean
+  canReadFile: boolean
+  canOpenFile: boolean
   onToggleWrapContent: () => void
+  onCopyPath: () => void
+  onCopyAbsolutePath: () => void
+  onCopyContent: () => void
+  onOpenFile: () => void
+  onRevealFile: () => void
 }
 
+const ITEM_CLASS = 'flex min-h-8 select-none items-center gap-2 rounded-md px-2 text-xs text-app-text outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40'
+
 export function DiffOptionsMenu({
-  position,
   wrapContent,
+  canReadFile,
+  canOpenFile,
   onToggleWrapContent,
+  onCopyPath,
+  onCopyAbsolutePath,
+  onCopyContent,
+  onOpenFile,
+  onRevealFile,
 }: DiffOptionsMenuProps) {
-  return createPortal(
-    <div
-      data-diff-menu="true"
-      className="fixed z-[1400] w-44 rounded-lg border border-app-border bg-app-surface p-1 text-xs shadow-2xl shadow-black/50"
-      style={{ top: position.top, left: position.left }}
-    >
-      <button
-        type="button"
-        onClick={onToggleWrapContent}
-        className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-app-surface-2"
-      >
-        <span>Wrap diff content</span>
-        {wrapContent && <Check className="h-3.5 w-3.5 text-app-accent" />}
-      </button>
-    </div>,
-    document.body,
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button type="button" className={iconButton()} title="File options" aria-label="File options">
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+          className={cn(menuSurface, 'z-[1400] w-52 text-xs outline-none')}
+        >
+          <DropdownMenu.CheckboxItem checked={wrapContent} onCheckedChange={onToggleWrapContent} className={ITEM_CLASS}>
+            <WrapText className="h-3.5 w-3.5 text-app-text-muted" />
+            <span className="flex-1">Wrap content</span>
+            <DropdownMenu.ItemIndicator><Check className="h-3.5 w-3.5 text-app-accent" /></DropdownMenu.ItemIndicator>
+          </DropdownMenu.CheckboxItem>
+          <DropdownMenu.Item onSelect={onCopyPath} className={ITEM_CLASS} aria-label="Copy selected file path">
+            <Copy className="h-3.5 w-3.5 text-app-text-muted" /> Copy relative path
+          </DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canOpenFile} onSelect={onCopyAbsolutePath} className={ITEM_CLASS} aria-label="Copy selected file absolute path">
+            <Copy className="h-3.5 w-3.5 text-app-text-muted" /> Copy absolute path
+          </DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canReadFile} onSelect={onCopyContent} className={ITEM_CLASS} aria-label="Copy selected file content">
+            <FileText className="h-3.5 w-3.5 text-app-text-muted" /> Copy file contents
+          </DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canOpenFile} onSelect={onOpenFile} className={ITEM_CLASS} aria-label="Open selected file">
+            <ExternalLink className="h-3.5 w-3.5 text-app-text-muted" /> Open file
+          </DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canOpenFile} onSelect={onRevealFile} className={ITEM_CLASS} aria-label="Reveal selected file in Finder">
+            <FolderOpen className="h-3.5 w-3.5 text-app-text-muted" /> Reveal in Finder
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   )
 }

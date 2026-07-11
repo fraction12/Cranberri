@@ -52,7 +52,7 @@ describe('AgentList', () => {
   })
 
   it('uses literal status labels and a stable fallback name', () => {
-    expect(agentStatusLabel('notFound')).toBe('Unavailable')
+    expect(agentStatusLabel('notFound')).toBe('Not found')
     expect(agentDisplayName({
       threadId: '12345678-abcd',
       parentThreadId: 'parent-1',

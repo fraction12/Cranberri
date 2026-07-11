@@ -5,6 +5,7 @@ import { diagnosticsPathRows, type DiagnosticsPathRow } from './diagnostics-path
 import { SettingsDisclosure, SettingsPage, SettingsSection } from './settings/settings-page'
 import type { CranberriDiagnosticsReport, CranberriHealthLevel } from '@/shared/health'
 import type { NativeHelperSettingsTarget } from '@/shared/nativeHelpers'
+import { buttonStyle, cn, iconButton } from '../lib/ui'
 
 export function DiagnosticsSection() {
   const [report, setReport] = useState<CranberriDiagnosticsReport | null>(null)
@@ -77,7 +78,7 @@ export function DiagnosticsSection() {
           type="button"
           onClick={() => void refresh(true)}
           disabled={loading}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+          className={iconButton()}
           aria-label="Refresh diagnostics"
           title="Refresh diagnostics"
         >
@@ -111,7 +112,7 @@ export function DiagnosticsSection() {
                     detail={helper.detail}
                     status={helper.availability}
                     action={helper.settingsTarget ? (
-                      <button type="button" onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Open ${helper.label} settings`} title="Open settings">
+                      <button type="button" onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)} className={iconButton()} aria-label={`Open ${helper.label} settings`} title="Open settings">
                         <Settings className="h-3.5 w-3.5" />
                       </button>
                     ) : undefined}
@@ -137,7 +138,7 @@ export function DiagnosticsSection() {
             <SettingsDisclosure title="Recent events" description={`${report.recentEvents.length} local`}>
               <div className="space-y-2">
                 <div className="flex justify-end">
-                  <button type="button" onClick={() => void clearTelemetry()} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-caption text-app-text-muted hover:bg-app-surface-2 hover:text-app-text">
+                  <button type="button" onClick={() => void clearTelemetry()} className={buttonStyle({ tone: 'ghost', size: 'compact' })}>
                     <Trash2 className="h-3 w-3" /> Clear history
                   </button>
                 </div>
@@ -188,7 +189,7 @@ function PathRow({ row, onAction }: { row: DiagnosticsPathRow; onAction: (action
 
 function PathButton({ label, disabled, onClick, icon: Icon }: { label: string; disabled: boolean; onClick: () => void; icon: React.ElementType }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="rounded-md p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-30" aria-label={label} title={label}>
+    <button type="button" disabled={disabled} onClick={onClick} className={cn(iconButton(), 'h-6 w-6')} aria-label={label} title={label}>
       <Icon className="h-3.5 w-3.5" />
     </button>
   )
@@ -203,7 +204,7 @@ function statusClass(status: string): string {
 function friendlyStatus(status: string): string {
   if (status === 'ok' || status === 'available') return 'Ready'
   if (status === 'disabled') return 'Permission needed'
-  if (status === 'unavailable') return 'Unavailable'
+  if (status === 'unavailable') return 'Not ready'
   if (status === 'warning') return 'Attention'
   return 'Failed'
 }

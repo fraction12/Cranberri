@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   CODEX_APPROVAL_MODES,
@@ -10,9 +11,10 @@ import {
   type CodexConnectionStatus,
 } from '@/shared/codex'
 import { useSettings } from '../../state/settings'
+import { buttonStyle, cn, fieldStyle } from '../../lib/ui'
 import { SettingsList, SettingsPage, SettingsRow, SettingsSection } from './settings-page'
 
-const SELECT_CLASS = 'h-9 w-56 max-w-[45vw] rounded-md border border-app-border bg-app-bg px-2.5 text-sm text-app-text outline-none focus:border-app-accent'
+const SELECT_CLASS = cn(fieldStyle, 'w-56 max-w-[45vw]')
 
 function connectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating...' : 'Connecting...'
@@ -73,14 +75,21 @@ export function GeneralSettings() {
       <SettingsSection title="Codex">
         <SettingsList>
           <SettingsRow label="Connection" description={connectionDetail}>
-            <button
-              type="button"
-              onClick={() => void connect()}
-              disabled={connecting || (status?.authenticated === true && !status.updateRequired)}
-              className="rounded-md bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text hover:bg-app-border disabled:cursor-default disabled:text-app-text-muted"
-            >
-              {connectionActionLabel(status, connecting)}
-            </button>
+            {status?.authenticated && !status.updateRequired ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-app-success">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Connected
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={connecting}
+                className={buttonStyle({ tone: status?.updateRequired ? 'primary' : 'secondary', size: 'small' })}
+              >
+                {connectionActionLabel(status, connecting)}
+              </button>
+            )}
           </SettingsRow>
         </SettingsList>
       </SettingsSection>

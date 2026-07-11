@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ChevronRight, FileText, Folder } from 'lucide-react'
+import { AlertCircle, ChevronRight, FileText, Folder, Loader2 } from 'lucide-react'
 import type { GitFileStatus } from '@/shared/git'
 
 interface ChangeListProps {
   status?: GitFileStatus[]
   statusLoading: boolean
+  error?: Error | null
   selectedFile: GitFileStatus | null
   onSelectFile: (file: GitFileStatus) => void
 }
@@ -32,7 +33,7 @@ function statusColor(status: GitFileStatus['status']) {
     case 'conflict':
       return 'text-app-warning bg-app-warning/10'
     case 'staged':
-      return 'text-green-300 bg-green-300/10'
+      return 'text-app-success bg-app-success/10'
     case 'tracked':
     default:
       return 'text-app-text-muted bg-app-surface-2'
@@ -42,11 +43,22 @@ function statusColor(status: GitFileStatus['status']) {
 export function ChangeList({
   status,
   statusLoading,
+  error,
   selectedFile,
   onSelectFile,
 }: ChangeListProps) {
   if (statusLoading) {
-    return <div className="p-3 text-sm text-app-text-muted">Loading changes...</div>
+    return <div className="flex items-center gap-2 p-3 text-sm text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading changes</div>
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
+        <span className="font-medium text-app-text">Changes could not be loaded</span>
+        <span className="mt-1 text-caption">{error.message}</span>
+      </div>
+    )
   }
 
   if (!status?.length) {
@@ -160,7 +172,7 @@ function ChangeTreeNode({
         >
           <FileText className="h-3.5 w-3.5 shrink-0 text-app-text-muted group-hover:text-app-text" />
           <span className="min-w-0 flex-1 truncate text-sm text-app-text">{node.name}</span>
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-micro uppercase ${statusColor(node.file.status)}`}>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-micro capitalize ${statusColor(node.file.status)}`}>
             {node.file.status}
           </span>
         </button>

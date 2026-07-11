@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Camera, Clipboard, Crosshair, ExternalLink, FileText, FolderOpen, Globe, Maximize2, MessageSquare, Monitor, RefreshCw, Search, Smartphone, Square, Tablet, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { ArrowLeft, ArrowRight, Camera, Check, Clipboard, Crosshair, ExternalLink, FileText, FolderOpen, Globe, Loader2, Maximize2, MessageSquare, Monitor, MoreHorizontal, RefreshCw, Search, Smartphone, Square, Tablet, X } from 'lucide-react'
+import { toast } from 'sonner'
 import type { BrowserBounds, BrowserElementInspection, BrowserPageState, BrowserScreenshot, BrowserSnapshot } from '@/shared/browser'
 import type { CodexUserInput } from '@/shared/codex'
 import type { WorkspaceWindow } from '../state/workspace'
 import { BROWSER_VIEWPORT_PROFILES, type BrowserViewportMode, browserViewportFrame } from './browser-viewport'
 import { browserInspectionChatContext, browserScreenshotChatContext, browserSnapshotChatContext } from './browser-chat-context'
 import { createBrowserScreenshotContextCapturedEvent, createBrowserSnapshotContextCapturedEvent } from './browser-context-events'
+import { cn, iconButton, menuSurface } from '../lib/ui'
 
 interface BrowserWindowProps {
   windowState: WorkspaceWindow
@@ -46,7 +49,9 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   const viewportMode = windowState.browser?.viewportMode ?? 'responsive'
   const [address, setAddress] = useState(initialUrl)
   const [state, setState] = useState<BrowserPageState>(() => defaultState(windowState.id, initialUrl))
-  const [notice, setNotice] = useState<string | null>(null)
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
+  const [actionsMenuPending, setActionsMenuPending] = useState(false)
+  const [frozenSurfaceDataUrl, setFrozenSurfaceDataUrl] = useState<string | null>(null)
   const [capture, setCapture] = useState<{ screenshotDataUrl: string | null; screenshotSize: string | null; screenshotPath: string | null; snapshot: BrowserSnapshot | null }>({
     screenshotDataUrl: null,
     screenshotSize: null,
@@ -61,14 +66,76 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   const addressEditingRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const pendingBrowserActionRef = useRef<(() => void) | null>(null)
+  const actionsMenuIntentRef = useRef(0)
+  const actionsMenuPendingRef = useRef(false)
+  const surfacePreviewCaptureRef = useRef<Promise<void> | null>(null)
+  const frozenSurfaceCapturedAtRef = useRef(0)
+  const shouldDetachSurfaceRef = useRef(!active || obscured || actionsMenuOpen)
+  shouldDetachSurfaceRef.current = !active || obscured || actionsMenuOpen
 
   const viewportFrame = useMemo(() => browserViewportFrame(viewportMode, availableViewport), [availableViewport, viewportMode])
+  const setNotice = useCallback((message: string | null) => {
+    if (!message) return
+    const options = { id: `browser-notice-${windowState.id}` }
+    if (/failed|error|could not|not saved/i.test(message)) toast.error(message, options)
+    else if (/click any page element/i.test(message)) toast.info(message, options)
+    else toast.success(message, options)
+  }, [windowState.id])
+
+  const refreshFrozenSurface = useCallback((requireNewCapture = false): Promise<void> => {
+    if (surfacePreviewCaptureRef.current) {
+      const currentCapture = surfacePreviewCaptureRef.current
+      return requireNewCapture
+        ? currentCapture.then(() => refreshFrozenSurface())
+        : currentCapture
+    }
+
+    const request = window.cranberri.browser.screenshot(windowState.id)
+      .then((screenshot) => {
+        setFrozenSurfaceDataUrl(screenshot.dataUrl)
+        frozenSurfaceCapturedAtRef.current = Date.now()
+      })
+      .catch(() => {
+        // A preview is opportunistic; the live BrowserView remains the source of truth.
+      })
+      .finally(() => {
+        surfacePreviewCaptureRef.current = null
+      })
+    surfacePreviewCaptureRef.current = request
+    return request
+  }, [windowState.id])
 
   const attachParams = useMemo(() => ({
     windowId: windowState.id,
     profileId,
     initialUrl,
   }), [initialUrl, profileId, windowState.id])
+
+  const attachBrowser = useCallback(async (): Promise<void> => {
+    if (shouldDetachSurfaceRef.current) return
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const bounds = boundsFromElement(viewport)
+    if (bounds.width < 1 || bounds.height < 1) return
+
+    try {
+      const nextState = await window.cranberri.browser.attach({ ...attachParams, bounds })
+      if (shouldDetachSurfaceRef.current) {
+        await window.cranberri.browser.detach(windowState.id).catch(() => undefined)
+        return
+      }
+      setState(nextState)
+      if (!addressEditingRef.current) setAddress(nextState.url)
+      void refreshFrozenSurface()
+      const pendingAction = pendingBrowserActionRef.current
+      pendingBrowserActionRef.current = null
+      pendingAction?.()
+    } catch (error) {
+      pendingBrowserActionRef.current = null
+      setNotice(error instanceof Error ? error.message : 'Failed to attach browser')
+    }
+  }, [attachParams, refreshFrozenSurface, setNotice, windowState.id])
 
   useEffect(() => {
     return window.cranberri.browser.onEvent((event) => {
@@ -83,11 +150,14 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
       setState(event.state)
       if (!addressEditingRef.current) setAddress(event.state.url)
       onPageState(event.state)
+      if (active && !obscured && !actionsMenuOpen && !event.state.loading && !event.state.error) {
+        requestAnimationFrame(() => { void refreshFrozenSurface() })
+      }
     })
-  }, [onPageState, windowState.id])
+  }, [actionsMenuOpen, active, obscured, onPageState, refreshFrozenSurface, setNotice, windowState.id])
 
   useEffect(() => {
-    if (!active || obscured) {
+    if (!active) {
       window.cranberri.browser.detach(windowState.id).catch(() => undefined)
       return
     }
@@ -96,23 +166,11 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
     const container = containerRef.current
     if (!viewport || !container) return
 
-    const attach = () => {
-      const bounds = boundsFromElement(viewport)
-      if (bounds.width < 1 || bounds.height < 1) return
-      window.cranberri.browser.attach({ ...attachParams, bounds })
-        .then((nextState) => {
-          setState(nextState)
-          if (!addressEditingRef.current) setAddress(nextState.url)
-        })
-        .catch((error) => setNotice(error instanceof Error ? error.message : 'Failed to attach browser'))
-    }
-
-    attach()
     const observer = new ResizeObserver(() => {
       const containerRect = container.getBoundingClientRect()
       setAvailableViewport({ width: containerRect.width, height: containerRect.height })
       const bounds = boundsFromElement(viewport)
-      if (bounds.width < 1 || bounds.height < 1) return
+      if (shouldDetachSurfaceRef.current || bounds.width < 1 || bounds.height < 1) return
       window.cranberri.browser.bounds(windowState.id, bounds).catch(() => undefined)
     })
     observer.observe(container)
@@ -122,7 +180,25 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
       observer.disconnect()
       window.cranberri.browser.detach(windowState.id).catch(() => undefined)
     }
-  }, [active, attachParams, obscured, viewportFrame.height, viewportFrame.width, windowState.id])
+  }, [active, windowState.id])
+
+  useEffect(() => {
+    if (!active) return
+    if (!obscured && !actionsMenuOpen) {
+      void attachBrowser()
+      return
+    }
+
+    const capturedForMenu = !obscured
+      && actionsMenuOpen
+      && Date.now() - frozenSurfaceCapturedAtRef.current < 250
+    const previewReady = capturedForMenu ? Promise.resolve() : refreshFrozenSurface(true)
+    void previewReady.finally(() => {
+      if (shouldDetachSurfaceRef.current) {
+        window.cranberri.browser.detach(windowState.id).catch(() => undefined)
+      }
+    })
+  }, [actionsMenuOpen, active, attachBrowser, obscured, refreshFrozenSurface, windowState.id])
 
   const navigate = (target = address) => {
     setNotice(null)
@@ -293,15 +369,64 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
     setNotice(`Viewport: ${browserViewportFrame(mode, availableViewport).label}`)
   }
 
+  const runAfterActionsMenuClose = (action: () => void) => {
+    pendingBrowserActionRef.current = action
+    setActionsMenuOpen(false)
+  }
+
+  const cancelActionsMenuOpen = useCallback(() => {
+    actionsMenuIntentRef.current += 1
+    actionsMenuPendingRef.current = false
+    setActionsMenuPending(false)
+    setActionsMenuOpen(false)
+  }, [])
+
+  const handleActionsMenuOpenChange = (open: boolean) => {
+    if (!open) {
+      cancelActionsMenuOpen()
+      return
+    }
+    if (actionsMenuPendingRef.current) {
+      cancelActionsMenuOpen()
+      return
+    }
+    const intent = ++actionsMenuIntentRef.current
+    actionsMenuPendingRef.current = true
+    setActionsMenuPending(true)
+    void refreshFrozenSurface(true).finally(() => {
+      if (intent !== actionsMenuIntentRef.current) return
+      actionsMenuPendingRef.current = false
+      setActionsMenuPending(false)
+      if (!shouldDetachSurfaceRef.current) setActionsMenuOpen(true)
+    })
+  }
+
+  useEffect(() => {
+    if ((!active || obscured) && (actionsMenuPendingRef.current || actionsMenuOpen)) cancelActionsMenuOpen()
+  }, [actionsMenuOpen, active, cancelActionsMenuOpen, obscured])
+
+  useEffect(() => {
+    if (!actionsMenuPending) return
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      cancelActionsMenuOpen()
+    }
+    window.addEventListener('keydown', cancelOnEscape, true)
+    return () => window.removeEventListener('keydown', cancelOnEscape, true)
+  }, [actionsMenuPending, cancelActionsMenuOpen])
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-app-text">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-app-border bg-app-surface px-2">
+      <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2 shadow-sm">
         <button
           type="button"
           onClick={() => window.cranberri.browser.back(windowState.id).catch(() => undefined)}
           disabled={!state.canGoBack}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-35"
+          className={iconButton()}
           title="Back"
+          aria-label="Back"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -309,21 +434,23 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
           type="button"
           onClick={() => window.cranberri.browser.forward(windowState.id).catch(() => undefined)}
           disabled={!state.canGoForward}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-35"
+          className={iconButton()}
           title="Forward"
+          aria-label="Forward"
         >
           <ArrowRight className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={() => state.loading ? window.cranberri.browser.stop(windowState.id) : window.cranberri.browser.reload(windowState.id)}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+          className={iconButton()}
           title={state.loading ? 'Stop' : 'Reload'}
+          aria-label={state.loading ? 'Stop' : 'Reload'}
         >
           {state.loading ? <Square className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
         </button>
         <form
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-app-border bg-app-bg px-2"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-app-bg px-2 ring-1 ring-app-border/75 focus-within:ring-2 focus-within:ring-app-accent/45"
           onSubmit={(event) => {
             event.preventDefault()
             const input = event.currentTarget.elements.namedItem('browser-address')
@@ -349,8 +476,9 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
           />
           <button
             type="submit"
-            className="rounded p-1 text-app-text-muted hover:text-app-text"
+            className={cn(iconButton(), 'h-6 w-6')}
             title="Navigate"
+            aria-label="Navigate"
             onMouseDown={(event) => event.preventDefault()}
           >
             <Search className="h-3.5 w-3.5" />
@@ -358,68 +486,30 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
         </form>
         <button
           type="button"
-          onClick={copyCurrentUrl}
-          disabled={!state.url}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-35"
-          title="Copy browser URL"
-        >
-          <Clipboard className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={openCurrentUrlExternal}
-          disabled={!state.url || state.url === 'about:blank'}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-35"
-          title="Open browser URL externally"
-        >
-          <ExternalLink className="h-4 w-4" />
-        </button>
-        <div className="flex shrink-0 items-center rounded-md border border-app-border bg-app-bg p-0.5" title={`Viewport: ${viewportFrame.label}`}>
-          {BROWSER_VIEWPORT_PROFILES.map((profile) => {
-            const Icon = viewportModeIcon(profile.mode)
-            const selected = profile.mode === viewportMode
-            return (
-              <button
-                key={profile.mode}
-                type="button"
-                onClick={() => selectViewportMode(profile.mode)}
-                className={`flex h-7 w-7 items-center justify-center rounded text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${selected ? 'bg-app-surface-2 text-app-text' : ''}`}
-                title={profile.label}
-                aria-label={`Use ${profile.label} viewport`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-              </button>
-            )
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={captureScreenshot}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-          title="Capture screenshot"
-        >
-          <Camera className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={captureSnapshot}
-          className="rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-          title="Capture page text"
-        >
-          <FileText className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
           onClick={toggleInspectMode}
-          className={`rounded p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text ${inspectActive ? 'bg-app-surface-2 text-app-accent' : ''}`}
+          className={iconButton({ tone: inspectActive ? 'active' : 'neutral' })}
           title={inspectActive ? 'Stop inspecting' : 'Inspect page element'}
+          aria-label={inspectActive ? 'Stop inspecting' : 'Inspect page element'}
         >
           <Crosshair className="h-4 w-4" />
         </button>
+        <BrowserActionsMenu
+          open={actionsMenuOpen}
+          pending={actionsMenuPending}
+          onOpenChange={handleActionsMenuOpenChange}
+          viewportMode={viewportMode}
+          canUseUrl={Boolean(state.url)}
+          canOpenUrl={Boolean(state.url && state.url !== 'about:blank')}
+          onSelectViewport={selectViewportMode}
+          onCopyUrl={copyCurrentUrl}
+          onOpenUrl={openCurrentUrlExternal}
+          onCaptureScreenshot={() => runAfterActionsMenuClose(captureScreenshot)}
+          onCaptureSnapshot={() => runAfterActionsMenuClose(captureSnapshot)}
+        />
       </div>
-      {(notice || state.error) && (
-        <div className={`border-b border-app-border px-3 py-1.5 text-xs ${state.error ? 'text-app-danger' : 'text-app-text-muted'}`}>
-          {state.error ?? notice}
+      {state.error && (
+        <div className="bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">
+          {state.error}
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col">
@@ -436,6 +526,27 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                 Browser paused
               </div>
             )}
+            {active && (obscured || actionsMenuOpen) && (
+              <div
+                data-browser-surface-frozen="true"
+                className="absolute inset-0 flex items-center justify-center overflow-hidden bg-app-surface text-sm text-app-text-muted"
+              >
+                {frozenSurfaceDataUrl ? (
+                  <img
+                    src={frozenSurfaceDataUrl}
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                    className="h-full w-full object-fill"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4" />
+                    Browser view paused
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {active && viewportMode !== 'responsive' && (
             <div className="mx-auto mt-2 text-center text-micro text-app-text-muted" style={{ width: viewportFrame.width }}>
@@ -444,14 +555,14 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
           )}
         </div>
         {captureOpen && (
-          <div className="grid max-h-72 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-app-border bg-app-surface">
-            <div className="min-w-0 border-r border-app-border">
+          <div className="grid max-h-72 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1 bg-app-surface-2/45 p-1">
+            <div className="min-w-0 bg-app-surface">
               <CaptureHeader icon={Camera} label={capture.screenshotSize ? `Screenshot ${capture.screenshotSize}` : 'Screenshot'}>
                 <button
                   type="button"
                   onClick={sendScreenshotToChat}
                   disabled={!capture.screenshotDataUrl}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title="Send screenshot to chat"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
@@ -460,7 +571,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                   type="button"
                   onClick={copyScreenshotPath}
                   disabled={!capture.screenshotDataUrl}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title="Copy screenshot path"
                 >
                   <Clipboard className="h-3.5 w-3.5" />
@@ -469,7 +580,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                   type="button"
                   onClick={openScreenshot}
                   disabled={!capture.screenshotDataUrl}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title="Open screenshot"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -478,7 +589,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                   type="button"
                   onClick={revealScreenshot}
                   disabled={!capture.screenshotDataUrl}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title="Reveal screenshot in Finder"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
@@ -486,7 +597,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                 <button
                   type="button"
                   onClick={() => setCaptureOpen(false)}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                  className={iconButton()}
                   title="Close captures"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -500,13 +611,13 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                 )}
               </div>
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 bg-app-surface">
               <CaptureHeader icon={inspection ? Crosshair : FileText} label={inspection ? inspection.selector || inspection.tagName : capture.snapshot ? capture.snapshot.title || 'Page snapshot' : 'Page snapshot'}>
                 <button
                   type="button"
                   onClick={sendCaptureToChat}
                   disabled={inspection ? false : !capture.snapshot}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title={inspection ? 'Send element context to chat' : 'Send page text to chat'}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
@@ -515,7 +626,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                   type="button"
                   onClick={inspection ? copyInspection : copySnapshot}
                   disabled={inspection ? false : !capture.snapshot?.text}
-                  className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                  className={iconButton()}
                   title={inspection ? 'Copy element context' : 'Copy page context'}
                 >
                   <Clipboard className="h-3.5 w-3.5" />
@@ -526,7 +637,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                       type="button"
                       onClick={copyInspectionSelector}
                       disabled={!inspection.selector && !inspection.tagName}
-                      className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                      className={iconButton()}
                       title="Copy element selector"
                     >
                       <Crosshair className="h-3.5 w-3.5" />
@@ -535,7 +646,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                       type="button"
                       onClick={copyInspectionText}
                       disabled={!inspection.text.trim()}
-                      className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-40"
+                      className={iconButton()}
                       title="Copy element text"
                     >
                       <FileText className="h-3.5 w-3.5" />
@@ -589,8 +700,8 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
         ))}
       </div>
       {Object.keys(inspection.attributes).length > 0 && (
-        <div className="mt-3 border-t border-app-border pt-2">
-          <div className="mb-1 text-micro uppercase text-app-text-muted">Attributes</div>
+        <div className="mt-3 rounded-md bg-app-surface px-2 py-2">
+          <div className="mb-1 text-caption font-medium text-app-text-muted">Attributes</div>
           {Object.entries(inspection.attributes).slice(0, 8).map(([name, value]) => (
             <div key={name} className="flex gap-3">
               <span className="w-20 shrink-0 text-app-text-muted">{name}</span>
@@ -605,8 +716,8 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
 
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-app-border bg-app-surface px-2 py-1.5">
-      <div className="text-micro uppercase text-app-text-muted">{label}</div>
+    <div className="rounded-md bg-app-surface px-2 py-1.5">
+      <div className="text-caption text-app-text-muted">{label}</div>
       <div className="mt-1 truncate font-mono text-caption" title={value}>{value}</div>
     </div>
   )
@@ -627,12 +738,80 @@ function viewportModeIcon(mode: BrowserViewportMode): React.ElementType {
 
 function CaptureHeader({ icon: Icon, label, children }: { icon: React.ElementType; label: string; children?: React.ReactNode }) {
   return (
-    <div className="flex h-9 items-center justify-between gap-2 border-b border-app-border px-3">
+    <div className="flex h-9 items-center justify-between gap-2 px-3">
       <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
         <Icon className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
         <span className="truncate" title={label}>{label}</span>
       </div>
       {children}
     </div>
+  )
+}
+
+const BROWSER_MENU_ITEM = 'flex min-h-8 select-none items-center gap-2 rounded-md px-2 text-xs text-app-text outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40'
+
+function BrowserActionsMenu({
+  open,
+  pending,
+  onOpenChange,
+  viewportMode,
+  canUseUrl,
+  canOpenUrl,
+  onSelectViewport,
+  onCopyUrl,
+  onOpenUrl,
+  onCaptureScreenshot,
+  onCaptureSnapshot,
+}: {
+  open: boolean
+  pending: boolean
+  onOpenChange: (open: boolean) => void
+  viewportMode: BrowserViewportMode
+  canUseUrl: boolean
+  canOpenUrl: boolean
+  onSelectViewport: (mode: BrowserViewportMode) => void
+  onCopyUrl: () => void
+  onOpenUrl: () => void
+  onCaptureScreenshot: () => void
+  onCaptureSnapshot: () => void
+}) {
+  return (
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      <DropdownMenu.Trigger asChild>
+        <button type="button" className={iconButton()} title="Browser actions" aria-label={pending ? 'Cancel opening browser actions' : 'Browser actions'} aria-busy={pending}>
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1300] w-56 text-xs outline-none')}>
+          <DropdownMenu.Label className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Viewport</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={viewportMode} onValueChange={(mode) => onSelectViewport(mode as BrowserViewportMode)}>
+            {BROWSER_VIEWPORT_PROFILES.map((profile) => {
+              const Icon = viewportModeIcon(profile.mode)
+              return (
+                <DropdownMenu.RadioItem key={profile.mode} value={profile.mode} className={BROWSER_MENU_ITEM}>
+                  <Icon className="h-3.5 w-3.5 text-app-text-muted" />
+                  <span className="flex-1">{profile.label}</span>
+                  <DropdownMenu.ItemIndicator><Check className="h-3.5 w-3.5 text-app-accent" /></DropdownMenu.ItemIndicator>
+                </DropdownMenu.RadioItem>
+              )
+            })}
+          </DropdownMenu.RadioGroup>
+          <DropdownMenu.Label className="mt-2 px-2 pb-1 pt-1 text-caption font-medium text-app-text-muted">Page</DropdownMenu.Label>
+          <DropdownMenu.Item disabled={!canUseUrl} onSelect={onCopyUrl} className={BROWSER_MENU_ITEM} title="Copy browser URL">
+            <Clipboard className="h-3.5 w-3.5 text-app-text-muted" /> Copy URL
+          </DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canOpenUrl} onSelect={onOpenUrl} className={BROWSER_MENU_ITEM} title="Open browser URL externally">
+            <ExternalLink className="h-3.5 w-3.5 text-app-text-muted" /> Open externally
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={onCaptureScreenshot} className={BROWSER_MENU_ITEM} title="Capture screenshot">
+            <Camera className="h-3.5 w-3.5 text-app-text-muted" /> Capture screenshot
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={onCaptureSnapshot} className={BROWSER_MENU_ITEM} title="Capture page text">
+            <FileText className="h-3.5 w-3.5 text-app-text-muted" /> Capture page text
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   )
 }

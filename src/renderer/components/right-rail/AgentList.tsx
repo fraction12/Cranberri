@@ -23,7 +23,9 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
   const [busyAgent, setBusyAgent] = useState<string | null>(null)
   const [stoppingAgents, setStoppingAgents] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
-  const activeCount = agents.filter((agent) => codexWorkerIsActive(agent.status)).length
+  const activeAgents = agents.filter((agent) => codexWorkerIsActive(agent.status))
+  const recentAgents = agents.filter((agent) => !codexWorkerIsActive(agent.status))
+  const activeCount = activeAgents.length
 
   useEffect(() => {
     setSelectedAgentId(null)
@@ -76,19 +78,47 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
     }
   }
 
+  const renderAgent = (agent: CodexWorker) => (
+    <AgentRow
+      key={agent.threadId}
+      agent={agent}
+      selected={selectedAgentId === agent.threadId}
+      stopping={stoppingAgents.has(agent.threadId)}
+      messageOpen={messageTarget === agent.threadId}
+      message={messageTarget === agent.threadId ? message : ''}
+      busy={busyAgent === agent.threadId}
+      error={selectedAgentId === agent.threadId ? error : null}
+      onToggle={() => {
+        setSelectedAgentId((current) => current === agent.threadId ? null : agent.threadId)
+        setMessageTarget(null)
+        setMessage('')
+        setError(null)
+      }}
+      onToggleMessage={() => {
+        setMessageTarget((current) => current === agent.threadId ? null : agent.threadId)
+        setMessage('')
+        setError(null)
+      }}
+      onMessageChange={setMessage}
+      onSubmitMessage={(event) => void submitMessage(event, agent)}
+      onStop={() => void stopAgent(agent)}
+      onOpen={() => onOpenAgent(agent)}
+    />
+  )
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-app-surface" data-agents-panel="true">
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
-        <span className="text-xs font-medium uppercase text-app-text-muted">Agents</span>
-        {activeCount > 0 && <span className="text-micro text-app-text-muted">{activeCount} active</span>}
+        <span className="text-xs font-semibold text-app-text">Task agents</span>
+        <span className="text-caption text-app-text-muted">{activeCount > 0 ? `${activeCount} active` : 'None active'}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {!thread && <EmptyAgents label="No active task" />}
 
         {thread?.parentThreadId && (
-          <div className="mb-2 rounded-md bg-app-bg px-3 py-2.5">
-            <div className="text-micro font-medium uppercase text-app-text-muted">Current agent</div>
+          <div className="mb-3 rounded-md bg-app-surface-2/45 px-3 py-2.5">
+            <div className="text-caption font-medium text-app-text-muted">Current agent</div>
             <div className="mt-1 flex items-center gap-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium text-app-text">{thread.agentNickname || thread.title}</div>
@@ -108,38 +138,18 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
         )}
 
         {thread && agents.length === 0 && !thread.parentThreadId && <EmptyAgents label="No agents in this task" />}
-        {agents.length > 0 && (
-          <div className="space-y-1">
-            {agents.map((agent) => (
-              <AgentRow
-                key={agent.threadId}
-                agent={agent}
-                selected={selectedAgentId === agent.threadId}
-                stopping={stoppingAgents.has(agent.threadId)}
-                messageOpen={messageTarget === agent.threadId}
-                message={messageTarget === agent.threadId ? message : ''}
-                busy={busyAgent === agent.threadId}
-                error={selectedAgentId === agent.threadId ? error : null}
-                onToggle={() => {
-                  setSelectedAgentId((current) => current === agent.threadId ? null : agent.threadId)
-                  setMessageTarget(null)
-                  setMessage('')
-                  setError(null)
-                }}
-                onToggleMessage={() => {
-                  setMessageTarget((current) => current === agent.threadId ? null : agent.threadId)
-                  setMessage('')
-                  setError(null)
-                }}
-                onMessageChange={setMessage}
-                onSubmitMessage={(event) => void submitMessage(event, agent)}
-                onStop={() => void stopAgent(agent)}
-                onOpen={() => onOpenAgent(agent)}
-              />
-            ))}
-          </div>
-        )}
+        {activeAgents.length > 0 && <AgentGroup label="Active">{activeAgents.map(renderAgent)}</AgentGroup>}
+        {recentAgents.length > 0 && <AgentGroup label="Recent">{recentAgents.map(renderAgent)}</AgentGroup>}
       </div>
+    </section>
+  )
+}
+
+function AgentGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-3">
+      <h3 className="px-2 pb-1 text-caption font-medium text-app-text-muted">{label}</h3>
+      <div className="space-y-0.5">{children}</div>
     </section>
   )
 }

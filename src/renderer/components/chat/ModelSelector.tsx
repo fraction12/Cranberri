@@ -9,16 +9,15 @@ import {
   normalizeCodexReasoningEffort,
   normalizeCodexSpeed,
 } from '@/shared/codex'
+import { cn, menuSurface } from '../../lib/ui'
 
 type ModelSelectorProps = {
   settings: CodexTurnSettings
   onChange: (settings: CodexTurnSettings) => void
 }
 
-const MENU_SHELL = [
-  'z-[1200] overflow-y-auto rounded-lg border border-app-border bg-app-surface p-1.5',
-  'text-xs text-app-text shadow-2xl shadow-black/40 outline-none',
-].join(' ')
+const MENU_SHELL = cn(menuSurface, 'z-[1200] overscroll-contain overflow-y-auto text-xs text-app-text outline-none')
+const MENU_MAX_HEIGHT = 'min(360px, calc(100vh - 72px))'
 const ITEM_CLASS = [
   'relative flex min-h-8 w-full select-none items-center justify-between rounded-md px-2 py-1.5',
   'text-left outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:opacity-40',
@@ -52,7 +51,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         <button
           type="button"
           aria-label="Configure model, reasoning, and speed"
-          className="flex min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs text-app-text outline-none hover:bg-app-surface-2 focus-visible:ring-2 focus-visible:ring-app-accent"
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-app-text transition-colors duration-fast ease-standard hover:bg-app-surface-2"
         >
           <span className="max-w-28 truncate" title={selectedModelLabel}>{selectedModelLabel.replace('GPT-', '')}</span>
           <span className="shrink-0">{selectedEffort.label}</span>
@@ -76,12 +75,13 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
+          data-model-selector-menu="root"
           side="top"
           align="end"
           sideOffset={8}
-          collisionPadding={8}
+          collisionPadding={12}
           className={`w-52 ${MENU_SHELL}`}
-          style={{ maxHeight: 'calc(100vh - 16px)' }}
+          style={{ maxHeight: MENU_MAX_HEIGHT }}
         >
           <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
             Reasoning
@@ -98,10 +98,13 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
             ))}
           </DropdownMenu.RadioGroup>
 
-          <DropdownMenu.Separator className="my-1 h-px bg-app-border" />
+          <DropdownMenu.Separator className="h-2" />
 
           <DropdownMenu.Sub>
-            <DropdownMenu.SubTrigger className={ITEM_CLASS}>
+            <DropdownMenu.SubTrigger
+              className={ITEM_CLASS}
+              onPointerLeave={(event) => event.preventDefault()}
+            >
               <span className="truncate" title={selectedModelLabel}>{selectedModelLabel}</span>
               <ChevronRight className="h-3.5 w-3.5 text-app-text-muted" />
             </DropdownMenu.SubTrigger>
@@ -110,9 +113,10 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                 data-model-selector-submenu="model"
                 sideOffset={6}
                 alignOffset={-6}
-                collisionPadding={8}
+                collisionPadding={12}
                 className={`w-52 ${MENU_SHELL}`}
-                style={{ maxHeight: 'calc(100vh - 16px)' }}
+                style={{ maxHeight: MENU_MAX_HEIGHT }}
+                onWheel={(event) => event.stopPropagation()}
               >
                 <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
                   Model
@@ -135,7 +139,10 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
           </DropdownMenu.Sub>
 
           <DropdownMenu.Sub>
-            <DropdownMenu.SubTrigger className={ITEM_CLASS}>
+            <DropdownMenu.SubTrigger
+              className={ITEM_CLASS}
+              onPointerLeave={(event) => event.preventDefault()}
+            >
               <span>Speed</span>
               <ChevronRight className="h-3.5 w-3.5 text-app-text-muted" />
             </DropdownMenu.SubTrigger>
@@ -144,9 +151,10 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                 data-model-selector-submenu="speed"
                 sideOffset={6}
                 alignOffset={-6}
-                collisionPadding={8}
+                collisionPadding={12}
                 className={`w-44 ${MENU_SHELL}`}
-                style={{ maxHeight: 'calc(100vh - 16px)' }}
+                style={{ maxHeight: MENU_MAX_HEIGHT }}
+                onWheel={(event) => event.stopPropagation()}
               >
                 <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
                   Speed

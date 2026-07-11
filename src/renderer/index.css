@@ -19,33 +19,46 @@
   --app-line-caption: clamp(14px, calc(var(--app-ui-font-size) + 2px), 18px);
   --app-line-label: clamp(14px, calc(var(--app-ui-font-size) + 2px), 18px);
   --app-line-ui: clamp(18px, calc(var(--app-ui-font-size) + 6px), 22px);
-  --app-line-prose: clamp(21px, calc(var(--app-ui-font-size) + 10px), 26px);
+  --app-line-prose: clamp(20px, calc(var(--app-ui-font-size) + 8px), 24px);
   --app-line-title: clamp(20px, calc(var(--app-ui-font-size) + 8px), 24px);
   --app-line-display: clamp(26px, calc(var(--app-ui-font-size) + 14px), 30px);
-  --app-bg-rgb: 15 15 17;
-  --app-surface-rgb: 24 24 27;
-  --app-surface-2-rgb: 39 39 42;
-  --app-border-rgb: 63 63 70;
-  --app-text-rgb: 250 250 250;
-  --app-text-muted-rgb: 161 161 170;
+  --app-bg-rgb: 17 17 19;
+  --app-surface-rgb: 23 23 26;
+  --app-surface-2-rgb: 34 34 38;
+  --app-elevated-rgb: 28 28 32;
+  --app-border-rgb: 44 44 49;
+  --app-border-strong-rgb: 66 66 73;
+  --app-text-rgb: 244 244 245;
+  --app-text-muted-rgb: 166 166 175;
+  --app-text-subtle-rgb: 116 116 126;
   --app-success-rgb: 74 222 128;
   --app-warning-rgb: 250 204 21;
   --app-info-rgb: 96 165 250;
-  --app-danger-rgb: 239 68 68;
+  --app-danger-rgb: 220 38 38;
   --app-mention-rgb: 255 179 179;
-  --app-inset: rgba(255, 255, 255, 0.045);
-  --app-overlay: rgba(0, 0, 0, 0.62);
-  --app-active-line: rgba(255, 255, 255, 0.045);
+  --app-inset: rgba(255, 255, 255, 0.052);
+  --app-overlay: rgba(0, 0, 0, 0.58);
+  --app-active-line: rgba(255, 255, 255, 0.052);
   --app-accent-soft: rgba(34, 197, 94, 0.14);
   --app-accent-selection: rgba(34, 197, 94, 0.28);
   --app-diff-added: rgba(34, 197, 94, 0.12);
   --app-diff-removed: rgba(239, 68, 68, 0.12);
+  --app-shadow-float: 0 10px 30px rgba(0, 0, 0, 0.28), 0 1px 1px rgba(0, 0, 0, 0.35);
+  --app-shadow-overlay: 0 22px 70px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035);
+  --app-radius-control: 6px;
+  --app-radius-panel: 8px;
+  --app-transition-fast: 110ms;
+  --app-transition-normal: 170ms;
+  --app-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --app-bg: rgb(var(--app-bg-rgb));
   --app-surface: rgb(var(--app-surface-rgb));
   --app-surface-2: rgb(var(--app-surface-2-rgb));
+  --app-elevated: rgb(var(--app-elevated-rgb));
   --app-border: rgb(var(--app-border-rgb));
+  --app-border-strong: rgb(var(--app-border-strong-rgb));
   --app-text: rgb(var(--app-text-rgb));
   --app-text-muted: rgb(var(--app-text-muted-rgb));
+  --app-text-subtle: rgb(var(--app-text-subtle-rgb));
   --app-accent: rgb(var(--app-accent-rgb));
   --app-danger: rgb(var(--app-danger-rgb));
   --app-mention: rgb(var(--app-mention-rgb));
@@ -53,40 +66,50 @@
 }
 
 :root[data-theme='light'] {
-  --app-bg-rgb: 247 247 248;
-  --app-surface-rgb: 255 255 255;
-  --app-surface-2-rgb: 237 237 240;
-  --app-border-rgb: 209 209 214;
-  --app-text-rgb: 32 33 35;
-  --app-text-muted-rgb: 103 103 111;
+  --app-bg-rgb: 252 252 253;
+  --app-surface-rgb: 246 246 248;
+  --app-surface-2-rgb: 235 235 238;
+  --app-elevated-rgb: 255 255 255;
+  --app-border-rgb: 222 222 226;
+  --app-border-strong-rgb: 196 196 203;
+  --app-text-rgb: 31 32 35;
+  --app-text-muted-rgb: 99 99 108;
+  --app-text-subtle-rgb: 137 137 147;
   --app-success-rgb: 21 128 61;
   --app-warning-rgb: 161 98 7;
   --app-info-rgb: 37 99 235;
   --app-danger-rgb: 220 38 38;
   --app-mention-rgb: 190 24 93;
   --app-mention-ring: rgba(190, 24, 93, 0.18);
-  --app-inset: rgba(15, 23, 42, 0.055);
-  --app-overlay: rgba(24, 24, 27, 0.28);
+  --app-inset: rgba(15, 23, 42, 0.05);
+  --app-overlay: rgba(18, 18, 21, 0.3);
   --app-active-line: rgba(15, 23, 42, 0.045);
+  --app-shadow-float: 0 10px 30px rgba(23, 23, 28, 0.12), 0 1px 2px rgba(23, 23, 28, 0.08);
+  --app-shadow-overlay: 0 24px 70px rgba(23, 23, 28, 0.18), 0 0 0 1px rgba(23, 23, 28, 0.055);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --app-bg-rgb: 247 247 248;
-    --app-surface-rgb: 255 255 255;
-    --app-surface-2-rgb: 237 237 240;
-    --app-border-rgb: 209 209 214;
-    --app-text-rgb: 32 33 35;
-    --app-text-muted-rgb: 103 103 111;
+    --app-bg-rgb: 252 252 253;
+    --app-surface-rgb: 246 246 248;
+    --app-surface-2-rgb: 235 235 238;
+    --app-elevated-rgb: 255 255 255;
+    --app-border-rgb: 222 222 226;
+    --app-border-strong-rgb: 196 196 203;
+    --app-text-rgb: 31 32 35;
+    --app-text-muted-rgb: 99 99 108;
+    --app-text-subtle-rgb: 137 137 147;
     --app-success-rgb: 21 128 61;
     --app-warning-rgb: 161 98 7;
     --app-info-rgb: 37 99 235;
     --app-danger-rgb: 220 38 38;
     --app-mention-rgb: 190 24 93;
     --app-mention-ring: rgba(190, 24, 93, 0.18);
-    --app-inset: rgba(15, 23, 42, 0.055);
-    --app-overlay: rgba(24, 24, 27, 0.28);
+    --app-inset: rgba(15, 23, 42, 0.05);
+    --app-overlay: rgba(18, 18, 21, 0.3);
     --app-active-line: rgba(15, 23, 42, 0.045);
+    --app-shadow-float: 0 10px 30px rgba(23, 23, 28, 0.12), 0 1px 2px rgba(23, 23, 28, 0.08);
+    --app-shadow-overlay: 0 24px 70px rgba(23, 23, 28, 0.18), 0 0 0 1px rgba(23, 23, 28, 0.055);
   }
 }
 
@@ -165,6 +188,20 @@ body {
   background: var(--app-bg);
   color: var(--app-text);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:where(button, a, input, select, textarea, summary, [role='button'], [role='tab'], [tabindex]):focus-visible {
+  outline: 2px solid rgb(var(--app-accent-rgb));
+  outline-offset: 2px;
+}
+
+:where([role='dialog'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option'], [cmdk-item], [cmdk-input]):focus-visible {
+  outline: none;
+}
+
+:where(button, input, select, textarea):disabled {
+  cursor: default;
 }
 
 ::selection {
@@ -189,9 +226,30 @@ body.rail-resizing * {
   cursor: col-resize !important;
 }
 
-.cranberri-toaster,
+.workspace-tab-strip {
+  scrollbar-width: none;
+}
+
+.workspace-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.cranberri-toaster {
+  pointer-events: none;
+  --width: 272px !important;
+}
+
 .cranberri-toaster [data-sonner-toast] {
   pointer-events: none;
+}
+
+.cranberri-toaster [data-sonner-toast] button,
+.cranberri-toaster [data-sonner-toast] a {
+  pointer-events: auto;
+}
+
+textarea[aria-label='Chat message']:focus-visible {
+  outline: none;
 }
 
 .cranberri-diff-viewer.wrap-diff-content table {
@@ -234,10 +292,10 @@ body.rail-resizing * {
   app-region: no-drag;
 }
 
-/* Minimal premium scrollbars */
+/* Quiet desktop scrollbars that remain discoverable in both themes. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -245,12 +303,15 @@ body.rail-resizing * {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--app-border);
-  border-radius: 3px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(var(--app-border-strong-rgb) / 0.72);
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--app-text-muted);
+  background: rgb(var(--app-text-muted-rgb) / 0.72);
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-corner {

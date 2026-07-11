@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Check, ExternalLink, ImagePlus } from 'lucide-react'
+import { toast } from 'sonner'
 import { createSendChatContextEvent } from './chat-context-events'
+import { cn, iconButton } from '../../lib/ui'
 import type { CodexUserInput } from '@/shared/codex'
 
 export type MarkdownMediaKind = 'image' | 'video'
@@ -82,7 +84,9 @@ export function markdownMediaSourceFromUrl(url?: string): MarkdownMediaSource | 
 }
 
 function openMedia(url: string): void {
-  window.cranberri.openExternal(url).catch((error) => console.error('Failed to open media:', error))
+  window.cranberri.openExternal(url).catch((error) => {
+    toast.error(error instanceof Error ? error.message : 'Could not open media')
+  })
 }
 
 export function markdownMediaChatContext(source: MarkdownMediaSource, label?: string): string {
@@ -120,17 +124,17 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
 
   return (
     <figure
-      className="my-4 overflow-hidden rounded-lg border border-app-border bg-app-surface"
+      className="my-4 overflow-hidden rounded-lg bg-app-surface ring-1 ring-app-border/70"
       data-markdown-media={source.kind}
     >
-      <div className="flex min-h-8 items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-3 py-1.5 text-micro uppercase text-app-text-muted">
+      <div className="flex min-h-8 items-center justify-between gap-3 bg-app-surface-2/70 px-3 py-1.5 text-caption text-app-text-muted">
         <figcaption className="truncate" title={title}>{title}</figcaption>
         <span className="flex items-center gap-1">
           {canSendToChat && (
             <button
               type="button"
               onClick={sendToChat}
-              className="rounded p-0.5 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+              className={cn(iconButton(), 'h-6 w-6')}
               aria-label="Send image to chat"
               title="Send image to chat"
             >
@@ -141,7 +145,7 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
             <button
               type="button"
               onClick={() => openMedia(source.openUrl!)}
-              className="rounded p-0.5 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+              className={cn(iconButton(), 'h-6 w-6')}
               aria-label="Open media"
               title="Open media"
             >
@@ -155,14 +159,14 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
           <img
             src={source.src}
             alt={label ?? ''}
-            className="max-h-[560px] max-w-full rounded border border-app-border object-contain"
+            className="max-h-[560px] max-w-full rounded object-contain ring-1 ring-app-border/70"
             loading="lazy"
           />
         ) : (
           <video
             src={source.src}
             controls
-            className="max-h-[560px] max-w-full rounded border border-app-border"
+            className="max-h-[560px] max-w-full rounded ring-1 ring-app-border/70"
           >
             <a href={source.src}>{title}</a>
           </video>

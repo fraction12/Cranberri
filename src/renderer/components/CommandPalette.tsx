@@ -1,4 +1,5 @@
 import { CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandRoot } from 'cmdk'
+import * as Dialog from '@radix-ui/react-dialog'
 import { Activity, FileDiff, FileText, FolderGit2, Github, Globe, LayoutPanelTop, MessageSquare, PlugZap, Settings, Terminal } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,7 +8,7 @@ import { useRepos } from '../state/repos'
 import { useWorkspace } from '../state/workspace'
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
 import { useAppState } from '../state/appState'
-import { useRecentToolEvents } from '../state/tools'
+import { refreshToolCatalogQueries, useRecentToolEvents } from '../state/tools'
 import { pinnedSessionIds as pinnedIdsFromState, pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
 import { actionSearchText, buildActiveThreadMessageActions, buildAppActions, buildFileSearchActions, buildGitHubItemActions, filterAppActions, type AppAction, type AppActionGroup, type AppActionIcon, type LatestRepoChangesContext, type LatestRepoFileContext, type LatestTerminalContext } from '../state/actions'
 import { createOpenRightRailFileEvent } from './right-rail/right-rail-file-events'
@@ -49,6 +50,7 @@ import type { AgentProcessInfo } from '@/shared/processes'
 import type { ToolEventRecord } from '@/shared/tools'
 import type { SettingsTabValue } from './SettingsDialog'
 import type { ActiveBrowserCommand, ActiveBrowserViewportMode, ActiveTerminalCommand, ActiveWindowContextKind, GitHubContextKind, RepoChangesContextKind } from '../state/actions'
+import { buttonStyle, cn, dialogSurface, fieldStyle } from '../lib/ui'
 
 const COMMAND_GITHUB_ITEM_KINDS: GitHubPanelKind[] = ['branches', 'commits', 'releases']
 
@@ -971,13 +973,17 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   }, [activeRepo, updateAppState])
 
   const refreshPluginQueries = useCallback(async () => {
-    await Promise.all([
+    const invalidations = await Promise.allSettled([
       queryClient.invalidateQueries({ queryKey: ['codex', 'plugins'] }),
       queryClient.invalidateQueries({ queryKey: ['codex', 'skills'] }),
       queryClient.invalidateQueries({ queryKey: ['tools', 'registry'] }),
       queryClient.invalidateQueries({ queryKey: ['command-palette', 'plugins'] }),
+      refreshToolCatalogQueries(queryClient, activeThreadId),
     ])
-  }, [queryClient])
+    if (invalidations.some((result) => result.status === 'rejected')) {
+      toast.warning('Extensions updated, but some views need a manual refresh')
+    }
+  }, [activeThreadId, queryClient])
 
   const installPluginFromCommand = useCallback((plugin: (typeof plugins)[number]): false => {
     setConfirmation({
@@ -1472,46 +1478,42 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   const grouped = groupActions(filteredActions)
   const renameDialog = renameTarget ? (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[18vh]" role="presentation">
-      <form
-        role="dialog"
-        aria-label="Rename Codex session"
-        className="w-full max-w-[420px] rounded-lg border border-app-border bg-app-surface p-4 shadow-2xl"
-        onSubmit={submitRenameSession}
-      >
-        <div className="text-sm font-semibold text-app-text">Rename session</div>
-        <label htmlFor="command-palette-rename-session" className="mt-3 block text-caption font-medium text-app-text-muted">Name</label>
-        <input
-          id="command-palette-rename-session"
-          autoFocus
-          className="mt-1 h-9 w-full rounded border border-app-border bg-app-bg px-2 text-sm text-app-text outline-none focus:border-app-accent"
-          value={renameInput}
-          onChange={(event) => {
-            setRenameInput(event.target.value)
-            setRenameError(null)
-          }}
-        />
-        {renameError && <div className="mt-2 text-xs text-app-danger">{renameError}</div>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            className="h-8 rounded px-3 text-xs font-medium text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-            onClick={() => {
-              setRenameTarget(null)
-              setRenameError(null)
-            }}
+    <Dialog.Root open onOpenChange={(open) => {
+      if (open) return
+      setRenameTarget(null)
+      setRenameError(null)
+    }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[1600] bg-[var(--app-overlay)]" />
+        <Dialog.Content asChild>
+          <form
+            className={cn(dialogSurface, 'fixed left-1/2 top-[28%] z-[1601] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 p-5')}
+            onSubmit={submitRenameSession}
           >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="h-8 rounded bg-app-accent px-3 text-xs font-semibold text-app-accent-contrast hover:bg-app-accent/90"
-          >
-            Rename
-          </button>
-        </div>
-      </form>
-    </div>
+            <Dialog.Title className="text-sm font-semibold text-app-text">Rename session</Dialog.Title>
+            <Dialog.Description className="mt-1 text-xs text-app-text-muted">Update the Codex task name.</Dialog.Description>
+            <label htmlFor="command-palette-rename-session" className="mt-4 block text-xs font-medium text-app-text">Name</label>
+            <input
+              id="command-palette-rename-session"
+              autoFocus
+              className={cn(fieldStyle, 'mt-1.5 w-full')}
+              value={renameInput}
+              onChange={(event) => {
+                setRenameInput(event.target.value)
+                setRenameError(null)
+              }}
+            />
+            {renameError && <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">{renameError}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button type="button" className={buttonStyle({ tone: 'ghost', size: 'small' })}>Cancel</button>
+              </Dialog.Close>
+              <button type="submit" className={buttonStyle({ tone: 'primary', size: 'small' })}>Rename</button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   ) : null
   const confirmationDialog = confirmation ? (
     <ConfirmDialog
@@ -1545,25 +1547,23 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     <>
       <ActiveThreadSync onThread={setLiveActiveThread} />
       {modalDialogs}
-      <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--app-overlay)] px-4 pt-[12vh]"
-        role="presentation"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) onOpenChange(false)
-        }}
-      >
-        <CommandRoot className="w-full max-w-[640px] overflow-hidden rounded-lg border border-app-border bg-app-surface shadow-2xl">
-          <CommandInput
-            autoFocus
-            placeholder="Run command or switch repo..."
-            value={query}
-            onValueChange={setQuery}
-            className="h-12 w-full border-b border-app-border bg-transparent px-4 text-sm text-app-text outline-none placeholder:text-app-text-muted"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') onOpenChange(false)
-            }}
-          />
-          <CommandList className="max-h-[420px] overflow-y-auto p-2">
+      <Dialog.Root open={open} onOpenChange={onOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-[var(--app-overlay)]" />
+          <Dialog.Content
+            className={cn(dialogSurface, 'fixed left-1/2 top-[12vh] z-[51] w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden')}
+            aria-describedby={undefined}
+          >
+            <Dialog.Title className="sr-only">Quick Search</Dialog.Title>
+            <CommandRoot>
+              <CommandInput
+                autoFocus
+                placeholder="Run command or switch repo..."
+                value={query}
+                onValueChange={setQuery}
+                className="h-12 w-full bg-app-surface-2/35 px-4 text-sm text-app-text outline-none placeholder:text-app-text-muted"
+              />
+              <CommandList className="max-h-[420px] overflow-y-auto p-2">
             <CommandEmpty className="px-3 py-8 text-center text-sm text-app-text-muted">No command found.</CommandEmpty>
             {sessionsQuery.isLoading && (
               <div className="px-3 py-2 text-xs text-app-text-muted">Loading recent sessions...</div>
@@ -1584,7 +1584,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
               <div className="px-3 py-2 text-xs text-app-text-muted">Loading GitHub refs...</div>
             )}
             {GROUP_ORDER.map((group) => grouped[group]?.length ? (
-              <CommandGroup key={group} heading={GROUP_LABELS[group]} className="text-xs text-app-text-muted [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+              <CommandGroup key={group} heading={GROUP_LABELS[group]} className="text-xs text-app-text-muted [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium">
                 {grouped[group].map((action) => (
                   <CommandItem
                     key={action.id}
@@ -1600,9 +1600,11 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
                 ))}
               </CommandGroup>
             ) : null)}
-          </CommandList>
-        </CommandRoot>
-      </div>
+              </CommandList>
+            </CommandRoot>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   )
 }

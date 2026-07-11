@@ -24,7 +24,7 @@ Personal tool, not a product. One window: side-by-side Codex chat columns, a rig
 - Prefer small, focused files. One concern per module.
 - Every IPC surface is typed on both sides. Shared types live in `src/shared/`.
 - UI components are thin. Business state lives in `src/renderer/state/`.
-- Avoid runtime theme engines for v1. Dark only. Add light later if needed.
+- Use the semantic token layer for system, light, and dark themes. Do not add a second runtime styling engine.
 - No dashboard grids, no drag-and-drop workbench, no rich markdown editor. Chat-first means chat columns dominate.
 
 ## Verification

@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TOOL_ACTIVITY_RETENTION_MS, TOOL_CATALOG_FRESHNESS_MS, type ToolCatalogSnapshot, type ToolEventRecord } from '@/shared/tools'
 import {
   clearToolActivityEvents,
   overlayToolCatalogActivity,
   recordToolActivityEvent,
+  refreshToolCatalogQueries,
   toolActivityForThread,
   toolCatalogQueryOptions,
 } from './tools'
@@ -69,6 +70,7 @@ function snapshot(): ToolCatalogSnapshot {
 }
 
 beforeEach(() => clearToolActivityEvents())
+afterEach(() => vi.unstubAllGlobals())
 
 describe('task-scoped tool activity', () => {
   it('keeps a bounded task-local ring without telemetry polling', () => {
@@ -194,5 +196,33 @@ describe('catalog query lifecycle', () => {
     expect(options.refetchOnWindowFocus).toBe(false)
     expect(options.staleTime).toBe(TOOL_CATALOG_FRESHNESS_MS)
     expect(options.refetchOnMount).toBe(true)
+  })
+
+  it('force-refreshes global and active-task catalogs after extension changes', async () => {
+    const refresh = vi.fn(async (threadId: string | null) => ({
+      ...snapshot(),
+      taskKey: threadId ? TASK_KEY : null,
+    }))
+    vi.stubGlobal('window', { cranberri: { tools: { catalog: { refresh } } } })
+    const queryClient = {
+      invalidateQueries: vi.fn().mockResolvedValue(undefined),
+      setQueryData: vi.fn(),
+    } as unknown as Parameters<typeof refreshToolCatalogQueries>[0]
+
+    await refreshToolCatalogQueries(queryClient, 'thread-1')
+
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['tools', 'catalog'],
+      refetchType: 'none',
+    })
+    expect(refresh.mock.calls).toEqual([[null], ['thread-1']])
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(
+      ['tools', 'catalog', null],
+      expect.objectContaining({ taskKey: null }),
+    )
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(
+      ['tools', 'catalog', 'thread-1'],
+      expect.objectContaining({ taskKey: TASK_KEY }),
+    )
   })
 })

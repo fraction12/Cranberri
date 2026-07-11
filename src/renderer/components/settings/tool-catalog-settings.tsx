@@ -79,7 +79,7 @@ export function ToolCatalogSettings({
         </div>
       )}
       {groups.map((group) => (
-        <ToolGroup key={group.source} label={group.label} divided={false}>
+        <ToolGroup key={group.source} label={group.label}>
           {group.entries.map((entry) => (
             <CatalogToolRow
               key={entry.id}

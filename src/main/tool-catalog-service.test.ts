@@ -95,6 +95,20 @@ describe('ToolCatalogService cache', () => {
     expect(projectRoots).toHaveBeenCalledTimes(2)
   })
 
+  it('probes the machine while registry context is still loading', async () => {
+    const context = deferred<ToolCatalogRequestContext>()
+    const probe = deferred<CatalogProbeObservation>()
+    const probeRunner = vi.fn(() => probe.promise)
+    const service = new ToolCatalogService({ now: () => START_MS, probeRunner })
+
+    const listing = service.list(context.promise)
+    await vi.waitFor(() => expect(probeRunner).toHaveBeenCalledTimes(CATALOG_PROBE_POLICIES.length))
+
+    context.resolve(CONTEXT)
+    probe.resolve(success('1.0.0'))
+    await expect(listing).resolves.toMatchObject({ refresh: { status: 'fresh' } })
+  })
+
   it('returns a fresh cache hit and coalesces one stale full refresh', async () => {
     let now = START_MS
     const blocked = deferred<CatalogProbeObservation>()

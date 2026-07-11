@@ -4,9 +4,10 @@ import { FitAddon } from '@xterm/addon-fit'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { ChevronDown, ChevronUp, MessageSquare, Search, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, MessageSquare, RotateCcw, Search, Terminal as TerminalIcon, X } from 'lucide-react'
+import { toast } from 'sonner'
 import '@xterm/xterm/css/xterm.css'
-import { cn, iconButton } from '../lib/ui'
+import { buttonStyle, cn, compactFieldStyle, iconButton } from '../lib/ui'
 import { createOpenTerminalLinkBrowserEvent } from './terminal-link-events'
 import { TERMINAL_WINDOW_COMMAND_EVENT, terminalWindowCommandFromEvent } from './terminal-window-command-events'
 import { terminalBufferChatContext } from './terminal-chat-context'
@@ -42,7 +43,9 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
   const fitDebounceRef = useRef(0)
   const mountedRef = useRef(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const [ready, setReady] = useState(false)
+  const [terminalStatus, setTerminalStatus] = useState<'starting' | 'ready' | 'exited' | 'error'>('starting')
+  const [terminalError, setTerminalError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const visualSettingsRef = useRef({ theme, fontSize: settings.terminal.fontSize })
@@ -54,6 +57,8 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
     if (!repoPath || !containerRef.current || termRef.current) return
 
     const container = containerRef.current
+    setTerminalStatus('starting')
+    setTerminalError(null)
     const visuals = visualSettingsRef.current
     const t = new XTerm({
       cursorBlink: true,
@@ -114,6 +119,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
     const unsubExit = window.cranberri.terminal.onExit((payload) => {
       if (payload.id === termId && termRef.current) {
         termRef.current.writeln(`\r\n[process exited ${payload.exitCode}${payload.signal ? ` signal ${payload.signal}` : ''}]`)
+        setTerminalStatus('exited')
       }
     })
 
@@ -122,12 +128,16 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       fitAndResize()
       const cols = t.cols > 0 ? t.cols : 100
       const rows = t.rows > 0 ? t.rows : 30
-      window.cranberri.terminal.create(termId, repoPath, cols, rows).then((result) => {
-        if (result.buffer && termRef.current) termRef.current.write(result.buffer)
-        setReady(true)
-        // Fit again after shell startup; cheap safety net.
-        requestAnimationFrame(fitAndResize)
-      })
+      window.cranberri.terminal.create(termId, repoPath, cols, rows)
+        .then((result) => {
+          if (result.buffer && termRef.current) termRef.current.write(result.buffer)
+          setTerminalStatus('ready')
+          requestAnimationFrame(fitAndResize)
+        })
+        .catch((error) => {
+          setTerminalStatus('error')
+          setTerminalError(error instanceof Error ? error.message : 'Terminal failed to start')
+        })
     })
 
     roRef.current = new ResizeObserver(() => {
@@ -154,9 +164,9 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       termRef.current = null
       fitRef.current = null
       searchRef.current = null
-      setReady(false)
+      setTerminalStatus('starting')
     }
-  }, [id, repoPath, termId])
+  }, [id, reloadKey, repoPath, termId])
 
   useEffect(() => {
     const term = termRef.current
@@ -249,20 +259,30 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
   const sendTerminalContextToChat = () => {
     const term = termRef.current
     if (!term) return
+    const text = readTerminalBuffer(term)
+    if (!text.trim()) {
+      toast.info('Terminal has no output yet')
+      return
+    }
     onSendToChat(terminalBufferChatContext({
       terminalId: termId,
       repoPath,
-      text: readTerminalBuffer(term),
+      text,
     }))
   }
 
   if (!repoPath) {
-    return <div className="flex items-center justify-center h-full text-sm text-app-text-muted">Select a repo to use the terminal.</div>
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-sm text-app-text-muted">
+        <TerminalIcon className="mb-2 h-7 w-7 opacity-45" />
+        Select a repo to use the terminal.
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border bg-app-surface-2 shrink-0 text-xs text-app-text-muted">
+      <div className="flex h-9 shrink-0 items-center justify-between bg-app-surface-2/45 px-3 text-xs text-app-text-muted shadow-sm">
         <span className="truncate">{repoPath}</span>
         <div className="flex items-center gap-1">
           <button
@@ -283,11 +303,16 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
           >
             <Search className="h-3.5 w-3.5" />
           </button>
-          {ready && <span className="text-app-success">●</span>}
+          <span className="inline-flex items-center gap-1 text-caption" role="status">
+            {terminalStatus === 'starting' && <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting</>}
+            {terminalStatus === 'ready' && <><CheckCircle2 className="h-3.5 w-3.5 text-app-success" /> Ready</>}
+            {terminalStatus === 'exited' && <span className="text-app-warning">Exited</span>}
+            {terminalStatus === 'error' && <span className="text-app-danger">Failed</span>}
+          </span>
         </div>
       </div>
       {searchOpen && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-app-border bg-app-surface px-2 py-1.5">
+        <div className="flex shrink-0 items-center gap-2 bg-app-surface px-2 py-1.5 shadow-sm">
           <Search className="h-3.5 w-3.5 text-app-text-muted" />
           <input
             ref={searchInputRef}
@@ -304,7 +329,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
               }
             }}
             placeholder="Search terminal"
-            className="h-7 min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2 text-xs text-app-text outline-none placeholder:text-app-text-muted focus:border-app-accent"
+            className={cn(compactFieldStyle, 'flex-1')}
           />
           <button
             type="button"
@@ -342,6 +367,18 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       )}
       <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-app-bg">
         <div ref={containerRef} className="absolute inset-0 w-full h-full p-2" />
+        {terminalStatus === 'error' && terminalError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-app-bg/92 p-6 text-center text-sm text-app-text-muted" role="alert">
+            <span className="max-w-md text-app-danger">{terminalError}</span>
+            <button
+              type="button"
+              onClick={() => setReloadKey((key) => key + 1)}
+              className={cn(buttonStyle({ tone: 'secondary', size: 'small' }), 'mt-3')}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Retry
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

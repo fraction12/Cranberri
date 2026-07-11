@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import {
   TOOL_ACTIVITY_RETENTION_MS,
   TOOL_CATALOG_FRESHNESS_MS,
@@ -231,6 +231,22 @@ export function toolCatalogQueryOptions(activeThreadId: string | null, enabled: 
   }
 }
 
+export async function refreshToolCatalogQueries(
+  queryClient: QueryClient,
+  activeThreadId: string | null,
+): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: ['tools', 'catalog'], refetchType: 'none' })
+  const threadIds: Array<string | null> = activeThreadId ? [null, activeThreadId] : [null]
+  const results = await Promise.allSettled(threadIds.map(async (threadId) => {
+    const snapshot = toolCatalogSnapshotSchema.parse(
+      await window.cranberri.tools.catalog.refresh(threadId),
+    )
+    queryClient.setQueryData(['tools', 'catalog', threadId], snapshot)
+  }))
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failure) throw failure.reason
+}
+
 export function useRecentToolEvents(
   threadId: string | null = null,
   limit = MAX_ACTIVITY_PER_THREAD,
@@ -264,6 +280,7 @@ export function useToolCatalog(activeThreadId: string | null, enabled = true) {
   const query = useQuery(options)
   const queryClient = useQueryClient()
   const { data: activity } = useRecentToolEvents(activeThreadId, MAX_ACTIVITY_PER_THREAD, enabled)
+  const idleRegistryHydrationStartedRef = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
   const [testingToolIds, setTestingToolIds] = useState<ToolCatalogId[]>([])
 
@@ -272,6 +289,17 @@ export function useToolCatalog(activeThreadId: string | null, enabled = true) {
   const setCatalog = useCallback((snapshot: ToolCatalogSnapshot) => {
     queryClient.setQueryData(options.queryKey, toolCatalogSnapshotSchema.parse(snapshot))
   }, [options.queryKey, queryClient])
+
+  useEffect(() => {
+    if (!enabled || activeThreadId !== null || !query.data || idleRegistryHydrationStartedRef.current) return
+    idleRegistryHydrationStartedRef.current = true
+    const timer = window.setTimeout(() => {
+      void window.cranberri.tools.catalog.list(null)
+        .then(setCatalog)
+        .catch(() => undefined)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [activeThreadId, enabled, query.data, setCatalog])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)

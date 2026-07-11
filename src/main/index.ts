@@ -123,7 +123,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f0f11' : '#f7f7f8',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111113' : '#fcfcfd',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
     webPreferences: {
@@ -135,6 +135,11 @@ function createWindow(): void {
 
   mainWindow = win
 
+  const syncWindowBackground = () => {
+    win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#111113' : '#fcfcfd')
+  }
+  nativeTheme.on('updated', syncWindowBackground)
+
   if (!app.isPackaged) {
     const devUrl = process.env.ELECTRON_VITE_DEV_SERVER_URL ?? 'http://localhost:5173'
     win.loadURL(devUrl)
@@ -143,6 +148,7 @@ function createWindow(): void {
   }
 
   win.on('closed', () => {
+    nativeTheme.removeListener('updated', syncWindowBackground)
     mainWindow = null
   })
 }

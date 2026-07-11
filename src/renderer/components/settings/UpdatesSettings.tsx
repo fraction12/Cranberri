@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import type { AppSettings } from '@/shared/settings'
 import type { UpdateInfo } from '@/shared/update'
 import { useUpdate } from '../../state/update'
+import { buttonStyle, cn, fieldStyle, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
 import { SettingsPage, SettingsSection } from './settings-page'
 
 type UpdateController = ReturnType<typeof useUpdate>
@@ -96,7 +97,7 @@ export function UpdatesSettings({
   return (
     <SettingsPage title="Updates" description="Choose how Cranberri receives new builds.">
       <SettingsSection title="Channel">
-        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Update channel">
+        <div className={cn(segmentedControl, 'grid-cols-2')} role="group" aria-label="Update channel">
           {(['stable', 'beta'] as const).map((channel) => {
             const selected = settings.updater.channel === channel
             return (
@@ -105,14 +106,18 @@ export function UpdatesSettings({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => void saveUpdater({ channel })}
-                className={`min-h-16 rounded-md border px-3 py-2 text-left ${selected ? 'border-app-accent bg-app-accent/10 text-app-text' : 'border-app-border bg-app-bg text-app-text-muted hover:bg-app-surface-2'}`}
+                className={cn(segmentedItem, 'h-9 px-3 text-sm capitalize', selected && segmentedItemActive)}
               >
-                <div className="text-sm font-medium capitalize">{channel}</div>
-                <div className="mt-1 text-caption">{channel === 'stable' ? 'Install published releases.' : 'Build and install origin/main.'}</div>
+                {channel}
               </button>
             )
           })}
         </div>
+        <p className="text-xs text-app-text-muted">
+          {settings.updater.channel === 'stable'
+            ? 'Install signed, published Cranberri releases.'
+            : 'Build and install the latest origin/main from a local clone.'}
+        </p>
 
         {settings.updater.channel === 'beta' && (
           <div className="space-y-2 pt-2">
@@ -123,24 +128,23 @@ export function UpdatesSettings({
                 value={settings.updater.sourceRepoPath ?? ''}
                 onChange={(event) => void saveUpdater({ sourceRepoPath: event.target.value })}
                 placeholder="Choose a local clone"
-                className="h-9 min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2.5 font-mono text-xs text-app-text outline-none focus:border-app-accent"
+                className={cn(fieldStyle, 'flex-1 font-mono text-xs')}
               />
               <button
                 type="button"
                 onClick={() => void chooseRepo()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-app-surface-2 px-3 text-xs font-medium text-app-text hover:bg-app-border"
+                className={buttonStyle({ tone: 'secondary', size: 'medium' })}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
                 Choose
               </button>
             </div>
-            <p className="text-caption text-app-text-muted">Cranberri fetches, builds, and installs the latest main branch from this clone.</p>
           </div>
         )}
       </SettingsSection>
 
       <SettingsSection title="Current build">
-        <div className="flex items-start gap-3 rounded-md bg-app-bg px-3 py-3">
+        <div className="flex items-start gap-3 rounded-md bg-app-bg/70 px-3 py-3">
           <StatusIcon tone={statusCopy.tone} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-app-text">{statusCopy.title}</div>
@@ -149,7 +153,7 @@ export function UpdatesSettings({
         </div>
 
         {update.status?.status === 'failed' && update.status.logPath && (
-          <button type="button" onClick={() => void openLog()} className="w-fit text-xs text-app-danger underline underline-offset-4">
+          <button type="button" onClick={() => void openLog()} className={buttonStyle({ tone: 'ghost', size: 'compact' })}>
             Open update log
           </button>
         )}
@@ -171,7 +175,7 @@ export function UpdatesSettings({
             type="button"
             onClick={() => void checkForUpdates()}
             disabled={update.checking || update.installing}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-app-surface-2 px-3 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50"
+            className={buttonStyle({ tone: 'secondary', size: 'medium' })}
           >
             {update.checking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {update.checking ? 'Checking...' : 'Check for updates'}
@@ -181,7 +185,7 @@ export function UpdatesSettings({
               type="button"
               onClick={() => void installUpdate()}
               disabled={update.checking || update.installing}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-app-accent px-3 text-xs font-medium text-app-accent-contrast hover:bg-app-accent/90 disabled:opacity-50"
+              className={buttonStyle({ tone: 'primary', size: 'medium' })}
             >
               <Download className="h-3.5 w-3.5" />
               {update.installing ? 'Installing...' : settings.updater.channel === 'beta' ? 'Build and install' : 'Install update'}

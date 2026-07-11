@@ -97,6 +97,9 @@ const registryFingerprintByThread = new Map<string, string>()
 const registryAppsByContext = new Map<string, ToolRegistryApp[]>()
 const registryMcpByContext = new Map<string, ToolRegistryMcpServer[]>()
 const pendingApprovalToolEvents = new Map<string, ToolEventRecord>()
+let idleRegistryGeneration = 0
+let idleRegistryResult: ToolRegistryLoadResult | null = null
+let idleRegistryLoad: Promise<ToolRegistryLoadResult> | null = null
 const toolCatalogService = new ToolCatalogService({
   projectRoots: () => [...catalogProjectRoots],
 })
@@ -166,6 +169,9 @@ function trimCatalogTaskState(): void {
 }
 
 function clearCatalogTaskState(): void {
+  idleRegistryGeneration += 1
+  idleRegistryResult = null
+  idleRegistryLoad = null
   capabilityEpochByThread.clear()
   registryFingerprintByThread.clear()
   registryAppsByContext.clear()
@@ -692,54 +698,87 @@ async function loadToolRegistry(
       false,
     )
   }
-  const errors: string[] = []
-  let appsResult: unknown
-  let mcpResult: unknown
-  let appListAvailable = false
-  let mcpServerStatusAvailable = false
-  let usedStaleThreadFallback = false
-
-  try {
-    appsResult = await c.listApps({ threadId, forceRefetch })
-    appListAvailable = true
-  } catch (error) {
-    if (threadId && isThreadNotFoundError(error)) {
-      usedStaleThreadFallback = true
+  const [apps, mcp] = await Promise.all([
+    (async () => {
       try {
-        appsResult = await c.listApps({ threadId: null, forceRefetch })
-        appListAvailable = true
-      } catch (fallbackError) {
-        errors.push(registryErrorMessage(fallbackError, 'App list unavailable'))
+        return {
+          result: await c.listApps({ threadId, forceRefetch }),
+          available: true,
+          usedStaleThreadFallback: false,
+          errors: [] as string[],
+        }
+      } catch (error) {
+        if (threadId && isThreadNotFoundError(error)) {
+          try {
+            return {
+              result: await c.listApps({ threadId: null, forceRefetch }),
+              available: true,
+              usedStaleThreadFallback: true,
+              errors: [] as string[],
+            }
+          } catch (fallbackError) {
+            return {
+              result: undefined,
+              available: false,
+              usedStaleThreadFallback: true,
+              errors: [registryErrorMessage(fallbackError, 'App list unavailable')],
+            }
+          }
+        }
+        return {
+          result: undefined,
+          available: false,
+          usedStaleThreadFallback: false,
+          errors: [registryErrorMessage(error, 'App list unavailable')],
+        }
       }
-    } else {
-      errors.push(registryErrorMessage(error, 'App list unavailable'))
-    }
-  }
-
-  try {
-    mcpResult = await c.listMcpServerStatus({ threadId })
-    mcpServerStatusAvailable = true
-  } catch (error) {
-    if (threadId && isThreadNotFoundError(error)) {
-      usedStaleThreadFallback = true
+    })(),
+    (async () => {
       try {
-        mcpResult = await c.listMcpServerStatus({ threadId: null })
-        mcpServerStatusAvailable = true
-      } catch (fallbackError) {
-        errors.push(registryErrorMessage(fallbackError, 'MCP server status unavailable'))
+        return {
+          result: await c.listMcpServerStatus({ threadId }),
+          available: true,
+          usedStaleThreadFallback: false,
+          errors: [] as string[],
+        }
+      } catch (error) {
+        if (threadId && isThreadNotFoundError(error)) {
+          try {
+            return {
+              result: await c.listMcpServerStatus({ threadId: null }),
+              available: true,
+              usedStaleThreadFallback: true,
+              errors: [] as string[],
+            }
+          } catch (fallbackError) {
+            return {
+              result: undefined,
+              available: false,
+              usedStaleThreadFallback: true,
+              errors: [registryErrorMessage(fallbackError, 'MCP server status unavailable')],
+            }
+          }
+        }
+        return {
+          result: undefined,
+          available: false,
+          usedStaleThreadFallback: false,
+          errors: [registryErrorMessage(error, 'MCP server status unavailable')],
+        }
       }
-    } else {
-      errors.push(registryErrorMessage(error, 'MCP server status unavailable'))
-    }
-  }
+    })(),
+  ])
+
+  const errors = [...apps.errors, ...mcp.errors]
+  const usedStaleThreadFallback = apps.usedStaleThreadFallback || mcp.usedStaleThreadFallback
 
   const snapshot = normalizeToolRegistrySnapshot({
-      appsResult,
-      mcpResult,
-      appListAvailable,
-      mcpServerStatusAvailable,
-      errors,
-    })
+    appsResult: apps.result,
+    mcpResult: mcp.result,
+    appListAvailable: apps.available,
+    mcpServerStatusAvailable: mcp.available,
+    errors,
+  })
   return retainLastRegistryEvidence(
     threadId,
     snapshot,
@@ -749,11 +788,59 @@ async function loadToolRegistry(
   )
 }
 
+function loadIdleToolRegistry(forceRefetch = false): Promise<ToolRegistryLoadResult> {
+  if (!forceRefetch && idleRegistryResult) return Promise.resolve(idleRegistryResult)
+  if (!forceRefetch && idleRegistryLoad) return idleRegistryLoad
+
+  const generation = ++idleRegistryGeneration
+  const request = loadToolRegistry(null, forceRefetch)
+    .then((result) => {
+      if (generation === idleRegistryGeneration) idleRegistryResult = result
+      return result
+    })
+    .finally(() => {
+      if (idleRegistryLoad === request) idleRegistryLoad = null
+    })
+  idleRegistryLoad = request
+  return request
+}
+
 async function loadToolCatalogContext(
   activeThreadId: string | null,
   forceRefetch: boolean,
 ): Promise<ToolCatalogRequestContext> {
-  const registry = await loadToolRegistry(activeThreadId, forceRefetch)
+  let registry: ToolRegistryLoadResult
+
+  if (!activeThreadId && !forceRefetch) {
+    let runtimeConnected = false
+    try {
+      await getCodexClient()
+      runtimeConnected = true
+    } catch {
+      // The local CLI catalog still remains useful when Codex cannot start.
+    }
+    if (runtimeConnected && idleRegistryResult) {
+      registry = idleRegistryResult
+    } else if (runtimeConnected && idleRegistryLoad) {
+      registry = await idleRegistryLoad
+    } else {
+      if (runtimeConnected) void loadIdleToolRegistry().catch(() => undefined)
+      const observedAt = new Date().toISOString()
+      return {
+        taskKey: null,
+        runtimeConnected,
+        preferences: readSettings().tools,
+        registryEvidence: [],
+        registryFailure: runtimeConnected
+          ? null
+          : { code: 'runtime-unavailable', observedAt },
+      }
+    }
+  } else if (!activeThreadId) {
+    registry = await loadIdleToolRegistry(forceRefetch)
+  } else {
+    registry = await loadToolRegistry(activeThreadId, forceRefetch)
+  }
   let taskKey = catalogTaskKey(activeThreadId)
 
   if (
@@ -991,15 +1078,13 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tools:catalog:list', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {
     authorizeCatalogIpc(event, mainWindowGetter)
     const request = toolCatalogListRequestSchema.parse(input)
-    const context = await loadToolCatalogContext(request.activeThreadId, false)
-    return toolCatalogService.list(context)
+    return toolCatalogService.list(loadToolCatalogContext(request.activeThreadId, false))
   })
 
   ipcMain.handle('tools:catalog:refresh', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {
     authorizeCatalogIpc(event, mainWindowGetter)
     const request = toolCatalogListRequestSchema.parse(input)
-    const context = await loadToolCatalogContext(request.activeThreadId, true)
-    return toolCatalogService.refresh(context)
+    return toolCatalogService.refresh(loadToolCatalogContext(request.activeThreadId, true))
   })
 
   ipcMain.handle('tools:catalog:test', async (event, input: unknown): Promise<ToolCatalogSnapshot> => {

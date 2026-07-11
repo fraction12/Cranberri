@@ -4,12 +4,12 @@ import { terminalTheme } from './terminal-theme'
 describe('terminal theme', () => {
   it('uses readable light and dark palettes', () => {
     expect(terminalTheme('light')).toMatchObject({
-      background: '#f7f7f8',
-      foreground: '#202123',
+      background: '#fcfcfd',
+      foreground: '#1f2023',
     })
     expect(terminalTheme('dark')).toMatchObject({
-      background: '#0f0f11',
-      foreground: '#fafafa',
+      background: '#111113',
+      foreground: '#f4f4f5',
     })
   })
 })

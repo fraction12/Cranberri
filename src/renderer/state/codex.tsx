@@ -45,10 +45,10 @@ interface CodexActionsApi {
     repo?: { id: string; path: string },
   ) => Promise<CodexThread>
   restoreSessionWindow: (windowId: string, threadId: string) => Promise<CodexThread>
-  archiveSession: (threadId: string) => Promise<void>
-  unarchiveSession: (threadId: string) => Promise<void>
-  deleteSession: (threadId: string) => Promise<void>
-  renameSession: (threadId: string, name: string) => Promise<void>
+  archiveSession: (threadId: string, repoPath?: string) => Promise<void>
+  unarchiveSession: (threadId: string, repoPath?: string) => Promise<void>
+  deleteSession: (threadId: string, repoPath?: string) => Promise<void>
+  renameSession: (threadId: string, name: string, repoPath?: string) => Promise<void>
 }
 
 type CodexApi = CodexThreadStateApi & CodexWindowStateApi & CodexActionsApi
@@ -664,26 +664,29 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     return hydrated
   }, [activeRepo])
 
-  const archiveSession = useCallback(async (threadId: string): Promise<void> => {
-    if (!activeRepo) throw new Error('No active repo')
-    await window.cranberri.codex.archiveThread(activeRepo.path, threadId)
+  const archiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
+    const targetRepoPath = repoPath ?? activeRepo?.path
+    if (!targetRepoPath) throw new Error('No repo selected')
+    await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
 
-  const unarchiveSession = useCallback(async (threadId: string): Promise<void> => {
-    if (!activeRepo) throw new Error('No active repo')
-    await window.cranberri.codex.unarchiveThread(activeRepo.path, threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
+  const unarchiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
+    const targetRepoPath = repoPath ?? activeRepo?.path
+    if (!targetRepoPath) throw new Error('No repo selected')
+    await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
   }, [activeRepo])
 
-  const deleteSession = useCallback(async (threadId: string): Promise<void> => {
-    if (!activeRepo) throw new Error('No active repo')
-    await window.cranberri.codex.deleteThread(activeRepo.path, threadId)
+  const deleteSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
+    const targetRepoPath = repoPath ?? activeRepo?.path
+    if (!targetRepoPath) throw new Error('No repo selected')
+    await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWorkersByParent((current) => {
       const { [threadId]: removed, ...rest } = current
@@ -693,10 +696,11 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
 
-  const renameSession = useCallback(async (threadId: string, name: string): Promise<void> => {
-    if (!activeRepo) throw new Error('No active repo')
-    await window.cranberri.codex.renameThread(activeRepo.path, threadId, name)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
+  const renameSession = useCallback(async (threadId: string, name: string, repoPath?: string): Promise<void> => {
+    const targetRepoPath = repoPath ?? activeRepo?.path
+    if (!targetRepoPath) throw new Error('No repo selected')
+    await window.cranberri.codex.renameThread(targetRepoPath, threadId, name)
+    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
     setThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, title: name } : thread))
   }, [activeRepo])
 
