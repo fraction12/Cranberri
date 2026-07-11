@@ -162,19 +162,29 @@ export class EnvironmentRunner {
       archivedAt: null,
     }
     await this.dependencies.taskStore.update((state) => ({ ...state, tasks: [...state.tasks, draft] }))
-    const worktree = await this.dependencies.worktrees.create({
-      projectId: project.id,
-      projectName: project.name,
-      taskId,
-      taskName: 'environment-test',
-      localCheckoutPath: local.canonicalPath,
-      managedRoot: settings.root,
-      baseRef: draft.baseRef ?? 'HEAD',
-      cap: settings.cap,
-    })
-    const task = { ...draft, checkoutId: worktree.checkoutId, worktreeId: worktree.id, baseSha: worktree.baseSha, state: 'setup' as const, updatedAt: Date.now() }
-    await this.replaceTask(task)
-    return this.startJob('test', task, worktree, request.environmentId, request.revision)
+    try {
+      const worktree = await this.dependencies.worktrees.create({
+        projectId: project.id,
+        projectName: project.name,
+        taskId,
+        taskName: 'environment-test',
+        localCheckoutPath: local.canonicalPath,
+        managedRoot: settings.root,
+        baseRef: draft.baseRef ?? 'HEAD',
+        cap: settings.cap,
+      })
+      const task = { ...draft, checkoutId: worktree.checkoutId, worktreeId: worktree.id, baseSha: worktree.baseSha, state: 'setup' as const, updatedAt: Date.now() }
+      await this.replaceTask(task)
+      return this.startJob('test', task, worktree, request.environmentId, request.revision)
+    } catch (error) {
+      await this.dependencies.taskStore.update((state) => ({
+        ...state,
+        tasks: state.tasks.map((task) => task.id === taskId
+          ? { ...task, state: 'failed' as const, updatedAt: Date.now() }
+          : task),
+      }))
+      throw error
+    }
   }
 
   openAction(request: EnvironmentActionRequest): { terminalId: string; pid: number } {
@@ -395,8 +405,20 @@ export class EnvironmentRunner {
       if (job.kind === 'test') {
         try {
           await this.dependencies.worktrees.remove(worktree.id)
-        } catch {
-          // A setup that left files or other protected state remains inspectable and counts toward the cap.
+          await this.dependencies.taskStore.update((state) => ({
+            ...state,
+            tasks: state.tasks.filter((candidate) => candidate.id !== task.id),
+          }))
+        } catch (error) {
+          await this.dependencies.taskStore.update((state) => ({
+            ...state,
+            tasks: state.tasks.map((candidate) => candidate.id === task.id
+              ? { ...candidate, state: 'needsAttention' as const, updatedAt: Date.now() }
+              : candidate),
+            managedWorktrees: state.managedWorktrees.map((candidate) => candidate.id === worktree.id
+              ? { ...candidate, lifecycle: 'needsAttention' as const, cleanupReason: error instanceof Error ? error.message : 'Environment test cleanup failed', updatedAt: Date.now() }
+              : candidate),
+          }))
         }
       }
       return

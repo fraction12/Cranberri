@@ -146,28 +146,32 @@ export class HandoffCoordinator {
     let changes: LocalChanges | null = null
     let bundlePath: string | null = null
     let worktreeApplied = false
+    let localCleared = false
     try {
       await this.begin(task, worktree, 'toWorktree', request.branch)
       changes = await captureLocalChanges(localPath, head)
       bundlePath = writeBundle(this.bundleRoot, task.id, changes)
       await this.journal(task.id, 'captured', bundlePath)
-      await checkoutBranch(localPath, project.pinnedLocalBranch)
-      await this.journal(task.id, 'branchReleased', bundlePath)
+      await detachCheckout(localPath, head)
       await checkoutBranch(worktree.path, request.branch)
       await applyLocalChanges(worktree.path, changes)
       worktreeApplied = true
       await this.journal(task.id, 'applied', bundlePath)
       await this.verifyTransfer(localPath, worktree.path)
+      await this.assertUnchanged(localPath, changes)
+      await clearTransferredChanges(localPath, changes)
+      localCleared = true
+      if (await gitStatusPorcelain(localPath)) throw new Error('Local task branch did not cleanly release')
+      await checkoutBranch(localPath, project.pinnedLocalBranch)
+      await this.journal(task.id, 'branchReleased', bundlePath)
       await this.codex.resumeThread(task.threadId!, { cwd: worktree.path, taskId: task.id })
       await this.journal(task.id, 'resumed', bundlePath)
       const updated = await this.commitBinding(task, worktree, 'worktree', request.branch)
-      await this.assertUnchanged(localPath, changes)
-      await clearTransferredChanges(localPath, changes)
       fs.rmSync(bundlePath)
       await this.releaseLease(task)
       return updated
     } catch (error) {
-      return this.failAndRollback({ task, worktree, branch: request.branch, direction: 'toWorktree', changes, bundlePath, destinationApplied: worktreeApplied, error })
+      return this.failAndRollback({ task, worktree, branch: request.branch, direction: 'toWorktree', changes, bundlePath, destinationApplied: worktreeApplied, sourceCleared: localCleared, error })
     }
   }
 
@@ -276,7 +280,7 @@ export class HandoffCoordinator {
     return updated
   }
 
-  private async failAndRollback(input: { task: Task; worktree: ManagedWorktree; branch: string; direction: 'toLocal' | 'toWorktree'; changes: LocalChanges | null; bundlePath: string | null; destinationApplied: boolean; error: unknown }): Promise<never> {
+  private async failAndRollback(input: { task: Task; worktree: ManagedWorktree; branch: string; direction: 'toLocal' | 'toWorktree'; changes: LocalChanges | null; bundlePath: string | null; destinationApplied: boolean; sourceCleared?: boolean; error: unknown }): Promise<never> {
     const message = input.error instanceof Error ? input.error.message : 'Handoff failed'
     try {
       const project = this.registry.projects.find((item) => item.id === input.task.projectId)!
@@ -295,6 +299,7 @@ export class HandoffCoordinator {
         }
         await detachCheckout(input.worktree.path, await resolveGitRef(input.worktree.path, 'HEAD'))
         await checkoutBranch(localPath, input.branch)
+        if (input.sourceCleared && input.changes) await applyLocalChanges(localPath, input.changes)
       }
       await this.store.update((state) => ({
         ...state,

@@ -253,6 +253,7 @@ async function launchApp(userDataDir, extraEnv = {}) {
     env: {
       ...process.env,
       CRANBERRI_USER_DATA_DIR: userDataDir,
+      CRANBERRI_HOME: path.join(userDataDir, 'cranberri-home'),
       ...extraEnv,
     },
   })

@@ -23,8 +23,11 @@ function readRegistry(): ProcessRegistryFile {
 }
 
 function writeRegistry(state: ProcessRegistryFile): void {
-  fs.mkdirSync(path.dirname(registryPath()), { recursive: true })
-  fs.writeFileSync(registryPath(), JSON.stringify(state, null, 2))
+  const destination = registryPath()
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`
+  fs.writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
+  fs.renameSync(temporary, destination)
 }
 
 function normalizeRepoPath(repoPath: string): string {

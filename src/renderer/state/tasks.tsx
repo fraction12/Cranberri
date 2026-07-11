@@ -129,19 +129,24 @@ function waitForEnvironmentJob(job: EnvironmentJob, onUpdate: (job: EnvironmentJ
   if (job.status !== 'running') return Promise.resolve(job)
   return new Promise((resolve, reject) => {
     let disposed = false
-    const finish = (result: EnvironmentJob) => {
+    const cleanup = () => {
       if (disposed) return
       disposed = true
       window.clearInterval(poll)
       unsubscribe()
       unsubscribeData()
+    }
+    const finish = (result: EnvironmentJob) => {
+      cleanup()
       resolve(result)
     }
     const read = () => window.cranberri.environments.snapshotJob(job.id).then((snapshot) => {
       onUpdate(snapshot)
       if (snapshot.status !== 'running') finish(snapshot)
     }, (error) => {
-      if (!disposed) reject(error)
+      if (disposed) return
+      cleanup()
+      reject(error)
     })
     const unsubscribe = window.cranberri.environments.onJobExit((event) => {
       if (event.jobId !== job.id || disposed) return

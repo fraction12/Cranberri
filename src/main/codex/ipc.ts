@@ -151,6 +151,8 @@ function ensureEnvironmentToolRouter(
   if (!(candidate instanceof CodexClient) || environmentToolClient === candidate) return
   const router = new EnvironmentToolRouter({
     taskStore,
+    store: environmentStore,
+    runner: environmentRunner,
     approve: (approval) => approveEnvironmentTool(mainWindowGetter, approval),
   })
   candidate.registerRequestHandler('item/tool/call', async (params) => {

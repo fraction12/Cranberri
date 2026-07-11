@@ -41,7 +41,7 @@ export interface EnvironmentToolRouterDependencies {
 export const environmentDynamicTools = Object.keys(argumentsByTool).map((name) => ({
   name,
   description: `Manage Cranberri environment profiles: ${name}.`,
-  inputSchema: { type: 'object', additionalProperties: false },
+  inputSchema: z.toJSONSchema(argumentsByTool[name as EnvironmentToolName], { target: 'draft-7', reused: 'inline' }),
 }))
 
 const toolCallSchema = z.object({

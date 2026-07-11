@@ -3,7 +3,6 @@ import path from 'node:path'
 import { inspectGitCheckout, readProjectRegistry } from './repos'
 import { TaskStore, type TaskStoreState } from './task-store'
 import type { ProjectRegistry } from '../shared/projects'
-import type { Task } from '../shared/tasks'
 
 export interface ExecutionContext {
   projectId: string
@@ -96,15 +95,6 @@ export function authorizeExecutionFile(context: ExecutionContext, filePath: stri
   const canonicalExisting = fs.realpathSync(existing)
   if (!isWithin(context.cwd, canonicalExisting)) throw new Error('File path escapes checkout through symlink')
   return target
-}
-
-export function executionIdentity(context: ExecutionContext): Pick<Task, 'projectId' | 'id' | 'checkoutId' | 'worktreeId'> {
-  return {
-    projectId: context.projectId,
-    id: context.taskId,
-    checkoutId: context.checkoutId,
-    worktreeId: context.worktreeId,
-  }
 }
 
 export function assertImmutableExecutionBinding(

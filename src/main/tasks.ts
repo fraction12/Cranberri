@@ -11,7 +11,6 @@ export interface WorktreeDraftRequest {
   environmentId: string | null
   environmentRevision: string | null
   input: PendingFirstTurn['payload']['input']
-  includeLocalChanges?: boolean
 }
 
 export interface WorktreeProvisioningContext {
@@ -35,6 +34,13 @@ export class TaskCoordinator {
   ) {}
 
   async ensureControlTasks(registry: ProjectRegistry, now = Date.now()): Promise<Task[]> {
+    const existing = this.store.read()
+    if (registry.projects.every((project) =>
+      existing.tasks.some((task) => task.id === project.controlTaskId),
+    )) {
+      return existing.tasks.filter((task) => task.role === 'control')
+    }
+
     const localCheckoutById = new Map(
       registry.checkouts.map((checkout) => [checkout.id, checkout]),
     )

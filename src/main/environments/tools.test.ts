@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '../../shared/tasks'
 import type { EnvironmentRunner } from './runner'
 import { EnvironmentStore } from './store'
-import { EnvironmentToolRouter } from './tools'
+import { environmentDynamicTools, EnvironmentToolRouter } from './tools'
 import { TaskStore } from '../task-store'
 
 const roots: string[] = []
@@ -37,6 +37,19 @@ afterEach(() => {
 })
 
 describe('EnvironmentToolRouter', () => {
+  it('advertises the arguments required by each dynamic tool', () => {
+    const create = environmentDynamicTools.find((tool) => tool.name === 'create')
+    expect(create?.inputSchema).toEqual(expect.objectContaining({
+      type: 'object',
+      required: expect.arrayContaining(['projectId', 'environmentId', 'toml']),
+      properties: expect.objectContaining({
+        projectId: expect.any(Object),
+        environmentId: expect.any(Object),
+        toml: expect.any(Object),
+      }),
+    }))
+  })
+
   it('allows validated reads and edits only on the bound Local control thread', async () => {
     const { router, store, control } = fixture()
     const created = await router.handle({

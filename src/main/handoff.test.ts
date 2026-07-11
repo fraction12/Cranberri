@@ -79,6 +79,27 @@ describe('journaled handoff', () => {
     expect(f.store.read().localLeaseByProjectId.project).toBeNull()
   })
 
+  it('preserves the pinned branch tip when the task branch advances in Local', async () => {
+    const f = fixture()
+    const mainTip = git(f.repo, 'rev-parse', 'main')
+    const { worktreePath } = await activeTask(f)
+    const coordinator = new HandoffCoordinator(f.store, f.registry, codex(), path.join(f.root, 'bundles'), { hasRunningProcesses: async () => false })
+
+    await coordinator.toLocal({ taskId: 'task', branch: 'feature', createBranch: true })
+    fs.writeFileSync(path.join(f.repo, 'committed.txt'), 'task commit\n')
+    git(f.repo, 'add', 'committed.txt')
+    git(f.repo, 'commit', '-m', 'task commit')
+    const taskTip = git(f.repo, 'rev-parse', 'feature')
+    fs.writeFileSync(path.join(f.repo, 'pending.txt'), 'pending\n')
+
+    await coordinator.toWorktree({ taskId: 'task', branch: 'feature' })
+
+    expect(git(f.repo, 'rev-parse', 'main')).toBe(mainTip)
+    expect(git(f.repo, 'branch', '--show-current')).toBe('main')
+    expect(git(worktreePath, 'rev-parse', 'HEAD')).toBe(taskTip)
+    expect(fs.readFileSync(path.join(worktreePath, 'pending.txt'), 'utf8')).toBe('pending\n')
+  })
+
   it('blocks dirty Local and active workers before mutation', async () => {
     const f = fixture()
     await activeTask(f)

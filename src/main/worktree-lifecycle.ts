@@ -121,7 +121,15 @@ export class WorktreeLifecycle {
           gitCommonDir: record.gitCommonDir,
           createdAt: record.createdAt,
         })
-        if (record.environmentRevision) await runEnvironment(record, record.environmentRevision)
+        const restored = await this.updateRecord(worktreeId, (current) => ({
+          ...current,
+          lifecycle: 'active',
+          headSha: sha,
+          archivedAt: null,
+          cleanupReason: null,
+          updatedAt: Date.now(),
+        }))
+        if (record.environmentRevision) await runEnvironment(restored, record.environmentRevision)
         return this.updateRecord(worktreeId, (current) => ({
           ...current,
           lifecycle: 'active',
