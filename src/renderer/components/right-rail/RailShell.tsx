@@ -129,6 +129,8 @@ function TabButton({
   tab: RightRailTab
   count?: number
 }) {
+  const accessibleLabel = count === undefined ? label : `${label}, ${count} active`
+
   return (
     <button
       type="button"
@@ -137,15 +139,15 @@ function TabButton({
       id={`right-rail-${tab}-tab`}
       aria-controls={`right-rail-${tab}-panel`}
       aria-selected={active}
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
       className={cn(
-        'flex h-8 items-center justify-center gap-1.5 rounded-md transition-colors duration-fast ease-standard hover:text-app-text',
+        'flex h-8 items-center justify-center rounded-md transition-colors duration-fast ease-standard hover:text-app-text',
         typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }),
         active ? 'bg-app-bg shadow-[inset_0_0_0_1px_var(--app-inset)]' : 'hover:bg-app-surface-2/65',
       )}
     >
       {icon}
-      {label}
-      {Boolean(count) && <span className={cn('min-w-4 rounded-full bg-app-accent/14 px-1 text-center', typeStyle({ role: 'micro', tone: 'info' }))}>{count}</span>}
     </button>
   )
 }
