@@ -18,7 +18,7 @@ interface AgentListProps {
 export { agentDisplayName, agentStatusLabel }
 
 export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, onStopAgent }: AgentListProps) {
-  const agents = useMemo(() => thread?.workers ?? [], [thread?.workers])
+  const agents = useMemo(() => sortAgentsNewestFirst(thread?.workers ?? []), [thread?.workers])
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [messageTarget, setMessageTarget] = useState<string | null>(null)
   const [message, setMessage] = useState('')
@@ -145,6 +145,20 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
       </div>
     </section>
   )
+}
+
+function sortAgentsNewestFirst(agents: ReadonlyArray<CodexWorker>): CodexWorker[] {
+  return agents
+    .map((agent, index) => ({ agent, index }))
+    .sort((left, right) => {
+      const startedAt = (right.agent.createdAt ?? right.agent.updatedAt)
+        - (left.agent.createdAt ?? left.agent.updatedAt)
+      if (startedAt !== 0) return startedAt
+
+      const updatedAt = right.agent.updatedAt - left.agent.updatedAt
+      return updatedAt !== 0 ? updatedAt : left.index - right.index
+    })
+    .map(({ agent }) => agent)
 }
 
 function AgentGroup({ label, children }: { label: string; children: React.ReactNode }) {

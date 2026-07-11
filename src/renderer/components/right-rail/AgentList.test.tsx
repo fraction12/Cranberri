@@ -54,6 +54,26 @@ describe('AgentList', () => {
     expect(html).toContain('aria-label="Open parent task"')
   })
 
+  it('orders active and recent agents from newest to oldest', () => {
+    const html = renderToStaticMarkup(
+      <AgentList
+        thread={{
+          ...parentThread,
+          workers: [
+            { threadId: 'active-old', parentThreadId: 'parent-1', status: 'running', createdAt: 100, updatedAt: 900 },
+            { threadId: 'recent-old', parentThreadId: 'parent-1', status: 'completed', updatedAt: 300 },
+            { threadId: 'active-new', parentThreadId: 'parent-1', status: 'running', createdAt: 200, updatedAt: 200 },
+            { threadId: 'recent-new', parentThreadId: 'parent-1', status: 'completed', updatedAt: 400 },
+          ],
+        }}
+        {...callbacks}
+      />,
+    )
+
+    expect(html.indexOf('data-worker-id="active-new"')).toBeLessThan(html.indexOf('data-worker-id="active-old"'))
+    expect(html.indexOf('data-worker-id="recent-new"')).toBeLessThan(html.indexOf('data-worker-id="recent-old"'))
+  })
+
   it('uses literal status labels and a stable fallback name', () => {
     expect(agentStatusLabel('notFound')).toBe('Not found')
     expect(agentDisplayName({
