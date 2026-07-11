@@ -183,6 +183,28 @@ export async function listProcessesForRepo(repoPath: string): Promise<AgentProce
     })
 }
 
+export async function listProcessesForExecution(identity: { taskId: string; checkoutId: string }, repoPath: string): Promise<AgentProcessInfo[]> {
+  return filterProcessesForExecution(await listProcessesForRepo(repoPath), identity)
+}
+
+export function filterProcessesForExecution(processes: AgentProcessInfo[], identity: { taskId: string; checkoutId: string }): AgentProcessInfo[] {
+  return processes.filter((processInfo) => (
+    processInfo.taskId === identity.taskId && processInfo.checkoutId === identity.checkoutId
+  ))
+}
+
+export function terminateProcessForExecution(id: string, identity: { taskId: string; checkoutId: string }, repoPath: string): AgentProcessInfo {
+  const normalized = normalizeRepoPath(repoPath)
+  const processInfo = readRegistry().processes.find((item) => (
+    item.id === id
+    && item.repoPath === normalized
+    && item.taskId === identity.taskId
+    && item.checkoutId === identity.checkoutId
+  ))
+  if (!processInfo) throw new Error('Process not found for task')
+  return terminateProcess(id, normalized)
+}
+
 export async function hasRunningProcessesForPath(checkoutPath: string): Promise<boolean> {
   const candidate = fs.existsSync(checkoutPath) ? fs.realpathSync(checkoutPath) : path.resolve(checkoutPath)
   const state = readRegistry()

@@ -8,6 +8,8 @@ import { rgPath } from '@vscode/ripgrep'
 import { getRegisteredRepoPaths } from './repos'
 import { resolveRepoFilePath, validateRepoPath, validateRepoRelativePath } from './repoSecurity'
 import { repoFileSearchOptionsSchema, repoSearchOptionsSchema, type FilePreviewResult, type RepoFileSearchMatch, type RepoFileSearchOptions, type RepoFileSearchResult, type RepoSearchMatch, type RepoSearchOptions, type RepoSearchResult, type RepoWatchEvent, type RepoWatchEventType } from '../shared/search'
+import { executionFileRequestSchema, executionRequestSchema } from '../shared/execution'
+import { authorizeExecutionFile, resolveExecutionContext } from './execution-context'
 
 const SEARCH_TIMEOUT_MS = 15000
 const SEARCH_MAX_BUFFER = 4 * 1024 * 1024
@@ -205,8 +207,8 @@ export function buildRepoWatchEvent(repoPath: string, pending: PendingWatchEvent
   }
 }
 
-function queueRepoWatchEvent(repoPath: string, type: RepoWatchEventType, eventPath: string, emit: (event: RepoWatchEvent) => void): void {
-  const session = repoWatchers.get(repoPath)
+function queueRepoWatchEvent(watchKey: string, repoPath: string, type: RepoWatchEventType, eventPath: string, emit: (event: RepoWatchEvent) => void): void {
+  const session = repoWatchers.get(watchKey)
   if (!session) return
   const relativePath = normalizeWatchPath(repoPath, eventPath)
   if (!relativePath) return
@@ -238,23 +240,27 @@ export function closeRepoWatchSession(repoPath: string, session: RepoWatchSessio
   })
 }
 
-function stopRepoWatch(repoPath: string): void {
-  const session = repoWatchers.get(repoPath)
+function stopRepoWatch(watchKey: string): void {
+  const session = repoWatchers.get(watchKey)
   if (!session) return
-  repoWatchers.delete(repoPath)
-  closeRepoWatchSession(repoPath, session)
+  repoWatchers.delete(watchKey)
+  closeRepoWatchSession(watchKey, session)
 }
 
-async function startRepoWatch(repoPath: string, registeredRepoPaths: string[], emit: (event: RepoWatchEvent) => void): Promise<{ watching: boolean; repoPath: string }> {
+export function replaceRepoWatchSession(watchKey: string, session: RepoWatchSession): void {
+  stopRepoWatch(watchKey)
+  repoWatchers.set(watchKey, session)
+}
+
+async function startRepoWatch(repoPath: string, registeredRepoPaths: string[], emit: (event: RepoWatchEvent) => void, watchKey = repoPath): Promise<{ watching: boolean; repoPath: string }> {
   const safeRepoPath = validateRepoPath(repoPath, registeredRepoPaths)
-  if (repoWatchers.has(safeRepoPath)) return { watching: true, repoPath: safeRepoPath }
 
   const watcher = process.platform === 'darwin'
     ? fs.watch(safeRepoPath, { persistent: true, recursive: true }, (eventType, filename) => {
       if (!filename) return
       const eventPath = path.join(safeRepoPath, filename.toString())
       const type: RepoWatchEventType = eventType === 'rename' && !fs.existsSync(eventPath) ? 'unlink' : 'change'
-      queueRepoWatchEvent(safeRepoPath, type, eventPath, emit)
+      queueRepoWatchEvent(watchKey, safeRepoPath, type, eventPath, emit)
     })
     : chokidar.watch(safeRepoPath, {
       ignored: WATCH_IGNORED,
@@ -266,11 +272,11 @@ async function startRepoWatch(repoPath: string, registeredRepoPaths: string[], e
       },
     })
   const session: RepoWatchSession = { watcher, pending: [], timer: null, truncated: false }
-  repoWatchers.set(safeRepoPath, session)
+  replaceRepoWatchSession(watchKey, session)
   if (process.platform !== 'darwin') {
-    watcher.on('add', (filePath) => queueRepoWatchEvent(safeRepoPath, 'add', filePath, emit))
-    watcher.on('change', (filePath) => queueRepoWatchEvent(safeRepoPath, 'change', filePath, emit))
-    watcher.on('unlink', (filePath) => queueRepoWatchEvent(safeRepoPath, 'unlink', filePath, emit))
+    watcher.on('add', (filePath) => queueRepoWatchEvent(watchKey, safeRepoPath, 'add', filePath, emit))
+    watcher.on('change', (filePath) => queueRepoWatchEvent(watchKey, safeRepoPath, 'change', filePath, emit))
+    watcher.on('unlink', (filePath) => queueRepoWatchEvent(watchKey, safeRepoPath, 'unlink', filePath, emit))
   }
   watcher.on('error', (error: unknown) => {
     emit({ repoPath: safeRepoPath, events: [], truncated: false, changedAt: Date.now() })
@@ -370,5 +376,30 @@ export function initSearchIpc(): void {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
     stopRepoWatch(safeRepoPath)
     return { watching: false, repoPath: safeRepoPath }
+  })
+  ipcMain.handle('search:task:repo', async (_, request: unknown, options: RepoSearchOptions) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return searchRepo(context.cwd, options, [context.cwd])
+  })
+  ipcMain.handle('search:task:repo-files', async (_, request: unknown, options: RepoFileSearchOptions) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return searchRepoFiles(context.cwd, options, [context.cwd])
+  })
+  ipcMain.handle('search:task:preview-file', async (_, request: unknown, maxBytes?: number) => {
+    const parsed = executionFileRequestSchema.parse(request)
+    const context = resolveExecutionContext(parsed.taskId)
+    authorizeExecutionFile(context, parsed.filePath)
+    return previewRepoFile(context.cwd, parsed.filePath, [context.cwd], maxBytes)
+  })
+  ipcMain.handle('search:task:watch:start', async (event, request: unknown) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return startRepoWatch(context.cwd, [context.cwd], (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('search:repo-changed', payload)
+    }, `task:${context.taskId}:${context.checkoutId}`)
+  })
+  ipcMain.handle('search:task:watch:stop', async (_, request: unknown) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    stopRepoWatch(`task:${context.taskId}:${context.checkoutId}`)
+    return { watching: false, repoPath: context.cwd }
   })
 }

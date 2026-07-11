@@ -7,6 +7,8 @@ import { getRegisteredRepoPaths } from './repos'
 import { resolveRepoFilePath, validateRepoPath, validateRepoRelativePath } from './repoSecurity'
 import { buildCommitMessageDraftPrompt, commitRepo, parseGeneratedCommitMessage } from './gitCommit'
 import { getCodexClient } from './codex/ipc'
+import { authorizeExecutionFile, resolveExecutionContext } from './execution-context'
+import { executionFileRequestSchema, executionRequestSchema } from '../shared/execution'
 
 const fileStatusSchema = z.object({
   path: z.string(),
@@ -56,74 +58,65 @@ function githubWebUrl(remoteUrl: string | undefined): Pick<GitHubRepoSummary, 'w
 export type Diff = z.infer<typeof diffSchema>
 export type DiffResult = Diff
 
+async function readStatus(repoPath: string): Promise<GitFileStatus[]> {
+  const status = await simpleGit(repoPath).status()
+  const files: GitFileStatus[] = []
+  const add = (filePath: string, fileStatus: GitFileStatus['status']) => {
+    if (!files.some((file) => file.path === filePath)) files.push({ path: filePath, status: fileStatus })
+  }
+  for (const filePath of status.created) add(filePath, 'added')
+  for (const filePath of status.modified) add(filePath, 'modified')
+  for (const filePath of status.deleted) add(filePath, 'deleted')
+  for (const filePath of status.renamed.map((item) => item.to)) add(filePath, 'renamed')
+  for (const filePath of status.not_added) add(filePath, 'untracked')
+  for (const filePath of status.conflicted) add(filePath, 'conflict')
+  for (const filePath of status.staged) add(filePath, 'staged')
+  return fileStatusSchema.array().parse(files)
+}
+
+async function readFiles(repoPath: string): Promise<FileTreeNode[]> {
+  const git = simpleGit(repoPath)
+  const [tracked, untracked] = await Promise.all([
+    git.raw(['ls-files']),
+    git.raw(['ls-files', '--others', '--exclude-standard']),
+  ])
+  const all = new Set([...tracked.split('\n').filter(Boolean), ...untracked.split('\n').filter(Boolean)])
+  const root: FileTreeNode[] = []
+  const dirs = new Map<string, FileTreeNode>()
+  const getDir = (dirPath: string): FileTreeNode => {
+    const existing = dirs.get(dirPath)
+    if (existing) return existing
+    const node: FileTreeNode = { path: dirPath, type: 'dir', children: [] }
+    dirs.set(dirPath, node)
+    return node
+  }
+  for (const fullPath of all) {
+    const parts = fullPath.split('/')
+    let dirPath = ''
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      dirPath = dirPath ? `${dirPath}/${parts[index]}` : parts[index]
+      const parent = dirPath.includes('/') ? getDir(dirPath.slice(0, dirPath.lastIndexOf('/'))) : null
+      const dir = getDir(dirPath)
+      if (parent && !parent.children.includes(dir)) parent.children.push(dir)
+      else if (!parent && !root.includes(dir)) root.push(dir)
+    }
+    const file = { path: fullPath, type: 'file' as const, children: [] }
+    const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : ''
+    if (parentPath) getDir(parentPath).children.push(file)
+    else root.push(file)
+  }
+  return root
+}
+
 export function initGitIpc(): void {
   ipcMain.handle('git:status', async (_, repoPath: string) => {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
-    const git = simpleGit(safeRepoPath)
-    const status = await git.status()
-
-    const files: GitFileStatus[] = []
-    const add = (path: string, status: GitFileStatus['status']) => {
-      if (!files.some((f) => f.path === path)) files.push({ path, status })
-    }
-
-    for (const path of status.created) add(path, 'added')
-    for (const path of status.modified) add(path, 'modified')
-    for (const path of status.deleted) add(path, 'deleted')
-    for (const path of status.renamed.map((r) => r.to)) add(path, 'renamed')
-    for (const path of status.not_added) add(path, 'untracked')
-    for (const path of status.conflicted) add(path, 'conflict')
-    for (const path of status.staged) {
-      if (!files.some((f) => f.path === path)) add(path, 'staged')
-    }
-
-    return fileStatusSchema.array().parse(files)
+    return readStatus(safeRepoPath)
   })
 
   ipcMain.handle('git:files', async (_, repoPath: string) => {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
-    const git = simpleGit(safeRepoPath)
-    const tracked = await git.raw(['ls-files'])
-    const untracked = await git.raw(['ls-files', '--others', '--exclude-standard'])
-    const all = new Set([
-      ...tracked.split('\n').filter(Boolean),
-      ...untracked.split('\n').filter(Boolean),
-    ])
-
-    const buildTree = (paths: string[]): FileTreeNode[] => {
-      const root: FileTreeNode[] = []
-      const dirs = new Map<string, FileTreeNode>()
-
-      const getDir = (path: string) => {
-        if (dirs.has(path)) return dirs.get(path)!
-        const node: FileTreeNode = { path, type: 'dir', children: [] }
-        dirs.set(path, node)
-        return node
-      }
-
-      for (const fullPath of paths) {
-        const parts = fullPath.split('/')
-        let dirPath = ''
-        for (let i = 0; i < parts.length - 1; i++) {
-          dirPath = dirPath ? `${dirPath}/${parts[i]}` : parts[i]
-          const parent = dirPath.includes('/') ? getDir(dirPath.slice(0, dirPath.lastIndexOf('/'))) : null
-          const dir = getDir(dirPath)
-          if (parent && !parent.children.includes(dir)) parent.children.push(dir)
-          else if (!parent && !root.includes(dir)) root.push(dir)
-        }
-        const file: FileTreeNode = { path: fullPath, type: 'file', children: [] }
-        const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : ''
-        if (parentPath) {
-          getDir(parentPath).children.push(file)
-        } else {
-          root.push(file)
-        }
-      }
-
-      return root
-    }
-
-    return buildTree([...all])
+    return readFiles(safeRepoPath)
   })
 
   ipcMain.handle('git:diff', async (_, repoPath: string) => {
@@ -202,6 +195,28 @@ export function initGitIpc(): void {
     if (!('runOneShot' in client)) throw new Error('Codex client cannot draft commit messages')
     const output = await client.runOneShot(safeRepoPath, buildCommitMessageDraftPrompt({ statusSummary, stagedDiff, unstagedDiff }), undefined, 120_000)
     return parseGeneratedCommitMessage(output)
+  })
+
+  ipcMain.handle('git:task:status', async (_, request: unknown) => readStatus(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd))
+  ipcMain.handle('git:task:files', async (_, request: unknown) => readFiles(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd))
+  ipcMain.handle('git:task:diff', async (_, request: unknown) => parseGitDiff(await simpleGit(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd).diff()))
+  ipcMain.handle('git:task:diff-file', async (_, request: unknown) => {
+    const parsed = executionFileRequestSchema.parse(request)
+    const context = resolveExecutionContext(parsed.taskId)
+    authorizeExecutionFile(context, parsed.filePath)
+    return parseGitDiff(await simpleGit(context.cwd).diff(['--', parsed.filePath]))
+  })
+  ipcMain.handle('git:task:raw-content', async (_, request: unknown, ref: 'HEAD' | 'WORKING') => {
+    const parsed = executionFileRequestSchema.parse(request)
+    const context = resolveExecutionContext(parsed.taskId)
+    const absolutePath = authorizeExecutionFile(context, parsed.filePath)
+    return ref === 'WORKING'
+      ? fs.promises.readFile(absolutePath, 'utf8').catch(() => '')
+      : simpleGit(context.cwd).show([`HEAD:${parsed.filePath}`]).catch(() => '')
+  })
+  ipcMain.handle('git:task:commit', async (_, request: unknown, title: string, summary: string) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return commitRepo(context.cwd, title, summary)
   })
 }
 

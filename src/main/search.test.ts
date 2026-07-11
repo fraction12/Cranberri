@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildRepoWatchEvent, closeRepoWatchSession, isRepoWatchPathIgnored, previewRepoFile, searchRepo, searchRepoFiles } from './search'
+import { buildRepoWatchEvent, closeRepoWatchSession, isRepoWatchPathIgnored, previewRepoFile, replaceRepoWatchSession, searchRepo, searchRepoFiles } from './search'
 
 const tempDirs: string[] = []
 
@@ -156,6 +156,14 @@ describe('isRepoWatchPathIgnored', () => {
 })
 
 describe('closeRepoWatchSession', () => {
+  it('replaces the watcher for the same task checkout key', () => {
+    const firstClose = vi.fn()
+    const first = { watcher: { close: firstClose }, pending: [], timer: null, truncated: false }
+    const second = { watcher: { close: vi.fn() }, pending: [], timer: null, truncated: false }
+    replaceRepoWatchSession('task:one:checkout-a', first)
+    replaceRepoWatchSession('task:one:checkout-a', second)
+    expect(firstClose).toHaveBeenCalledOnce()
+  })
   it('starts watcher close without waiting for native filesystem teardown', () => {
     const close = vi.fn(() => new Promise<void>(() => {}))
     const timer = setTimeout(() => {}, 1000)

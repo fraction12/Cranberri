@@ -50,6 +50,15 @@ export const environmentActionRequestSchema = z.object({
   actionId: z.string().regex(/^[a-z][a-z0-9-]*$/),
 })
 
+export const taskTerminalCreateRequestSchema = z.object({
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  cols: z.number().int().positive().optional(),
+  rows: z.number().int().positive().optional(),
+})
+
+export type TaskTerminalCreateRequest = z.infer<typeof taskTerminalCreateRequestSchema>
+
 export const environmentJobDataEventSchema = z.object({ jobId: z.string(), data: z.string() })
 export const environmentJobExitEventSchema = z.object({
   jobId: z.string(),

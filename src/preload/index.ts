@@ -35,6 +35,12 @@ const api = {
     githubSummary: (repoPath: string) => ipcRenderer.invoke('git:github-summary', repoPath),
     commit: (repoPath: string, title: string, summary: string) => ipcRenderer.invoke('git:commit', repoPath, title, summary),
     draftCommitMessage: (repoPath: string) => ipcRenderer.invoke('git:commit-message:draft', repoPath),
+    taskStatus: (taskId: string) => ipcRenderer.invoke('git:task:status', { taskId }),
+    taskFiles: (taskId: string) => ipcRenderer.invoke('git:task:files', { taskId }),
+    taskDiff: (taskId: string) => ipcRenderer.invoke('git:task:diff', { taskId }),
+    taskDiffFile: (taskId: string, filePath: string) => ipcRenderer.invoke('git:task:diff-file', { taskId, filePath }),
+    taskRawContent: (taskId: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:task:raw-content', { taskId, filePath }, ref),
+    taskCommit: (taskId: string, title: string, summary: string) => ipcRenderer.invoke('git:task:commit', { taskId }, title, summary),
   },
   github: {
     panelData: (repoPath: string, kind: import('@/shared/git').GitHubPanelKind) => ipcRenderer.invoke('github:panel-data', repoPath, kind),
@@ -45,6 +51,11 @@ const api = {
     previewFile: (repoPath: string, filePath: string, maxBytes?: number) => ipcRenderer.invoke('search:preview-file', repoPath, filePath, maxBytes),
     watchStart: (repoPath: string) => ipcRenderer.invoke('search:watch:start', repoPath),
     watchStop: (repoPath: string) => ipcRenderer.invoke('search:watch:stop', repoPath),
+    taskRepo: (taskId: string, options: import('@/shared/search').RepoSearchOptions) => ipcRenderer.invoke('search:task:repo', { taskId }, options),
+    taskFiles: (taskId: string, options: import('@/shared/search').RepoFileSearchOptions) => ipcRenderer.invoke('search:task:repo-files', { taskId }, options),
+    taskPreviewFile: (taskId: string, filePath: string, maxBytes?: number) => ipcRenderer.invoke('search:task:preview-file', { taskId, filePath }, maxBytes),
+    taskWatchStart: (taskId: string) => ipcRenderer.invoke('search:task:watch:start', { taskId }),
+    taskWatchStop: (taskId: string) => ipcRenderer.invoke('search:task:watch:stop', { taskId }),
     onRepoChanged: (cb: (event: import('@/shared/search').RepoWatchEvent) => void) => {
       const handler = (_: unknown, payload: import('@/shared/search').RepoWatchEvent) => cb(payload)
       ipcRenderer.on('search:repo-changed', handler)
@@ -101,6 +112,7 @@ const api = {
   },
   terminal: {
     create: (id: string, cwd: string, cols?: number, rows?: number) => ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
+    createForTask: (request: import('@/shared/terminal').TaskTerminalCreateRequest) => ipcRenderer.invoke('terminal:task:create', request),
     snapshot: (id: string) => ipcRenderer.invoke('terminal:snapshot', id),
     clear: (id: string) => ipcRenderer.invoke('terminal:clear', id),
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
@@ -139,9 +151,12 @@ const api = {
   processes: {
     list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
     terminate: (repoPath: string, processId: string) => ipcRenderer.invoke('processes:terminate', repoPath, processId),
+    listForTask: (taskId: string) => ipcRenderer.invoke('processes:task:list', { taskId }),
+    terminateForTask: (taskId: string, processId: string) => ipcRenderer.invoke('processes:task:terminate', { taskId }, processId),
   },
   browser: {
     attach: (params: import('@/shared/browser').BrowserAttachParams) => ipcRenderer.invoke('browser:attach', params),
+    attachForTask: (params: import('@/shared/browser').TaskBrowserAttachParams) => ipcRenderer.invoke('browser:task:attach', params),
     bounds: (windowId: string, bounds: import('@/shared/browser').BrowserBounds) => ipcRenderer.invoke('browser:bounds', windowId, bounds),
     detach: (windowId: string) => ipcRenderer.invoke('browser:detach', windowId),
     destroy: (windowId: string) => ipcRenderer.invoke('browser:destroy', windowId),

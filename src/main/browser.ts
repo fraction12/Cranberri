@@ -14,7 +14,9 @@ import {
   type BrowserPageState,
   type BrowserScreenshot,
   type BrowserSnapshot,
+  taskBrowserAttachParamsSchema,
 } from '../shared/browser'
+import { assertImmutableExecutionBinding, resolveExecutionContext, type ExecutionContext } from './execution-context'
 
 const DEFAULT_URL = 'about:blank'
 const ALLOWED_PROTOCOLS = new Set(['about:', 'http:', 'https:', 'file:'])
@@ -28,6 +30,7 @@ interface BrowserEntry {
   attached: boolean
   state: BrowserPageState
   inspectMode: boolean
+  execution: Pick<ExecutionContext, 'projectId' | 'taskId' | 'checkoutId' | 'worktreeId'> | null
 }
 
 function blankState(windowId: string, url = DEFAULT_URL): BrowserPageState {
@@ -100,13 +103,15 @@ export class BrowserManager {
 
   constructor(private readonly mainWindowGetter: () => BrowserWindow | null) {}
 
-  attach(params: BrowserAttachParams): BrowserPageState {
+  attach(params: BrowserAttachParams, execution: ExecutionContext | null = null): BrowserPageState {
     const parsed = browserAttachParamsSchema.parse(params)
     const win = this.requireWindow()
     let entry = this.entries.get(parsed.windowId)
     if (!entry) {
-      entry = this.createEntry(parsed.windowId, parsed.profileId)
+      entry = this.createEntry(parsed.windowId, parsed.profileId, execution)
       this.entries.set(parsed.windowId, entry)
+    } else if (execution && entry.execution) {
+      assertImmutableExecutionBinding(entry.execution, execution, 'Browser')
     }
 
     if (!entry.attached) {
@@ -259,7 +264,7 @@ export class BrowserManager {
     return { ok: true }
   }
 
-  private createEntry(windowId: string, profileId: string): BrowserEntry {
+  private createEntry(windowId: string, profileId: string, execution: ExecutionContext | null): BrowserEntry {
     const browserSession = session.fromPartition(browserSessionPartition(profileId))
     const view = new WebContentsView({
       webPreferences: {
@@ -275,6 +280,12 @@ export class BrowserManager {
       attached: false,
       inspectMode: false,
       state: blankState(windowId),
+      execution: execution ? {
+        projectId: execution.projectId,
+        taskId: execution.taskId,
+        checkoutId: execution.checkoutId,
+        worktreeId: execution.worktreeId,
+      } : null,
     }
 
     view.webContents.on('did-start-loading', () => {
@@ -366,6 +377,10 @@ export function initBrowserIpc(mainWindowGetter: () => BrowserWindow | null): vo
   const manager = new BrowserManager(mainWindowGetter)
 
   ipcMain.handle('browser:attach', (_, params: BrowserAttachParams) => manager.attach(params))
+  ipcMain.handle('browser:task:attach', (_, params: unknown) => {
+    const parsed = taskBrowserAttachParamsSchema.parse(params)
+    return manager.attach(parsed, resolveExecutionContext(parsed.taskId))
+  })
   ipcMain.handle('browser:bounds', (_, windowId: string, bounds: BrowserBounds) => manager.setBounds(windowId, bounds))
   ipcMain.handle('browser:detach', (_, windowId: string) => {
     manager.detach(windowId)

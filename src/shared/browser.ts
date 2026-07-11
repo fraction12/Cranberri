@@ -14,6 +14,10 @@ export const browserAttachParamsSchema = z.object({
   bounds: browserBoundsSchema,
 })
 
+export const taskBrowserAttachParamsSchema = browserAttachParamsSchema.extend({
+  taskId: z.string().min(1),
+})
+
 export const browserPageStateSchema = z.object({
   windowId: z.string().min(1),
   url: z.string(),
@@ -77,6 +81,7 @@ export const browserInspectElementParamsSchema = z.object({
 
 export type BrowserBounds = z.infer<typeof browserBoundsSchema>
 export type BrowserAttachParams = z.infer<typeof browserAttachParamsSchema>
+export type TaskBrowserAttachParams = z.infer<typeof taskBrowserAttachParamsSchema>
 export type BrowserPageState = z.infer<typeof browserPageStateSchema>
 export type BrowserSnapshot = z.infer<typeof browserSnapshotSchema>
 export type BrowserScreenshot = z.infer<typeof browserScreenshotSchema>

@@ -57,6 +57,12 @@ declare global {
         githubSummary: (repoPath: string) => Promise<GitHubRepoSummary>
         commit: (repoPath: string, title: string, summary: string) => Promise<GitCommitResult>
         draftCommitMessage: (repoPath: string) => Promise<import('@/shared/git').GitCommitMessageDraft>
+        taskStatus: (taskId: string) => Promise<GitFileStatus[]>
+        taskFiles: (taskId: string) => Promise<FileTreeNode[]>
+        taskDiff: (taskId: string) => Promise<DiffResult>
+        taskDiffFile: (taskId: string, filePath: string) => Promise<DiffResult>
+        taskRawContent: (taskId: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
+        taskCommit: (taskId: string, title: string, summary: string) => Promise<GitCommitResult>
       }
       github: {
         panelData: (repoPath: string, kind: GitHubPanelKind) => Promise<GitHubPanelData>
@@ -67,6 +73,11 @@ declare global {
         previewFile: (repoPath: string, filePath: string, maxBytes?: number) => Promise<import('@/shared/search').FilePreviewResult>
         watchStart: (repoPath: string) => Promise<{ watching: boolean; repoPath: string }>
         watchStop: (repoPath: string) => Promise<{ watching: boolean; repoPath: string }>
+        taskRepo: (taskId: string, options: import('@/shared/search').RepoSearchOptions) => Promise<import('@/shared/search').RepoSearchResult>
+        taskFiles: (taskId: string, options: import('@/shared/search').RepoFileSearchOptions) => Promise<import('@/shared/search').RepoFileSearchResult>
+        taskPreviewFile: (taskId: string, filePath: string, maxBytes?: number) => Promise<import('@/shared/search').FilePreviewResult>
+        taskWatchStart: (taskId: string) => Promise<{ watching: boolean; repoPath: string }>
+        taskWatchStop: (taskId: string) => Promise<{ watching: boolean; repoPath: string }>
         onRepoChanged: (cb: (event: import('@/shared/search').RepoWatchEvent) => void) => () => void
       }
       codex: {
@@ -109,6 +120,7 @@ declare global {
       }
       terminal: {
         create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number; buffer?: string }>
+        createForTask: (request: import('@/shared/terminal').TaskTerminalCreateRequest) => Promise<{ pid: number; buffer?: string }>
         snapshot: (id: string) => Promise<{ buffer: string }>
         clear: (id: string) => Promise<void>
         write: (id: string, data: string) => Promise<void>
@@ -131,9 +143,12 @@ declare global {
       processes: {
         list: (repoPath: string) => Promise<{ processes: AgentProcessInfo[] }>
         terminate: (repoPath: string, processId: string) => Promise<{ process: AgentProcessInfo }>
+        listForTask: (taskId: string) => Promise<{ processes: AgentProcessInfo[] }>
+        terminateForTask: (taskId: string, processId: string) => Promise<{ process: AgentProcessInfo }>
       }
       browser: {
         attach: (params: import('@/shared/browser').BrowserAttachParams) => Promise<import('@/shared/browser').BrowserPageState>
+        attachForTask: (params: import('@/shared/browser').TaskBrowserAttachParams) => Promise<import('@/shared/browser').BrowserPageState>
         bounds: (windowId: string, bounds: import('@/shared/browser').BrowserBounds) => Promise<import('@/shared/browser').BrowserPageState>
         detach: (windowId: string) => Promise<{ ok: boolean }>
         destroy: (windowId: string) => Promise<{ ok: boolean }>

@@ -6,6 +6,8 @@ import * as pty from 'node-pty'
 import type { AgentProcessInfo } from '../shared/processes'
 import { getMainWindow } from './index'
 import { registerProcess, updateProcess } from './processRegistry'
+import { assertImmutableExecutionBinding, resolveExecutionContext } from './execution-context'
+import { taskTerminalCreateRequestSchema } from '../shared/terminal'
 
 const MAX_BUFFER_LENGTH = 200_000
 
@@ -143,13 +145,17 @@ interface IntegratedTerminalOptions {
   script?: string
   env?: NodeJS.ProcessEnv
   process?: PtyJobOptions['process']
+  execution?: { taskId: string; checkoutId: string }
 }
 
-const sessions = new Map<string, { job: PtyJob; processRecordId?: string }>()
+const sessions = new Map<string, { job: PtyJob; cwd: string; execution?: { taskId: string; checkoutId: string }; processRecordId?: string }>()
 
 export function openIntegratedTerminal(options: IntegratedTerminalOptions): { pid: number; buffer: string } {
+  const requestedCwd = fs.realpathSync(options.cwd || os.homedir())
   const existing = sessions.get(options.id)
   if (existing) {
+    if (existing.execution && options.execution) assertImmutableExecutionBinding(existing.execution, options.execution, 'Terminal')
+    if (existing.cwd !== requestedCwd) throw new Error('Terminal execution context is immutable')
     if (options.cols && options.rows) existing.job.resize(options.cols, options.rows)
     return { pid: existing.job.pid, buffer: existing.job.snapshot() }
   }
@@ -159,7 +165,7 @@ export function openIntegratedTerminal(options: IntegratedTerminalOptions): { pi
     ? (process.platform === 'win32' ? ['-NoExit', '-Command', options.script] : ['-lc', `${options.script}; exec ${shell} -l`])
     : []
   const job = createPtyJob({
-    cwd: options.cwd || os.homedir(),
+    cwd: requestedCwd,
     command: shell,
     args,
     env: options.env ?? process.env,
@@ -168,14 +174,14 @@ export function openIntegratedTerminal(options: IntegratedTerminalOptions): { pi
     process: options.process ?? {
       id: `terminal:${options.id}`,
       command: 'Cranberri terminal',
-      cwd: path.resolve(options.cwd || os.homedir()),
+      cwd: requestedCwd,
       terminalWindowId: options.id,
-      repoPath: path.resolve(options.cwd || os.homedir()),
+      repoPath: requestedCwd,
       kind: 'terminal',
       source: 'terminal',
     },
   })
-  sessions.set(options.id, { job, processRecordId: options.process?.id })
+  sessions.set(options.id, { job, cwd: requestedCwd, execution: options.execution, processRecordId: options.process?.id })
   job.onData((data) => getMainWindow()?.webContents.send('terminal:data', { id: options.id, data }))
   job.onExit(({ exitCode, signal }) => {
     sessions.delete(options.id)
@@ -188,6 +194,30 @@ export function initTerminalIpc(): void {
   ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => (
     openIntegratedTerminal({ id, cwd, cols, rows })
   ))
+  ipcMain.handle('terminal:task:create', async (_, request: unknown) => {
+    const parsed = taskTerminalCreateRequestSchema.parse(request)
+    const context = resolveExecutionContext(parsed.taskId)
+    return openIntegratedTerminal({
+      id: parsed.id,
+      cwd: context.cwd,
+      cols: parsed.cols,
+      rows: parsed.rows,
+      execution: { taskId: context.taskId, checkoutId: context.checkoutId },
+      process: {
+        id: `terminal:${parsed.id}`,
+        command: 'Cranberri terminal',
+        cwd: context.cwd,
+        terminalWindowId: parsed.id,
+        repoPath: context.cwd,
+        projectId: context.projectId,
+        taskId: context.taskId,
+        checkoutId: context.checkoutId,
+        worktreeId: context.worktreeId ?? undefined,
+        kind: 'terminal',
+        source: 'terminal',
+      },
+    })
+  })
   ipcMain.handle('terminal:snapshot', async (_, id: string) => ({ buffer: sessions.get(id)?.job.snapshot() ?? '' }))
   ipcMain.handle('terminal:clear', async (_, id: string) => sessions.get(id)?.job.clear())
   ipcMain.handle('terminal:write', async (_, id: string, data: string) => sessions.get(id)?.job.write(data))
