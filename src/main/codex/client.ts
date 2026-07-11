@@ -341,7 +341,12 @@ export class CodexClient extends EventEmitter {
   async createThread(cwdOrRuntime: string | CodexRuntimeContext = this.processCwd, settings?: CodexTurnSettings): Promise<Thread> {
     const runtime = typeof cwdOrRuntime === 'string' ? { cwd: cwdOrRuntime } : cwdOrRuntime
     const approvalSettings = getThreadApprovalSettings(settings?.approvalMode)
-    const res = await this.call('thread/start', { cwd: runtime.cwd, ...approvalSettings })
+    if (runtime.dynamicTools) this.requireTransportCapability('dynamicTools')
+    const res = await this.call('thread/start', {
+      cwd: runtime.cwd,
+      ...(runtime.dynamicTools ? { dynamicTools: runtime.dynamicTools } : {}),
+      ...approvalSettings,
+    })
     const thread = (res.result as { thread: Thread } | undefined)?.thread
     if (!thread?.id) {
       throw new Error('thread/start did not return a thread id')

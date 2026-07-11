@@ -40,6 +40,17 @@ import {
   codexCliNeedsUpdate,
   parseCodexCliVersion,
 } from './version'
+import {
+  taskHistoryRequestSchema,
+  taskIdRequestSchema,
+  taskListRequestSchema,
+  taskReadRequestSchema,
+  taskSendRequestSchema,
+} from '../../shared/tasks'
+import { readProjectRegistry } from '../repos'
+import { TaskStore } from '../task-store'
+import { TaskCoordinator } from '../tasks'
+import { EnvironmentToolRouter, environmentDynamicTools } from '../environments/tools'
 
 interface PluginManifest {
   name?: string
@@ -103,6 +114,50 @@ let idleRegistryLoad: Promise<ToolRegistryLoadResult> | null = null
 const toolCatalogService = new ToolCatalogService({
   projectRoots: () => [...catalogProjectRoots],
 })
+const taskStore = new TaskStore()
+const taskCoordinator = new TaskCoordinator(taskStore)
+let environmentToolClient: CodexClient | null = null
+
+async function approveEnvironmentTool(
+  mainWindowGetter: () => Electron.BrowserWindow | null,
+  approval: import('../environments/tools').EnvironmentToolApproval,
+): Promise<boolean> {
+  const detail = approval.kind === 'trust-revision'
+    ? `Run environment ${approval.environmentId} at revision ${approval.revision} for project ${approval.projectId}?`
+    : `Delete environment ${approval.environmentId} from project ${approval.projectId}?`
+  const options: Electron.MessageBoxOptions = {
+    type: 'warning',
+    title: approval.kind === 'trust-revision' ? 'Run environment test' : 'Delete environment',
+    message: detail,
+    buttons: ['Cancel', approval.kind === 'trust-revision' ? 'Approve and run' : 'Delete'],
+    cancelId: 0,
+    defaultId: 0,
+    noLink: true,
+  }
+  const owner = mainWindowGetter()
+  const result = owner
+    ? await dialog.showMessageBox(owner, options)
+    : await dialog.showMessageBox(options)
+  return result.response === 1
+}
+
+function ensureEnvironmentToolRouter(
+  candidate: CodexClientLike,
+  mainWindowGetter: () => Electron.BrowserWindow | null,
+): void {
+  if (!(candidate instanceof CodexClient) || environmentToolClient === candidate) return
+  const router = new EnvironmentToolRouter({
+    taskStore,
+    approve: (approval) => approveEnvironmentTool(mainWindowGetter, approval),
+  })
+  candidate.registerRequestHandler('item/tool/call', async (params) => {
+    const threadId = typeof params.threadId === 'string' ? params.threadId : ''
+    const task = taskCoordinator.findByThread(threadId)
+    if (!task) throw new Error('Dynamic tool call is not bound to a Cranberri task')
+    return router.handle(params, task)
+  })
+  environmentToolClient = candidate
+}
 
 interface ToolRegistryLoadResult {
   snapshot: ToolRegistrySnapshot
@@ -879,6 +934,12 @@ async function loadToolCatalogContext(
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
   codexEventBroadcast = (event: CodexEvent) => {
+    if (event.type === 'run_end' && event.threadId) {
+      const task = taskCoordinator.findByThread(event.threadId)
+      if (task?.location === 'local') {
+        void taskCoordinator.releaseLocalLease(task.projectId, task.id).catch(() => undefined)
+      }
+    }
     const toolRecords = correlatedToolEvents(event)
     if (shouldPersistCodexEventTelemetry(event)) {
       void logTelemetry('main', 'codex:event', event).catch(() => undefined)
@@ -940,6 +1001,112 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       properties: ['openFile', 'openDirectory', 'multiSelections'],
     })
     return result.canceled ? { paths: [] } : { paths: result.filePaths }
+  })
+
+  ipcMain.handle('tasks:list', (_, raw: unknown) => {
+    const request = taskListRequestSchema.parse(raw ?? {})
+    return { tasks: taskCoordinator.list(request.projectId) }
+  })
+
+  ipcMain.handle('tasks:ensure-control', async (_, raw: unknown) => {
+    const { projectId } = taskHistoryRequestSchema.pick({ projectId: true }).parse(raw)
+    const registry = readProjectRegistry()
+    await taskCoordinator.ensureControlTasks(registry)
+    const project = registry.projects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new Error('Project not found')
+    let task = taskCoordinator.get(project.controlTaskId)
+    const c = await getCodexClient()
+    ensureEnvironmentToolRouter(c, mainWindowGetter)
+    if (!task.threadId) {
+      const runtime = taskCoordinator.resolveRuntime(task.id, registry)
+      const thread = await c.createThread({ ...runtime, dynamicTools: environmentDynamicTools })
+      task = await taskCoordinator.bindThread(task.id, thread.id)
+      advanceCapabilityEpoch(thread.id)
+    }
+    return { task }
+  })
+
+  ipcMain.handle('tasks:history', async (_, raw: unknown) => {
+    const request = taskHistoryRequestSchema.parse(raw)
+    const registry = readProjectRegistry()
+    const roots = taskCoordinator.projectRoots(request.projectId, registry)
+    const c = await getCodexClient()
+    return c.listThreads(roots, request)
+  })
+
+  ipcMain.handle('tasks:read', async (_, raw: unknown) => {
+    const request = taskReadRequestSchema.parse(raw)
+    const task = taskCoordinator.get(request.taskId)
+    if (!task.threadId) throw new Error('Task has no Codex thread')
+    const c = await getCodexClient()
+    return { task, thread: await c.readThread(task.threadId, request.archived) }
+  })
+
+  ipcMain.handle('tasks:resume', async (_, raw: unknown) => {
+    const { taskId } = taskIdRequestSchema.parse(raw)
+    const registry = readProjectRegistry()
+    let task = taskCoordinator.get(taskId)
+    const c = await getCodexClient()
+    ensureEnvironmentToolRouter(c, mainWindowGetter)
+    const runtime = taskCoordinator.resolveRuntime(task.id, registry)
+    if (!task.threadId) {
+      const thread = await c.createThread(task.role === 'control'
+        ? { ...runtime, dynamicTools: environmentDynamicTools }
+        : runtime)
+      task = await taskCoordinator.bindThread(task.id, thread.id)
+      advanceCapabilityEpoch(thread.id)
+      return { task, threadId: thread.id }
+    }
+    return { task, thread: await c.resumeThread(task.threadId, runtime) }
+  })
+
+  ipcMain.handle('tasks:send', async (_, raw: unknown) => {
+    const request = taskSendRequestSchema.parse(raw)
+    const registry = readProjectRegistry()
+    let task = taskCoordinator.get(request.taskId)
+    const c = await getCodexClient()
+    ensureEnvironmentToolRouter(c, mainWindowGetter)
+    const runtime = taskCoordinator.resolveRuntime(task.id, registry)
+    let leaseAcquired = false
+    try {
+      if (task.location === 'local') {
+        await taskCoordinator.acquireLocalLease(task.projectId, task.id)
+        leaseAcquired = true
+      }
+      if (!task.threadId) {
+        const thread = await c.createThread(task.role === 'control'
+          ? { ...runtime, dynamicTools: environmentDynamicTools }
+          : runtime)
+        task = await taskCoordinator.bindThread(task.id, thread.id)
+        advanceCapabilityEpoch(thread.id)
+      }
+      const pending = taskCoordinator.pendingInput(task.id)
+      const input = pending ?? request.input as CodexUserInput[]
+      if (pending) await taskCoordinator.markPendingTurnSending(task.id)
+      try {
+        if (!task.threadId) throw new Error('Task thread creation did not persist')
+        await c.sendMessage(task.threadId, input, request.settings as CodexTurnSettings | undefined, runtime)
+        if (pending) await taskCoordinator.acknowledgePendingTurn(task.id)
+      } catch (error) {
+        if (pending) await taskCoordinator.restorePendingTurn(task.id)
+        throw error
+      }
+      return { ok: true, task: taskCoordinator.get(task.id) }
+    } catch (error) {
+      if (leaseAcquired) await taskCoordinator.releaseLocalLease(task.projectId, task.id)
+      throw error
+    }
+  })
+
+  ipcMain.handle('tasks:archive', async (_, raw: unknown) => {
+    const { taskId } = taskIdRequestSchema.parse(raw)
+    const task = taskCoordinator.get(taskId)
+    if (task.threadId) {
+      const c = await getCodexClient()
+      await c.archiveThread(task.threadId)
+      forgetCatalogThread(task.threadId)
+    }
+    return { task: await taskCoordinator.archive(taskId) }
   })
 
   ipcMain.handle('codex:start', async (_, cwd: string) => {

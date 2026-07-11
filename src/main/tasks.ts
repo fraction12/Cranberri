@@ -1,4 +1,5 @@
 import type { ProjectRegistry } from '../shared/projects'
+import type { CodexRuntimeContext, CodexUserInput } from '../shared/codex'
 import type { PendingFirstTurn, Task } from '../shared/tasks'
 import type { WorktreeLifecycle } from './worktree-lifecycle'
 import { TaskStore } from './task-store'
@@ -146,6 +147,79 @@ export class TaskCoordinator {
         localLeaseByProjectId: { ...state.localLeaseByProjectId, [projectId]: null },
       }
     })
+  }
+
+  list(projectId?: string): Task[] {
+    return this.store.read().tasks.filter((task) => !projectId || task.projectId === projectId)
+  }
+
+  get(taskId: string): Task {
+    return this.requireTask(taskId)
+  }
+
+  findByThread(threadId: string): Task | null {
+    return this.store.read().tasks.find((task) => task.threadId === threadId) ?? null
+  }
+
+  resolveRuntime(taskId: string, registry: ProjectRegistry): CodexRuntimeContext {
+    const task = this.requireTask(taskId)
+    const checkout = registry.checkouts.find((candidate) => candidate.id === task.checkoutId)
+    const worktree = task.worktreeId
+      ? this.store.read().managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
+      : null
+    const cwd = worktree?.path ?? checkout?.canonicalPath
+    if (!cwd || checkout?.available === false) throw new Error('Task checkout is unavailable')
+    if (checkout && checkout.projectId !== task.projectId) throw new Error('Task checkout ownership mismatch')
+    if (worktree && worktree.projectId !== task.projectId) throw new Error('Task worktree ownership mismatch')
+    return { cwd, taskId: task.id, runtimeRoots: this.projectRoots(task.projectId, registry) }
+  }
+
+  projectRoots(projectId: string, registry: ProjectRegistry): string[] {
+    const checkoutRoots = registry.checkouts
+      .filter((checkout) => checkout.projectId === projectId && checkout.available)
+      .map((checkout) => checkout.canonicalPath)
+    const worktreeRoots = this.store.read().managedWorktrees
+      .filter((worktree) => worktree.projectId === projectId && worktree.lifecycle !== 'removed')
+      .map((worktree) => worktree.path)
+    return [...new Set([...checkoutRoots, ...worktreeRoots])]
+  }
+
+  async bindThread(taskId: string, threadId: string): Promise<Task> {
+    return this.patchTask(taskId, { threadId })
+  }
+
+  async markPendingTurnSending(taskId: string): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (!task.pendingFirstTurn || task.pendingFirstTurn.delivery === 'acknowledged') return task
+    return this.patchTask(taskId, {
+      pendingFirstTurn: { ...task.pendingFirstTurn, delivery: 'sending' },
+    })
+  }
+
+  async acknowledgePendingTurn(taskId: string): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (!task.pendingFirstTurn) return task
+    return this.patchTask(taskId, { pendingFirstTurn: null })
+  }
+
+  async restorePendingTurn(taskId: string): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (!task.pendingFirstTurn || task.pendingFirstTurn.delivery === 'pending') return task
+    return this.patchTask(taskId, {
+      pendingFirstTurn: { ...task.pendingFirstTurn, delivery: 'pending' },
+    })
+  }
+
+  pendingInput(taskId: string): CodexUserInput[] | null {
+    const pending = this.requireTask(taskId).pendingFirstTurn
+    return pending ? pending.payload.input as CodexUserInput[] : null
+  }
+
+  async archive(taskId: string): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (task.role === 'control') throw new Error('The Local control task cannot be archived')
+    await this.releaseLocalLease(task.projectId, task.id)
+    return this.patchTask(taskId, { state: 'archived', archivedAt: Date.now() })
   }
 
   private requireTask(taskId: string): Task {

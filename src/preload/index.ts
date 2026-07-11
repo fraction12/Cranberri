@@ -90,6 +90,15 @@ const api = {
       return () => ipcRenderer.off('codex:event', handler)
     },
   },
+  tasks: {
+    list: (projectId?: string) => ipcRenderer.invoke('tasks:list', { projectId }),
+    ensureControl: (projectId: string) => ipcRenderer.invoke('tasks:ensure-control', { projectId }),
+    history: (request: import('@/shared/tasks').TaskHistoryRequest) => ipcRenderer.invoke('tasks:history', request),
+    read: (taskId: string, archived?: boolean) => ipcRenderer.invoke('tasks:read', { taskId, archived }),
+    resume: (taskId: string) => ipcRenderer.invoke('tasks:resume', { taskId }),
+    send: (request: import('@/shared/tasks').TaskSendRequest) => ipcRenderer.invoke('tasks:send', request),
+    archive: (taskId: string) => ipcRenderer.invoke('tasks:archive', { taskId }),
+  },
   terminal: {
     create: (id: string, cwd: string, cols?: number, rows?: number) => ipcRenderer.invoke('terminal:create', id, cwd, cols, rows),
     snapshot: (id: string) => ipcRenderer.invoke('terminal:snapshot', id),

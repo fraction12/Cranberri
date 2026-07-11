@@ -98,6 +98,15 @@ declare global {
         consumeRateLimitResetCredit: () => Promise<{ outcome: string }>
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
+      tasks: {
+        list: (projectId?: string) => Promise<{ tasks: import('@/shared/tasks').Task[] }>
+        ensureControl: (projectId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        history: (request: import('@/shared/tasks').TaskHistoryRequest) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
+        read: (taskId: string, archived?: boolean) => Promise<{ task: import('@/shared/tasks').Task; thread: CodexSessionThread }>
+        resume: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; thread?: CodexSessionThread; threadId?: string }>
+        send: (request: import('@/shared/tasks').TaskSendRequest) => Promise<{ ok: true; task: import('@/shared/tasks').Task }>
+        archive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+      }
       terminal: {
         create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number; buffer?: string }>
         snapshot: (id: string) => Promise<{ buffer: string }>

@@ -149,6 +149,7 @@ export interface CodexRuntimeContext {
   cwd: string
   runtimeRoots?: string[]
   taskId?: string
+  dynamicTools?: Array<Record<string, unknown>>
 }
 
 export interface CodexTransportCapabilities {
