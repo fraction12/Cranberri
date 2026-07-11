@@ -3,6 +3,7 @@ import { EnvironmentStore } from './environments/store'
 import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
 import { WorktreeLifecycle } from './worktree-lifecycle'
+import { reconcileTaskStore } from './task-recovery'
 
 export const taskStore = new TaskStore()
 export const worktreeLifecycle = new WorktreeLifecycle(taskStore)
@@ -13,3 +14,4 @@ export const environmentRunner = new EnvironmentRunner({
   environmentStore,
 })
 export const taskCoordinator = new TaskCoordinator(taskStore, worktreeLifecycle)
+export const recoverTaskRuntime = (): Promise<void> => reconcileTaskStore(taskStore)

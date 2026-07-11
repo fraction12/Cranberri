@@ -6,6 +6,7 @@ import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initGitHubIpc } from './github'
 import { initCodexIpc, stopCodexClient } from './codex/ipc'
+import { recoverTaskRuntime } from './worktree-runtime'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
@@ -154,11 +155,12 @@ function createWindow(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (app.isPackaged) {
     registerAppProtocol()
   }
   registerMediaProtocol()
+  await recoverTaskRuntime()
   initRepoIpc()
   initAppIpc()
   initGitIpc()
