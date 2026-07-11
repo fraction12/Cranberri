@@ -236,10 +236,25 @@ async function submitGoToLine(page, action, value) {
 async function runFreshStartupSmoke() {
   smokeStep('fresh startup')
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-fresh-'))
+  const pendingUpdateResultPath = path.join(userDataDir, 'updater-result.json')
+  fs.writeFileSync(pendingUpdateResultPath, JSON.stringify({
+    success: true,
+    phase: 'relaunching',
+    message: 'Update installed successfully',
+    logPath: null,
+  }))
   const electronApp = await launchApp(userDataDir)
 
   try {
     await smokePage(electronApp, async (page) => {
+      await page.locator('[data-sonner-toast][data-type="success"] [data-title]')
+        .filter({ hasText: 'Update installed successfully' })
+        .waitFor({ timeout: 10_000 })
+      const pendingResultDeadline = Date.now() + 10_000
+      while (fs.existsSync(pendingUpdateResultPath) && Date.now() < pendingResultDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      if (fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update result was not cleared after its toast')
       await page.getByText('No repo selected').waitFor({ timeout: 10_000 })
 
       await page.getByLabel('Open settings').click()
@@ -253,9 +268,8 @@ async function runFreshStartupSmoke() {
       await defaultSpeed.selectOption('fast')
       await defaultModel.selectOption('gpt-5.4-mini')
       await page.waitForFunction(() => {
-        const selects = [...document.querySelectorAll('select')]
-        const effort = selects.find((select) => select.labels?.[0]?.textContent?.includes('Default reasoning effort'))
-        const speed = selects.find((select) => select.labels?.[0]?.textContent?.includes('Default speed'))
+        const effort = document.querySelector('select[aria-label="Default reasoning effort"]')
+        const speed = document.querySelector('select[aria-label="Default speed"]')
         return effort?.value === 'medium'
           && ![...effort.options].some((option) => option.value === 'ultra')
           && speed?.value === 'standard'
@@ -268,7 +282,7 @@ async function runFreshStartupSmoke() {
       if (nativeThemeSource !== 'light') throw new Error(`Native theme did not follow renderer setting: ${nativeThemeSource}`)
       await page.getByRole('group', { name: 'Accent color' }).getByRole('button', { name: 'Blue' }).click()
       await page.waitForFunction(() => document.documentElement.dataset.accent === 'blue')
-      await page.getByRole('button', { name: 'Increase UI font size' }).click()
+      await page.getByRole('button', { name: 'Increase Interface font size' }).click()
       await page.waitForFunction(() => (
         document.documentElement.style.getPropertyValue('--app-ui-font-size') === '15px'
         && getComputedStyle(document.documentElement).fontSize === '16px'
@@ -282,21 +296,32 @@ async function runFreshStartupSmoke() {
         await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
       }
       await page.getByRole('button', { name: 'Diagnostics' }).click()
-      await page.getByText('Reading local app diagnostics…').waitFor({ timeout: 10_000 })
+      await page.getByText(/Everything looks good|items? need attention/).waitFor({ timeout: 10_000 })
+      await page.getByText('Files and logs', { exact: true }).click()
       await page.getByText('User data').waitFor({ timeout: 10_000 })
-      await page.getByLabel('Copy User data path').click()
+      await page.getByLabel('Copy User data').click()
       await page.waitForFunction((expectedPath) => navigator.clipboard.readText().then((text) => text === expectedPath), userDataDir, { timeout: 10_000 })
-      await page.getByText('Copied User data path').waitFor({ timeout: 10_000 })
-      const openUserDataPath = page.getByLabel('Open User data path')
-      const revealUserDataPath = page.getByLabel('Reveal User data path')
+      await page.locator('[data-sonner-toast][data-type="success"] [data-title]').filter({ hasText: 'Copied user data' }).waitFor({ timeout: 10_000 })
+      const openUserDataPath = page.getByLabel('Open User data')
+      const revealUserDataPath = page.getByLabel('Reveal User data')
       await openUserDataPath.waitFor({ timeout: 10_000 })
       await revealUserDataPath.waitFor({ timeout: 10_000 })
       if (await openUserDataPath.isDisabled() || await revealUserDataPath.isDisabled()) {
         throw new Error('Diagnostics user-data native handoff controls should be enabled')
       }
       if (process.platform === 'darwin') {
-        await page.getByLabel('Open macOS Accessibility settings').waitFor({ timeout: 10_000 })
         await page.getByLabel('Open Apple Events automation settings').waitFor({ timeout: 10_000 })
+      }
+      await page.getByRole('button', { name: 'Extensions' }).click()
+      await page.getByRole('heading', { name: 'Extensions' }).waitFor({ timeout: 10_000 })
+      await page.getByRole('button', { name: 'Installed' }).waitFor({ timeout: 10_000 })
+      const settingsContent = page.locator('main[aria-live="polite"]')
+      await settingsContent.evaluate((element) => { element.scrollTop = element.scrollHeight })
+      await page.getByRole('button', { name: 'Updates' }).click()
+      await page.getByRole('heading', { name: 'Updates' }).waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => document.querySelector('main[aria-live="polite"]')?.scrollTop === 0)
+      if (await page.getByText('Install result', { exact: true }).count()) {
+        throw new Error('Completed update results should be shown as toasts, not modal content')
       }
       await page.getByLabel('Close settings').click()
       await page.getByText('Settings').waitFor({ state: 'detached', timeout: 10_000 })

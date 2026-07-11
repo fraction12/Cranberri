@@ -9,8 +9,8 @@ import {
 
 export const TOOL_CATALOG_FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'available', label: 'Ready' },
-  { value: 'needs-attention', label: 'Action' },
+  { value: 'available', label: 'Available' },
+  { value: 'needs-attention', label: 'Attention' },
   { value: 'pinned', label: 'In rail' },
 ] as const
 

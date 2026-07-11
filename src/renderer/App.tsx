@@ -6,6 +6,7 @@ import { Header } from './components/Header'
 import { AppStateProvider } from './state/appState'
 import type { SettingsTabValue } from './components/SettingsDialog'
 import { AppToaster } from './components/AppToaster'
+import { UpdateResultToast } from './components/UpdateResultToast'
 import { useRepoWatchInvalidation } from './state/search'
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
 
@@ -232,6 +233,7 @@ function AppShell() {
           onOpenSettings={openSettings}
         />
       </Suspense>
+      <UpdateResultToast />
       <AppToaster />
     </div>
   )

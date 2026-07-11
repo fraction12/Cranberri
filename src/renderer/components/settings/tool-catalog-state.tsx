@@ -11,17 +11,17 @@ interface ToolCatalogStateProps {
 export function ToolCatalogState({ loading, refreshStatus, hasEntries, errorCode }: ToolCatalogStateProps) {
   if (loading && !hasEntries) {
     return (
-      <div className="flex items-center gap-2 border-y border-app-border px-3 py-4 text-xs text-app-text-muted" role="status">
+      <div className="flex items-center gap-2 rounded-md bg-app-bg px-3 py-4 text-xs text-app-text-muted" role="status">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading tool catalog...
+        Loading tools...
       </div>
     )
   }
   if (refreshStatus === 'stale') {
-    return <div className="border-y border-app-warning/30 bg-app-warning/5 px-3 py-2 text-xs text-app-text-muted" role="status">Showing saved tool status. Refresh needed.</div>
+    return <div className="rounded-md bg-app-warning/5 px-3 py-2 text-xs text-app-text-muted" role="status">Showing the last verified tool status.</div>
   }
   if (refreshStatus === 'failed' && hasEntries) {
-    return <div className="border-y border-app-danger/30 bg-app-danger/5 px-3 py-2 text-xs text-app-text-muted" role="status">Refresh failed. Showing saved tool status{errorCode ? ` (${errorCode.slice(0, 80)})` : ''}.</div>
+    return <div className="rounded-md bg-app-danger/5 px-3 py-2 text-xs text-app-text-muted" role="status" title={errorCode ?? undefined}>Could not refresh tools. Showing the last verified status.</div>
   }
   return null
 }

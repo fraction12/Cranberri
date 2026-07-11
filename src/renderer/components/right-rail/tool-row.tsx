@@ -13,6 +13,7 @@ export interface ToolRowProps {
   expanded: boolean
   busy?: boolean
   endAction?: ReactNode
+  divided?: boolean
   onExpandedChange: (toolId: ToolCatalogId, expanded: boolean) => void
   onTest: (toolId: ToolCatalogId) => void
   onOpenSettings: (toolId: ToolCatalogId) => void
@@ -24,6 +25,7 @@ export function ToolRow({
   expanded,
   busy = false,
   endAction,
+  divided = true,
   onExpandedChange,
   onTest,
   onOpenSettings,
@@ -38,7 +40,7 @@ export function ToolRow({
   const sendDiagnostic = useCallback(() => onSendDiagnostic?.(entry.id), [entry.id, onSendDiagnostic])
 
   return (
-    <article aria-busy={busy || undefined} className="group">
+    <article aria-busy={busy || undefined} className={cn('group', !divided && 'rounded-md hover:bg-app-bg')}>
       <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5">
         <button
           type="button"
@@ -89,7 +91,7 @@ export function ToolRow({
         </div>
       </div>
       <div id={detailsId} role="region" aria-label={`${entry.name} details`} hidden={!expanded}>
-        {expanded && <ToolDetails entry={entry} onSend={onSendDiagnostic ? sendDiagnostic : undefined} />}
+        {expanded && <ToolDetails entry={entry} divided={divided} onSend={onSendDiagnostic ? sendDiagnostic : undefined} />}
       </div>
     </article>
   )

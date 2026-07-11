@@ -1,292 +1,215 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Activity, CheckCircle2, Copy, ExternalLink, FileText, FolderOpen, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle2, Copy, ExternalLink, FolderOpen, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { diagnosticsPathRows, type DiagnosticsPathRow } from './diagnostics-paths'
+import { SettingsDisclosure, SettingsPage, SettingsSection } from './settings/settings-page'
 import type { CranberriDiagnosticsReport, CranberriHealthLevel } from '@/shared/health'
 import type { NativeHelperSettingsTarget } from '@/shared/nativeHelpers'
 
 export function DiagnosticsSection() {
   const [report, setReport] = useState<CranberriDiagnosticsReport | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const refresh = async () => {
+  const refresh = useCallback(async (notify = false) => {
     setLoading(true)
-    setError(null)
-    setNotice(null)
+    setLoadError(null)
     try {
       setReport(await window.cranberri.health.diagnostics())
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read diagnostics')
+      if (notify) toast.success('Diagnostics refreshed')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read diagnostics'
+      if (notify) toast.error(message)
+      else setLoadError(message)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     void refresh()
-  }, [])
+  }, [refresh])
 
-  const paths = useMemo(() => {
-    if (!report) return []
-    return diagnosticsPathRows(report)
-  }, [report])
+  const paths = useMemo(() => report ? diagnosticsPathRows(report) : [], [report])
+  const systemChecks = report?.health.checks.filter((check) => !check.id.startsWith('native-helper-')) ?? []
+  const attentionChecks = systemChecks.filter((check) => check.level !== 'ok')
+  const attentionHelpers = report?.nativeHelpers.filter((helper) => helper.availability !== 'available') ?? []
+  const attentionCount = attentionChecks.length + attentionHelpers.length
+  const passedChecks = systemChecks.filter((check) => check.level === 'ok').length
 
   const clearTelemetry = async () => {
-    setNotice(null)
-    await window.cranberri.telemetry.clear()
-    await refresh()
-  }
-
-  const copyPath = async (row: DiagnosticsPathRow) => {
-    if (!row.actionable) return
-    setError(null)
     try {
-      await navigator.clipboard.writeText(row.value)
-      setNotice(`Copied ${row.label} path`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to copy ${row.label}`)
+      await window.cranberri.telemetry.clear()
+      toast.success('Local diagnostics history cleared')
+      await refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not clear diagnostics history')
     }
   }
 
-  const openPath = async (row: DiagnosticsPathRow) => {
+  const runPathAction = async (action: 'copy' | 'open' | 'reveal', row: DiagnosticsPathRow) => {
     if (!row.actionable) return
-    setError(null)
     try {
-      await window.cranberri.openPath(row.value)
-      setNotice(`Opened ${row.label}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to open ${row.label}`)
-    }
-  }
-
-  const revealPath = async (row: DiagnosticsPathRow) => {
-    if (!row.actionable) return
-    setError(null)
-    try {
-      await window.cranberri.revealPath(row.value)
-      setNotice(`Revealed ${row.label}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to reveal ${row.label}`)
+      if (action === 'copy') await navigator.clipboard.writeText(row.value)
+      else if (action === 'open') await window.cranberri.openPath(row.value)
+      else await window.cranberri.revealPath(row.value)
+      toast.success(`${action === 'copy' ? 'Copied' : action === 'open' ? 'Opened' : 'Revealed'} ${row.label.toLowerCase()}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not ${action} ${row.label.toLowerCase()}`)
     }
   }
 
   const openHelperSettings = async (target: NativeHelperSettingsTarget, label: string) => {
-    setError(null)
     try {
       await window.cranberri.nativeHelpers.openSettings(target)
-      setNotice(`Opened ${label} settings`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to open ${label} settings`)
+      toast.success(`Opened ${label} settings`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not open ${label} settings`)
     }
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
-            <Activity className="h-3.5 w-3.5" />
-            Diagnostics
-          </div>
-          <div className="mt-1 text-xs text-app-text-muted">
-            {report ? `Checked ${new Date(report.checkedAt).toLocaleTimeString()}` : 'Reading local app diagnostics…'}
-          </div>
-        </div>
+    <SettingsPage
+      title="Diagnostics"
+      description={report ? `Checked ${new Date(report.checkedAt).toLocaleTimeString()}` : 'Check Cranberri and its local dependencies.'}
+      actions={(
         <button
           type="button"
-          onClick={() => void refresh()}
+          onClick={() => void refresh(true)}
           disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg bg-app-surface-2 px-3 py-2 text-xs font-medium hover:bg-app-surface-2/80 disabled:opacity-50"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+          aria-label="Refresh diagnostics"
+          title="Refresh diagnostics"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
         </button>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-app-danger/30 bg-app-danger/10 p-3 text-xs text-app-danger">{error}</div>
       )}
-      {notice && !error && (
-        <div className="rounded-lg border border-app-border bg-app-surface-2 p-3 text-xs text-app-text-muted">{notice}</div>
-      )}
+    >
+      {loadError && <div role="alert" className="rounded-md bg-app-danger/5 px-3 py-3 text-xs text-app-danger">{loadError}</div>}
+      {!report && !loadError && <div className="text-sm text-app-text-muted">Reading diagnostics...</div>}
 
       {report && (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            <Metric label="Health" value={report.health.level} level={report.health.level} />
-            <Metric label="Packaged" value={report.runtime.packaged ? 'yes' : 'no'} />
-            <Metric label="Version" value={report.build.version} />
-            <Metric label="Commit" value={report.build.commit.slice(0, 7)} />
-            <Metric label="Platform" value={`${report.runtime.platform}/${report.runtime.arch}`} />
-            <Metric label="Electron" value={report.runtime.electron} />
+          <div className="flex items-start gap-3 rounded-md bg-app-bg px-3 py-3">
+            {attentionCount > 0
+              ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-app-warning" />
+              : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-app-success" />}
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-app-text">{attentionCount > 0 ? `${attentionCount} item${attentionCount === 1 ? '' : 's'} need attention` : 'Everything looks good'}</div>
+              <div className="mt-0.5 text-caption text-app-text-muted">Cranberri {report.build.version} · {report.build.commit.slice(0, 7)} · {report.runtime.platform}/{report.runtime.arch}</div>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <PanelHeader icon={CheckCircle2} label="Checks" />
-            <div className="space-y-2">
-              {report.health.checks.map((check) => (
-                <div key={check.id} className="rounded-lg border border-app-border bg-app-bg p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 text-sm font-medium">{check.label}</div>
-                    <span className={`shrink-0 text-micro font-semibold uppercase ${levelClass(check.level)}`}>{check.level}</span>
-                  </div>
-                  <div className="mt-1 truncate text-xs text-app-text-muted" title={check.detail}>{check.detail}</div>
+          {attentionCount > 0 && (
+            <SettingsSection title="Needs attention">
+              <div className="space-y-1">
+                {attentionChecks.map((check) => <DiagnosticRow key={check.id} label={check.label} detail={check.detail} status={check.level} />)}
+                {attentionHelpers.map((helper) => (
+                  <DiagnosticRow
+                    key={helper.id}
+                    label={helper.label}
+                    detail={helper.detail}
+                    status={helper.availability}
+                    action={helper.settingsTarget ? (
+                      <button type="button" onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Open ${helper.label} settings`} title="Open settings">
+                        <Settings className="h-3.5 w-3.5" />
+                      </button>
+                    ) : undefined}
+                  />
+                ))}
+              </div>
+            </SettingsSection>
+          )}
+
+          <div className="space-y-3">
+            <SettingsDisclosure title="System checks" description={`${passedChecks}/${systemChecks.length} passed`}>
+              <div className="space-y-1">
+                {systemChecks.map((check) => <DiagnosticRow key={check.id} label={check.label} detail={check.detail} status={check.level} />)}
+              </div>
+            </SettingsDisclosure>
+
+            <SettingsDisclosure title="Files and logs" description={`${paths.length} locations`}>
+              <div className="space-y-1">
+                {paths.map((row) => <PathRow key={row.label} row={row} onAction={(action) => void runPathAction(action, row)} />)}
+              </div>
+            </SettingsDisclosure>
+
+            <SettingsDisclosure title="Recent events" description={`${report.recentEvents.length} local`}>
+              <div className="space-y-2">
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => void clearTelemetry()} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-caption text-app-text-muted hover:bg-app-surface-2 hover:text-app-text">
+                    <Trash2 className="h-3 w-3" /> Clear history
+                  </button>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <PanelHeader icon={FileText} label="Paths" />
-            <div className="rounded-lg border border-app-border bg-app-bg">
-              {paths.map((row) => (
-                <PathRow
-                  key={row.label}
-                  row={row}
-                  onCopy={() => void copyPath(row)}
-                  onOpen={() => void openPath(row)}
-                  onReveal={() => void revealPath(row)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <PanelHeader icon={Activity} label="Native helpers" />
-            <div className="space-y-2">
-              {report.nativeHelpers.map((helper) => (
-                <div key={helper.id} className="rounded-lg border border-app-border bg-app-bg p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 text-sm font-medium">{helper.label}</div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {helper.settingsTarget && (
-                        <button
-                          type="button"
-                          onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)}
-                          className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                          aria-label={`Open ${helper.label} settings`}
-                        >
-                          <Settings className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      <span className={`text-micro font-semibold uppercase ${availabilityClass(helper.availability)}`}>
-                        {helper.availability}
-                      </span>
+                <div className="max-h-52 space-y-1 overflow-auto">
+                  {report.recentEvents.length === 0 ? <div className="py-3 text-xs text-app-text-muted">No local events recorded.</div> : report.recentEvents.map((event) => (
+                    <div key={event.id} className="rounded-md bg-app-bg px-2 py-2.5">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-app-text">{event.source} / {event.type}</span>
+                        <span className="shrink-0 text-app-text-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <pre className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-micro text-app-text-muted">{JSON.stringify(event.payload, null, 2)}</pre>
                     </div>
-                  </div>
-                  <div className="mt-1 truncate text-xs text-app-text-muted" title={helper.detail}>{helper.detail}</div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <PanelHeader icon={Activity} label="Recent events" />
-              <button
-                type="button"
-                onClick={() => void clearTelemetry()}
-                className="inline-flex items-center gap-1.5 rounded bg-app-surface-2 px-2 py-1 text-caption text-app-text-muted hover:text-app-text"
-              >
-                <Trash2 className="h-3 w-3" />
-                Clear
-              </button>
-            </div>
-            <div className="max-h-52 overflow-auto rounded-lg border border-app-border bg-app-bg">
-              {report.recentEvents.length === 0 ? (
-                <div className="p-3 text-xs text-app-text-muted">No local events recorded yet.</div>
-              ) : report.recentEvents.map((event) => (
-                <div key={event.id} className="border-b border-app-border/70 p-3 last:border-b-0">
-                  <div className="flex items-center justify-between gap-3 text-xs">
-                    <span className="font-medium">{event.source} / {event.type}</span>
-                    <span className="shrink-0 text-app-text-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                  </div>
-                  <pre className="mt-2 max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-micro text-app-text-muted">
-                    {JSON.stringify(event.payload, null, 2)}
-                  </pre>
-                </div>
-              ))}
-            </div>
+              </div>
+            </SettingsDisclosure>
           </div>
         </>
       )}
+    </SettingsPage>
+  )
+}
+
+function DiagnosticRow({ label, detail, status, action }: { label: string; detail: string; status: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-app-text">{label}</div>
+        <div className="mt-0.5 truncate text-caption text-app-text-muted" title={detail}>{detail}</div>
+      </div>
+      {action}
+      <span className={`shrink-0 text-micro font-medium capitalize ${statusClass(status)}`}>{friendlyStatus(status)}</span>
     </div>
   )
 }
 
-function Metric({ label, value, level }: { label: string; value: string; level?: CranberriHealthLevel }) {
+function PathRow({ row, onAction }: { row: DiagnosticsPathRow; onAction: (action: 'copy' | 'open' | 'reveal') => void }) {
   return (
-    <div className="rounded-lg border border-app-border bg-app-bg p-3">
-      <div className="text-micro uppercase text-app-text-muted">{label}</div>
-      <div className={`mt-1 truncate text-sm font-medium ${level ? levelClass(level) : ''}`} title={value}>{value}</div>
+    <div className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-app-bg">
+      <div className="w-20 shrink-0 text-xs text-app-text-muted">{row.label}</div>
+      <div className="min-w-0 flex-1 truncate font-mono text-caption text-app-text" title={row.value}>{row.value}</div>
+      <PathButton label={`Copy ${row.label}`} disabled={!row.actionable} onClick={() => onAction('copy')} icon={Copy} />
+      <PathButton label={`Open ${row.label}`} disabled={!row.actionable} onClick={() => onAction('open')} icon={ExternalLink} />
+      <PathButton label={`Reveal ${row.label}`} disabled={!row.actionable} onClick={() => onAction('reveal')} icon={FolderOpen} />
     </div>
   )
 }
 
-function PanelHeader({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+function PathButton({ label, disabled, onClick, icon: Icon }: { label: string; disabled: boolean; onClick: () => void; icon: React.ElementType }) {
   return (
-    <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
+    <button type="button" disabled={disabled} onClick={onClick} className="rounded-md p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-30" aria-label={label} title={label}>
       <Icon className="h-3.5 w-3.5" />
-      {label}
-    </div>
+    </button>
   )
 }
 
-function PathRow({
-  row,
-  onCopy,
-  onOpen,
-  onReveal,
-}: {
-  row: DiagnosticsPathRow
-  onCopy: () => void
-  onOpen: () => void
-  onReveal: () => void
-}) {
-  return (
-    <div className="flex items-center gap-2 border-b border-app-border/70 px-3 py-2 last:border-b-0">
-      <div className="w-24 shrink-0 text-xs text-app-text-muted">{row.label}</div>
-      <div className="min-w-0 flex-1 truncate font-mono text-caption" title={row.value}>{row.value}</div>
-      <button
-        type="button"
-        disabled={!row.actionable}
-        onClick={onCopy}
-        className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label={`Copy ${row.label} path`}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        disabled={!row.actionable}
-        onClick={onOpen}
-        className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label={`Open ${row.label} path`}
-      >
-        <ExternalLink className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        disabled={!row.actionable}
-        onClick={onReveal}
-        className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label={`Reveal ${row.label} path`}
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
+function statusClass(status: string): string {
+  if (status === 'ok' || status === 'available') return 'text-app-success'
+  if (status === 'error') return 'text-app-danger'
+  return 'text-app-warning'
 }
 
-function levelClass(level: CranberriHealthLevel): string {
-  if (level === 'ok') return 'text-app-success'
-  if (level === 'warning') return 'text-app-warning'
-  return 'text-app-danger'
+function friendlyStatus(status: string): string {
+  if (status === 'ok' || status === 'available') return 'Ready'
+  if (status === 'disabled') return 'Permission needed'
+  if (status === 'unavailable') return 'Unavailable'
+  if (status === 'warning') return 'Attention'
+  return 'Failed'
 }
 
-function availabilityClass(availability: CranberriDiagnosticsReport['nativeHelpers'][number]['availability']): string {
-  if (availability === 'available') return 'text-app-success'
-  if (availability === 'disabled' || availability === 'unavailable') return 'text-app-text-muted'
-  return 'text-app-danger'
+export function diagnosticsHealthLabel(level: CranberriHealthLevel): string {
+  if (level === 'ok') return 'Ready'
+  if (level === 'warning') return 'Needs attention'
+  return 'Failed'
 }

@@ -1,10 +1,13 @@
 import { Check, Minus, Monitor, Moon, Plus, Sun } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAppearance } from '../../state/appearance-context'
 import { useSettings } from '../../state/settings'
+import { SettingsList, SettingsPage, SettingsSection } from './settings-page'
 import {
   APP_CODE_FONT_SIZE_RANGE,
   APP_TERMINAL_FONT_SIZE_RANGE,
   APP_UI_FONT_SIZE_RANGE,
+  type AppSettings,
   type AppAccent,
   type AppReducedMotion,
   type AppTheme,
@@ -34,13 +37,17 @@ export function AppearanceSettings() {
   const { settings, updateSection } = useSettings()
   const { theme } = useAppearance()
 
-  return (
-    <div className="space-y-7">
-      <header>
-        <h2 className="text-lg font-semibold text-app-text">Appearance</h2>
-      </header>
+  async function saveSetting<Section extends keyof AppSettings>(section: Section, values: Partial<AppSettings[Section]>) {
+    try {
+      await updateSection(section, values)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save appearance settings')
+    }
+  }
 
-      <ControlGroup label="Theme">
+  return (
+    <SettingsPage title="Appearance" description="Adjust Cranberri's look and reading comfort.">
+      <SettingsSection title="Theme">
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-app-surface-2 p-1" role="group" aria-label="Theme">
           {THEMES.map(({ value, label, icon: Icon }) => {
             const selected = settings.appearance.theme === value
@@ -49,7 +56,7 @@ export function AppearanceSettings() {
                 key={value}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => void updateSection('appearance', { theme: value })}
+                onClick={() => void saveSetting('appearance', { theme: value })}
                 className={`flex h-9 items-center justify-center gap-2 rounded-md text-sm transition-colors ${
                   selected ? 'bg-app-surface text-app-text shadow-sm' : 'text-app-text-muted hover:text-app-text'
                 }`}
@@ -60,9 +67,9 @@ export function AppearanceSettings() {
             )
           })}
         </div>
-      </ControlGroup>
+      </SettingsSection>
 
-      <ControlGroup label="Accent">
+      <SettingsSection title="Accent color">
         <div className="flex items-center gap-3" role="group" aria-label="Accent color">
           {ACCENTS.map((accent) => {
             const selected = settings.appearance.accent === accent.value
@@ -73,7 +80,7 @@ export function AppearanceSettings() {
                 aria-label={accent.label}
                 aria-pressed={selected}
                 title={accent.label}
-                onClick={() => void updateSection('appearance', { accent: accent.value })}
+                onClick={() => void saveSetting('appearance', { accent: accent.value })}
                 className="flex h-8 w-8 items-center justify-center rounded-full ring-offset-2 ring-offset-app-bg transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-text-muted"
                 style={{ backgroundColor: accent[theme] }}
               >
@@ -82,33 +89,35 @@ export function AppearanceSettings() {
             )
           })}
         </div>
-      </ControlGroup>
+      </SettingsSection>
 
-      <div className="divide-y divide-app-border border-y border-app-border">
-        <SizeRow
-          label="UI font size"
-          value={settings.appearance.uiFontSize}
-          min={APP_UI_FONT_SIZE_RANGE.min}
-          max={APP_UI_FONT_SIZE_RANGE.max}
-          onChange={(uiFontSize) => void updateSection('appearance', { uiFontSize })}
-        />
-        <SizeRow
-          label="Code font size"
-          value={settings.editor.fontSize}
-          min={APP_CODE_FONT_SIZE_RANGE.min}
-          max={APP_CODE_FONT_SIZE_RANGE.max}
-          onChange={(fontSize) => void updateSection('editor', { fontSize })}
-        />
-        <SizeRow
-          label="Terminal font size"
-          value={settings.terminal.fontSize}
-          min={APP_TERMINAL_FONT_SIZE_RANGE.min}
-          max={APP_TERMINAL_FONT_SIZE_RANGE.max}
-          onChange={(fontSize) => void updateSection('terminal', { fontSize })}
-        />
-      </div>
+      <SettingsSection title="Text size">
+        <SettingsList>
+          <SizeRow
+            label="Interface"
+            value={settings.appearance.uiFontSize}
+            min={APP_UI_FONT_SIZE_RANGE.min}
+            max={APP_UI_FONT_SIZE_RANGE.max}
+            onChange={(uiFontSize) => void saveSetting('appearance', { uiFontSize })}
+          />
+          <SizeRow
+            label="Code"
+            value={settings.editor.fontSize}
+            min={APP_CODE_FONT_SIZE_RANGE.min}
+            max={APP_CODE_FONT_SIZE_RANGE.max}
+            onChange={(fontSize) => void saveSetting('editor', { fontSize })}
+          />
+          <SizeRow
+            label="Terminal"
+            value={settings.terminal.fontSize}
+            min={APP_TERMINAL_FONT_SIZE_RANGE.min}
+            max={APP_TERMINAL_FONT_SIZE_RANGE.max}
+            onChange={(fontSize) => void saveSetting('terminal', { fontSize })}
+          />
+        </SettingsList>
+      </SettingsSection>
 
-      <ControlGroup label="Motion">
+      <SettingsSection title="Motion">
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-app-surface-2 p-1" role="group" aria-label="Motion">
           {MOTION.map(({ value, label }) => {
             const selected = settings.appearance.reducedMotion === value
@@ -117,7 +126,7 @@ export function AppearanceSettings() {
                 key={value}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => void updateSection('appearance', { reducedMotion: value })}
+                onClick={() => void saveSetting('appearance', { reducedMotion: value })}
                 className={`h-9 rounded-md text-sm transition-colors ${
                   selected ? 'bg-app-surface text-app-text shadow-sm' : 'text-app-text-muted hover:text-app-text'
                 }`}
@@ -127,17 +136,8 @@ export function AppearanceSettings() {
             )
           })}
         </div>
-      </ControlGroup>
-    </div>
-  )
-}
-
-function ControlGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2.5">
-      <h3 className="text-sm font-medium text-app-text">{label}</h3>
-      {children}
-    </section>
+      </SettingsSection>
+    </SettingsPage>
   )
 }
 
@@ -160,7 +160,7 @@ function SizeRow({
       <div className="flex items-center gap-1" role="group" aria-label={label}>
         <button
           type="button"
-          aria-label={`Decrease ${label}`}
+          aria-label={`Decrease ${label} font size`}
           disabled={value <= min}
           onClick={() => onChange(Math.max(min, value - 1))}
           className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-30"
@@ -170,7 +170,7 @@ function SizeRow({
         <output className="w-12 text-center font-mono text-sm text-app-text" aria-live="polite">{value}px</output>
         <button
           type="button"
-          aria-label={`Increase ${label}`}
+          aria-label={`Increase ${label} font size`}
           disabled={value >= max}
           onClick={() => onChange(Math.min(max, value + 1))}
           className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-30"

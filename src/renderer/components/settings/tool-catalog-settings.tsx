@@ -23,7 +23,6 @@ export interface ToolCatalogSettingsProps {
   refreshErrorCode?: string | null
   testingToolIds?: readonly string[]
   pinningToolIds?: readonly string[]
-  pinError?: string | null
   onRefresh?: () => void
   onTest: (toolId: ToolCatalogId) => void
   onOpenSettings: (toolId: ToolCatalogId) => void
@@ -40,7 +39,6 @@ export function ToolCatalogSettings({
   refreshErrorCode = null,
   testingToolIds = [],
   pinningToolIds = [],
-  pinError = null,
   onRefresh,
   onTest,
   onOpenSettings,
@@ -71,22 +69,17 @@ export function ToolCatalogSettings({
       />
       <ToolCatalogState loading={loading} refreshStatus={refreshStatus} hasEntries={hasEntries} errorCode={refreshErrorCode} />
       {unavailable && (
-        <div className="border-y border-app-danger/30 px-3 py-5 text-center text-xs text-app-text-muted" role="alert">
-          Tool catalog unavailable{refreshErrorCode ? ` (${refreshErrorCode.slice(0, 80)})` : ''}.
+        <div className="rounded-md bg-app-danger/5 px-3 py-5 text-center text-xs text-app-text-muted" role="alert" title={refreshErrorCode ?? undefined}>
+          Tools could not be loaded. Try refreshing.
         </div>
       )}
       {empty && (
-        <div className="border-y border-app-border px-3 py-5 text-center text-xs text-app-text-muted">
+        <div className="rounded-md bg-app-bg px-3 py-5 text-center text-xs text-app-text-muted">
           {hasEntries ? 'No tools match this view.' : 'No tools available.'}
         </div>
       )}
-      {pinError && (
-        <div className="border-y border-app-danger/30 bg-app-danger/5 px-3 py-2 text-xs text-app-danger" role="alert">
-          {pinError}
-        </div>
-      )}
       {groups.map((group) => (
-        <ToolGroup key={group.source} label={group.label}>
+        <ToolGroup key={group.source} label={group.label} divided={false}>
           {group.entries.map((entry) => (
             <CatalogToolRow
               key={entry.id}

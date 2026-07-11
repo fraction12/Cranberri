@@ -1,24 +1,36 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Boxes, CheckCircle2, Download, MessageSquare, PlugZap, RefreshCw, Search, Sparkles, Wrench } from 'lucide-react'
-import type { CodexPluginInfo } from '@/shared/codex'
+import { Download, Loader2, MessageSquare, RefreshCw, Search } from 'lucide-react'
+import { toast } from 'sonner'
+import type { CodexPluginInfo, CodexSkillInfo } from '@/shared/codex'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
 import { createSendChatContextEvent } from './chat/chat-context-events'
-import { appChatContext, filterCodexPlugins, mcpServerChatContext, mcpToolChatContext, skillChatContext, skillSourceLabel, summarizeCodexResources, type CodexResourceContextKind, type LatestCodexResourceContext } from './codex-resources'
+import {
+  appChatContext,
+  filterCodexPlugins,
+  mcpServerChatContext,
+  skillChatContext,
+  skillSourceLabel,
+  type LatestCodexResourceContext,
+} from './codex-resources'
 import { createCodexResourceContextCapturedEvent } from './codex-resource-context-events'
+import { SettingsPage, SettingsSection } from './settings/settings-page'
+
+type ExtensionView = 'installed' | 'browse' | 'connections' | 'skills'
+
+const EXTENSION_VIEWS: Array<{ value: ExtensionView; label: string }> = [
+  { value: 'installed', label: 'Installed' },
+  { value: 'browse', label: 'Browse' },
+  { value: 'connections', label: 'Connections' },
+  { value: 'skills', label: 'Skills' },
+]
 
 export function CodexResourcesSection() {
   const queryClient = useQueryClient()
-  const [pluginFilter, setPluginFilter] = useState('')
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
-  const pluginsQuery = useQuery({
-    queryKey: ['codex', 'plugins'],
-    queryFn: async () => (await window.cranberri.codex.plugins()).plugins,
-  })
-  const skillsQuery = useQuery({
-    queryKey: ['codex', 'skills'],
-    queryFn: async () => (await window.cranberri.codex.skills()).skills,
-  })
+  const [view, setView] = useState<ExtensionView>('installed')
+  const [search, setSearch] = useState('')
+  const pluginsQuery = useQuery({ queryKey: ['codex', 'plugins'], queryFn: async () => (await window.cranberri.codex.plugins()).plugins })
+  const skillsQuery = useQuery({ queryKey: ['codex', 'skills'], queryFn: async () => (await window.cranberri.codex.skills()).skills })
   const registryQuery = useQuery({
     queryKey: ['tools', 'registry', 'settings'],
     queryFn: async () => window.cranberri.tools.registry(null, true) as Promise<ToolRegistrySnapshot>,
@@ -26,43 +38,52 @@ export function CodexResourcesSection() {
   })
 
   const plugins = pluginsQuery.data ?? []
-  const skills = skillsQuery.data ?? []
+  const skills = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data])
   const registry = registryQuery.data ?? null
-  const summary = summarizeCodexResources({ plugins, skills, registry })
-  const loading = pluginsQuery.isLoading || skillsQuery.isLoading || registryQuery.isLoading
-  const errors = [pluginsQuery.error, skillsQuery.error, registryQuery.error].filter(Boolean)
-  const filteredPlugins = filterCodexPlugins(plugins, pluginFilter)
+  const filteredPlugins = filterCodexPlugins(plugins, search)
   const installedPlugins = filteredPlugins.filter((plugin) => plugin.installed ?? plugin.enabled)
   const availablePlugins = filteredPlugins.filter((plugin) => !(plugin.installed ?? plugin.enabled))
+  const filteredSkills = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return skills
+    return skills.filter((skill) => [skill.displayName, skill.name, skill.description, skill.pluginName].filter(Boolean).join(' ').toLowerCase().includes(query))
+  }, [search, skills])
+  const initialLoading = !pluginsQuery.data && !skillsQuery.data && !registryQuery.data
+    && (pluginsQuery.isLoading || skillsQuery.isLoading || registryQuery.isLoading)
+  const refreshing = pluginsQuery.isFetching || skillsQuery.isFetching || registryQuery.isFetching
+  const queryFailed = Boolean(pluginsQuery.error || skillsQuery.error || registryQuery.error)
+  const connectionPartial = Boolean(registry?.capabilities.errors.length)
 
-  const refreshResources = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['codex', 'plugins'] }),
-      queryClient.invalidateQueries({ queryKey: ['codex', 'skills'] }),
-      queryClient.invalidateQueries({ queryKey: ['tools', 'registry'] }),
-    ])
+  const refreshResources = async (notify = false) => {
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['codex', 'plugins'] }),
+        queryClient.invalidateQueries({ queryKey: ['codex', 'skills'] }),
+        queryClient.invalidateQueries({ queryKey: ['tools', 'registry'] }),
+      ])
+      if (notify) toast.success('Extensions refreshed')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not refresh extensions')
+    }
   }
 
-  const installPluginMutation = useMutation({
+  const installPlugin = useMutation({
     mutationFn: async (pluginId: string) => window.cranberri.codex.installPlugin(pluginId),
     onSuccess: async (result) => {
-      setActionMessage(result.message ?? 'Plugin installed.')
+      toast.success(result.message ?? 'Plugin installed')
       await refreshResources()
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not install plugin'),
   })
 
-  const upgradeMarketplacesMutation = useMutation({
+  const updatePlugins = useMutation({
     mutationFn: async () => window.cranberri.codex.upgradePluginMarketplaces(),
     onSuccess: async (result) => {
-      setActionMessage(result.message ?? 'Plugin marketplaces refreshed.')
+      toast.success(result.message ?? 'Plugin catalogs updated')
       await refreshResources()
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not update plugin catalogs'),
   })
-
-  const refresh = () => {
-    setActionMessage(null)
-    void refreshResources()
-  }
 
   const sendSkillToChat = (skill: (typeof skills)[number]) => {
     const context: LatestCodexResourceContext = {
@@ -72,255 +93,239 @@ export function CodexResourcesSection() {
       inputParts: [{ type: 'skill', name: skill.name, path: skill.path }],
     }
     window.dispatchEvent(createCodexResourceContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({
-      text: context.text,
-      inputParts: context.inputParts,
-    }))
-    setActionMessage(`${skill.displayName} sent to chat.`)
+    window.dispatchEvent(createSendChatContextEvent({ text: context.text, inputParts: context.inputParts }))
+    toast.success(`${skill.displayName} added to chat`)
   }
 
-  const sendResourceContextToChat = (kind: CodexResourceContextKind, label: string, text: string) => {
+  const sendConnectionToChat = (kind: 'app' | 'mcp-server', label: string, text: string) => {
     window.dispatchEvent(createCodexResourceContextCapturedEvent({ kind, label, text }))
     window.dispatchEvent(createSendChatContextEvent({ text }))
-    setActionMessage(`${label} sent to chat.`)
+    toast.success(`${label} added to chat`)
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
-            <PlugZap className="h-3.5 w-3.5" />
-            Apps and tools
-          </div>
-          <div className="mt-1 text-xs text-app-text-muted">
-            {loading ? 'Loading Codex resources...' : `${summary.installedPlugins} installed plugins, ${summary.availablePlugins} available plugins, ${summary.mcpTools} MCP tools`}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+    <SettingsPage
+      title="Extensions"
+      description="Manage plugins, connections, and reusable skills."
+      actions={(
+        <>
           <button
             type="button"
-            onClick={() => upgradeMarketplacesMutation.mutate()}
-            disabled={upgradeMarketplacesMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-lg bg-app-surface-2 px-3 py-2 text-xs font-medium hover:bg-app-surface-2/80 disabled:opacity-50"
+            onClick={() => updatePlugins.mutate()}
+            disabled={updatePlugins.isPending}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-app-surface-2 px-2.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
-            Update
+            Update plugins
           </button>
           <button
             type="button"
-            onClick={refresh}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-app-surface-2 px-3 py-2 text-xs font-medium hover:bg-app-surface-2/80 disabled:opacity-50"
+            onClick={() => void refreshResources(true)}
+            disabled={refreshing}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+            aria-label="Refresh extensions"
+            title="Refresh extensions"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </button>
-        </div>
+        </>
+      )}
+    >
+      <div className="grid grid-cols-4 gap-1 rounded-md bg-app-bg p-1" role="group" aria-label="Extension view">
+        {EXTENSION_VIEWS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={view === option.value}
+            onClick={() => { setView(option.value); setSearch('') }}
+            className={`h-8 rounded px-2 text-caption font-medium ${view === option.value ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:text-app-text'}`}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
 
-      {(actionMessage || installPluginMutation.error || upgradeMarketplacesMutation.error) && (
-        <div className={`rounded-lg border p-3 text-xs ${installPluginMutation.error || upgradeMarketplacesMutation.error ? 'border-app-danger/30 bg-app-danger/10 text-app-danger' : 'border-app-success/30 bg-app-success/10 text-app-success'}`}>
-          {installPluginMutation.error instanceof Error
-            ? installPluginMutation.error.message
-            : upgradeMarketplacesMutation.error instanceof Error
-              ? upgradeMarketplacesMutation.error.message
-              : actionMessage}
-        </div>
-      )}
-
-      {errors.length > 0 && (
-        <div className="rounded-lg border border-app-danger/30 bg-app-danger/10 p-3 text-xs text-app-danger">
-          {errors.map((error, index) => (
-            <div key={index}>{error instanceof Error ? error.message : 'Failed to load Codex resource data'}</div>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-4 gap-2">
-        <Metric label="Plugins" value={`${summary.installedPlugins}/${summary.plugins}`} />
-        <Metric label="Skills" value={`${summary.pluginSkills}/${summary.skills}`} />
-        <Metric label="Apps" value={`${summary.accessibleApps}/${summary.apps}`} />
-        <Metric label="MCP tools" value={String(summary.mcpTools)} />
-      </div>
-
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-app-text-muted" />
+      <label className="relative block">
+        <span className="sr-only">Search extensions</span>
+        <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-app-text-muted" />
         <input
-          value={pluginFilter}
-          onChange={(event) => setPluginFilter(event.target.value)}
-          placeholder="Search plugins"
-          className="w-full rounded-lg border border-app-border bg-app-bg py-2 pl-9 pr-3 text-sm outline-none focus:border-app-accent"
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`Search ${EXTENSION_VIEWS.find((option) => option.value === view)?.label.toLowerCase()}`}
+          className="h-9 w-full rounded-md border border-app-border bg-app-bg pl-8 pr-3 text-sm text-app-text outline-none focus:border-app-accent"
         />
-      </div>
+      </label>
 
-      <ResourceGroup title="Installed plugins" icon={Boxes}>
-        {installedPlugins.length ? installedPlugins.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} pending={installPluginMutation.variables === plugin.id && installPluginMutation.isPending} />) : <EmptyRow label="No installed plugins match this search." />}
-      </ResourceGroup>
+      {queryFailed && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md bg-app-danger/5 px-3 py-3 text-xs text-app-text-muted">
+          <span>Some extension data could not be loaded.</span>
+          <button type="button" onClick={() => void refreshResources()} className="text-app-text underline underline-offset-4">Retry</button>
+        </div>
+      )}
+      {connectionPartial && view === 'connections' && (
+        <div role="status" className="rounded-md bg-app-warning/5 px-3 py-3 text-xs text-app-text-muted">Some Codex connections are unavailable in this runtime.</div>
+      )}
+      {initialLoading ? <LoadingRow /> : (
+        <ExtensionViewContent
+          view={view}
+          installedPlugins={installedPlugins}
+          availablePlugins={availablePlugins}
+          skills={filteredSkills}
+          registry={registry}
+          search={search}
+          installPlugin={installPlugin}
+          onSendSkill={sendSkillToChat}
+          onSendConnection={sendConnectionToChat}
+        />
+      )}
+    </SettingsPage>
+  )
+}
 
-      <ResourceGroup title="Available plugins" icon={Download}>
-        {availablePlugins.length ? availablePlugins.slice(0, 24).map((plugin) => (
-          <PluginRow
-            key={plugin.id}
-            plugin={plugin}
-            pending={installPluginMutation.variables === plugin.id && installPluginMutation.isPending}
-            onInstall={() => installPluginMutation.mutate(plugin.id)}
-          />
-        )) : <EmptyRow label="No available plugins match this search." />}
-        {availablePlugins.length > 24 && <div className="text-xs text-app-text-muted">{availablePlugins.length - 24} more available plugins. Narrow the search to find them.</div>}
-      </ResourceGroup>
-
-      <ResourceGroup title="Connected apps" icon={PlugZap}>
-        {registry?.apps.length ? registry.apps.map((app) => (
-          <div key={app.id} className="rounded-lg border border-app-border bg-app-bg p-3">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{app.name}</span>
-              <StatusPill ok={app.accessible}>{app.accessible ? 'Accessible' : app.enabled ? 'Needs access' : 'Disabled'}</StatusPill>
-              <ResourceContextButton
-                label={`Send ${app.name} app context to chat`}
-                onClick={() => sendResourceContextToChat('app', app.name, appChatContext(app))}
-              />
-            </div>
-            <div className="mt-1 truncate text-xs text-app-text-muted">{app.description ?? (app.pluginDisplayNames.join(', ') || app.id)}</div>
-          </div>
-        )) : <EmptyRow label="No app registry entries yet." />}
-      </ResourceGroup>
-
-      <ResourceGroup title="MCP servers" icon={Wrench}>
-        {registry?.mcpServers.length ? registry.mcpServers.map((server) => (
-          <div key={server.name} className="rounded-lg border border-app-border bg-app-bg p-3">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{server.name}</span>
-              <span className="text-micro text-app-text-muted">{server.authStatus}</span>
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro">{server.toolCount} tools</span>
-              <ResourceContextButton
-                label={`Send ${server.name} MCP server context to chat`}
-                onClick={() => sendResourceContextToChat('mcp-server', server.name, mcpServerChatContext(server))}
-              />
-            </div>
-            {server.tools.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {server.tools.slice(0, 8).map((tool) => (
-                  <button
-                    key={tool.name}
-                    type="button"
-                    className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted hover:text-app-text focus:outline-none focus:ring-1 focus:ring-app-accent"
-                    title={`Send ${tool.title ?? tool.name} tool context to chat`}
-                    aria-label={`Send ${tool.title ?? tool.name} tool context to chat`}
-                    onClick={() => sendResourceContextToChat('mcp-tool', tool.title ?? tool.name, mcpToolChatContext(server, tool))}
-                  >
-                    {tool.title ?? tool.name}
-                  </button>
-                ))}
-                {server.tools.length > 8 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">+{server.tools.length - 8}</span>}
+function ExtensionViewContent({
+  view,
+  installedPlugins,
+  availablePlugins,
+  skills,
+  registry,
+  search,
+  installPlugin,
+  onSendSkill,
+  onSendConnection,
+}: {
+  view: ExtensionView
+  installedPlugins: CodexPluginInfo[]
+  availablePlugins: CodexPluginInfo[]
+  skills: CodexSkillInfo[]
+  registry: ToolRegistrySnapshot | null
+  search: string
+  installPlugin: { mutate: (pluginId: string) => void; isPending: boolean; variables?: string }
+  onSendSkill: (skill: CodexSkillInfo) => void
+  onSendConnection: (kind: 'app' | 'mcp-server', label: string, text: string) => void
+}) {
+  if (view === 'installed') {
+    return <PluginList title="Installed plugins" plugins={installedPlugins} empty="No installed plugins match this search." />
+  }
+  if (view === 'browse') {
+    return (
+      <PluginList
+        title="Available plugins"
+        plugins={availablePlugins.slice(0, 30)}
+        empty="No available plugins match this search."
+        onInstall={(plugin) => installPlugin.mutate(plugin.id)}
+        pendingId={installPlugin.isPending ? installPlugin.variables : undefined}
+        footer={availablePlugins.length > 30 ? `Showing 30 of ${availablePlugins.length}. Search to narrow the list.` : undefined}
+      />
+    )
+  }
+  if (view === 'skills') {
+    return (
+      <SettingsSection title="Skills" description="Add a skill to the active chat when you need it.">
+        <div className="space-y-1">
+          {skills.slice(0, 40).map((skill) => (
+            <div key={skill.id} className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm text-app-text">{skill.displayName}</div>
+                <div className="mt-0.5 truncate text-caption text-app-text-muted">{skill.description || skillSourceLabel(skill)}</div>
               </div>
-            )}
-          </div>
-        )) : <EmptyRow label="No MCP server status entries yet." />}
-      </ResourceGroup>
-
-      <ResourceGroup title="Skills" icon={Sparkles}>
-        {skills.length ? skills.slice(0, 18).map((skill) => (
-          <div key={skill.id} className="rounded-lg border border-app-border bg-app-bg p-3">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.displayName}</span>
-              <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">{skillSourceLabel(skill)}</span>
-              <button
-                type="button"
-                onClick={() => sendSkillToChat(skill)}
-                className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text focus:outline-none focus:ring-1 focus:ring-app-accent"
-                title="Send skill to chat"
-                aria-label={`Send ${skill.displayName} skill to chat`}
-              >
+              <button type="button" onClick={() => onSendSkill(skill)} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Add ${skill.displayName} to chat`} title="Add to chat">
                 <MessageSquare className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="mt-1 truncate text-xs text-app-text-muted">{skill.description || skill.name}</div>
-          </div>
-        )) : <EmptyRow label="No Codex skills found." />}
-        {skills.length > 18 && <div className="text-xs text-app-text-muted">{skills.length - 18} more skills available through chat context.</div>}
-      </ResourceGroup>
-
-      {registry?.capabilities.errors.length ? (
-        <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs text-app-danger">
-          {registry.capabilities.errors.map((error) => <div key={error}>{error}</div>)}
+          ))}
+          {skills.length === 0 && <EmptyRow label="No skills match this search." />}
         </div>
-      ) : null}
-    </div>
-  )
+        {skills.length > 40 && <p className="text-caption text-app-text-muted">Showing 40 of {skills.length}. Search to narrow the list.</p>}
+      </SettingsSection>
+    )
+  }
+  return <ConnectionsView registry={registry} search={search} onSend={onSendConnection} />
 }
 
-function ResourceContextButton({ label, onClick }: { label: string; onClick: () => void }) {
+function PluginList({ title, plugins, empty, onInstall, pendingId, footer }: {
+  title: string
+  plugins: CodexPluginInfo[]
+  empty: string
+  onInstall?: (plugin: CodexPluginInfo) => void
+  pendingId?: string
+  footer?: string
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text focus:outline-none focus:ring-1 focus:ring-app-accent"
-      title={label}
-      aria-label={label}
-    >
-      <MessageSquare className="h-3.5 w-3.5" />
-    </button>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-app-border bg-app-bg p-3">
-      <div className="text-micro uppercase text-app-text-muted">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold">{value}</div>
-    </div>
-  )
-}
-
-function ResourceGroup({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase text-app-text-muted">
-        <Icon className="h-3.5 w-3.5" />
-        {title}
+    <SettingsSection title={title}>
+      <div className="space-y-1">
+        {plugins.map((plugin) => (
+          <div key={plugin.id} className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm text-app-text">{plugin.displayName}</span>
+                {plugin.version && <span className="shrink-0 text-micro text-app-text-muted">{plugin.version}</span>}
+              </div>
+              <div className="mt-0.5 truncate text-caption text-app-text-muted">{plugin.description || plugin.prompt || 'Codex plugin'}</div>
+            </div>
+            {onInstall ? (
+              <button type="button" onClick={() => onInstall(plugin)} disabled={pendingId === plugin.id} className="rounded-md bg-app-surface-2 px-2.5 py-1.5 text-xs font-medium text-app-text hover:bg-app-border disabled:opacity-50">
+                {pendingId === plugin.id ? 'Installing...' : 'Install'}
+              </button>
+            ) : <span className={`text-micro ${plugin.enabled ? 'text-app-success' : 'text-app-text-muted'}`}>{plugin.enabled ? 'Enabled' : 'Installed'}</span>}
+          </div>
+        ))}
+        {plugins.length === 0 && <EmptyRow label={empty} />}
       </div>
-      <div className="space-y-2">{children}</div>
-    </section>
+      {footer && <p className="text-caption text-app-text-muted">{footer}</p>}
+    </SettingsSection>
   )
 }
 
-function PluginRow({ plugin, pending = false, onInstall }: { plugin: CodexPluginInfo; pending?: boolean; onInstall?: () => void }) {
-  const installed = plugin.installed ?? plugin.enabled
+function ConnectionsView({ registry, search, onSend }: {
+  registry: ToolRegistrySnapshot | null
+  search: string
+  onSend: (kind: 'app' | 'mcp-server', label: string, text: string) => void
+}) {
+  const query = search.trim().toLowerCase()
+  const apps = (registry?.apps ?? []).filter((app) => !query || [app.name, app.description].filter(Boolean).join(' ').toLowerCase().includes(query))
+  const servers = (registry?.mcpServers ?? []).filter((server) => !query || server.name.toLowerCase().includes(query))
   return (
-    <div className="rounded-lg border border-app-border bg-app-bg p-3">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{plugin.displayName}</span>
-        <StatusPill ok={installed}>{installed ? (plugin.enabled ? 'Enabled' : 'Installed') : 'Available'}</StatusPill>
-        {plugin.version && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro text-app-text-muted">{plugin.version}</span>}
-        {plugin.toolCount > 0 && <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro">{plugin.toolCount} tools</span>}
-        {!installed && onInstall && (
-          <button
-            type="button"
-            onClick={onInstall}
-            disabled={pending}
-            className="inline-flex items-center gap-1 rounded bg-app-accent px-2 py-1 text-micro font-semibold text-app-accent-contrast hover:bg-app-accent/90 disabled:opacity-50"
-          >
-            <Download className="h-3 w-3" />
-            {pending ? 'Installing' : 'Install'}
-          </button>
-        )}
-      </div>
-      <div className="mt-1 truncate text-xs text-app-text-muted">{plugin.description || plugin.prompt || plugin.id}</div>
-      <div className="mt-1 truncate text-micro text-app-text-muted">{plugin.marketplaceName ?? 'marketplace'}{plugin.sourceLabel ? ` - ${plugin.sourceLabel}` : ''}</div>
+    <div className="space-y-6">
+      <SettingsSection title="Connected apps">
+        <div className="space-y-1">
+          {apps.map((app) => (
+            <ConnectionRow key={app.id} name={app.name} detail={app.description || (app.accessible ? 'Ready to use' : 'Needs access')} ready={app.accessible} onSend={() => onSend('app', app.name, appChatContext(app))} />
+          ))}
+          {apps.length === 0 && <EmptyRow label="No connected apps found." />}
+        </div>
+      </SettingsSection>
+      <SettingsSection title="MCP servers">
+        <div className="space-y-1">
+          {servers.map((server) => (
+            <ConnectionRow key={server.name} name={server.name} detail={`${server.toolCount} tool${server.toolCount === 1 ? '' : 's'} available`} ready={server.toolCount > 0} onSend={() => onSend('mcp-server', server.name, mcpServerChatContext(server))} />
+          ))}
+          {servers.length === 0 && <EmptyRow label="No MCP servers found." />}
+        </div>
+      </SettingsSection>
     </div>
   )
 }
 
-function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: string; ready: boolean; onSend: () => void }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-micro ${ok ? 'bg-app-success/10 text-app-success' : 'bg-app-surface-2 text-app-text-muted'}`}>
-      {ok && <CheckCircle2 className="h-3 w-3" />}
-      {children}
-    </span>
+    <div className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+      <div className={`h-2 w-2 shrink-0 rounded-full ${ready ? 'bg-app-success' : 'bg-app-warning'}`} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm text-app-text">{name}</div>
+        <div className="mt-0.5 truncate text-caption text-app-text-muted">{detail}</div>
+      </div>
+      <button type="button" onClick={onSend} className="rounded-md p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text" aria-label={`Add ${name} to chat`} title="Add to chat">
+        <MessageSquare className="h-3.5 w-3.5" />
+      </button>
+    </div>
   )
+}
+
+function LoadingRow() {
+  return <div className="flex items-center gap-2 rounded-md bg-app-bg px-3 py-4 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading extensions...</div>
 }
 
 function EmptyRow({ label }: { label: string }) {
-  return <div className="rounded-lg border border-app-border bg-app-bg p-3 text-xs text-app-text-muted">{label}</div>
+  return <div className="py-4 text-xs text-app-text-muted">{label}</div>
 }

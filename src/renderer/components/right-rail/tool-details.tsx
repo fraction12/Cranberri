@@ -1,5 +1,6 @@
 import { MessageSquare } from 'lucide-react'
 import type { ToolCatalogEntry } from '@/shared/tools'
+import { cn } from '../../lib/ui'
 import {
   toolAvailability,
   toolAvailabilityLabel,
@@ -42,14 +43,14 @@ function nextStep(entry: ToolCatalogEntry): string | null {
   return null
 }
 
-export function ToolDetails({ entry, onSend }: { entry: ToolCatalogEntry; onSend?: () => void }) {
+export function ToolDetails({ entry, divided = true, onSend }: { entry: ToolCatalogEntry; divided?: boolean; onSend?: () => void }) {
   const attention = toolAvailability(entry) === 'needs-attention'
   const checkedAt = timeLabel(entry.machine.observedAt)
   const remediation = nextStep(entry)
   const canSend = Boolean(onSend && (entry.machine.diagnosticCode || attention))
 
   return (
-    <div className="border-t border-app-border bg-app-bg/45 px-8 py-3 text-caption text-app-text-muted">
+    <div className={cn('bg-app-bg/45 px-8 py-3 text-caption text-app-text-muted', divided ? 'border-t border-app-border' : 'mx-2 mb-2 rounded-md')}>
       <p className="text-xs leading-5 text-app-text">{entry.description}</p>
       <dl className="mt-2 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1">
         <dt>Status</dt>

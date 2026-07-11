@@ -49,6 +49,7 @@ export function CatalogToolRow({
       entry={entry}
       expanded={expanded}
       busy={testing}
+      divided={false}
       endAction={pinAction}
       onExpandedChange={onExpandedChange}
       onTest={onTest}
