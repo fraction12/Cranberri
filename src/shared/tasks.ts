@@ -66,6 +66,27 @@ export const taskHistoryRequestSchema = z.object({
   searchTerm: z.string().nullable().optional(),
 }).strict()
 
+export const taskDraftRequestSchema = z.object({
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1).max(160),
+  baseRef: z.string().min(1),
+  environmentId: z.string().min(1).nullable(),
+  environmentRevision: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  input: z.array(z.record(z.string(), z.unknown())).min(1),
+}).strict()
+export const taskProvisionRequestSchema = z.object({
+  taskId: z.string().min(1),
+  includeLocalChanges: z.boolean().default(false),
+}).strict()
+export const taskHandoffRequestSchema = z.object({
+  taskId: z.string().min(1),
+  branch: z.string().trim().min(1),
+  createBranch: z.boolean().optional(),
+}).strict()
+
 export type TaskIdRequest = z.infer<typeof taskIdRequestSchema>
 export type TaskSendRequest = z.infer<typeof taskSendRequestSchema>
 export type TaskHistoryRequest = z.infer<typeof taskHistoryRequestSchema>
+export type TaskDraftRequest = z.infer<typeof taskDraftRequestSchema>
+export type TaskProvisionRequest = z.infer<typeof taskProvisionRequestSchema>
+export type TaskHandoffRequest = z.infer<typeof taskHandoffRequestSchema>

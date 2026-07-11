@@ -110,13 +110,24 @@ declare global {
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       tasks: {
+        snapshot: () => Promise<{ projects: import('@/shared/projects').Project[]; checkouts: import('@/shared/projects').Checkout[]; tasks: import('@/shared/tasks').Task[]; managedWorktrees: import('@/shared/worktrees').ManagedWorktree[] }>
         list: (projectId?: string) => Promise<{ tasks: import('@/shared/tasks').Task[] }>
         ensureControl: (projectId: string) => Promise<{ task: import('@/shared/tasks').Task }>
         history: (request: import('@/shared/tasks').TaskHistoryRequest) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
         read: (taskId: string, archived?: boolean) => Promise<{ task: import('@/shared/tasks').Task; thread: CodexSessionThread }>
         resume: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; thread?: CodexSessionThread; threadId?: string }>
         send: (request: import('@/shared/tasks').TaskSendRequest) => Promise<{ ok: true; task: import('@/shared/tasks').Task }>
+        createWorktreeDraft: (request: import('@/shared/tasks').TaskDraftRequest) => Promise<{ task: import('@/shared/tasks').Task }>
+        provision: (request: import('@/shared/tasks').TaskProvisionRequest) => Promise<{ task: import('@/shared/tasks').Task }>
+        status: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; worktree: import('@/shared/worktrees').ManagedWorktree | null; setupJob: import('@/shared/terminal').EnvironmentJob | null }>
+        handoffToLocal: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
+        handoffToWorktree: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         archive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        unarchive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+      }
+      worktrees: {
+        listRefs: (projectId: string) => Promise<import('@/shared/worktrees').SelectableRefsResult>
+        refreshRefs: (projectId: string) => Promise<import('@/shared/worktrees').RefreshRefsResult>
       }
       terminal: {
         create: (id: string, cwd: string, cols?: number, rows?: number) => Promise<{ pid: number; buffer?: string }>
@@ -130,6 +141,12 @@ declare global {
         onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => () => void
       }
       environments: {
+        list: (projectId: string) => Promise<{ environments: import('@/shared/environments').EnvironmentRecord[] }>
+        read: (projectId: string, environmentId: string) => Promise<import('@/shared/environments').EnvironmentRecord>
+        save: (request: import('@/shared/environments').EnvironmentSaveRequest) => Promise<import('@/shared/environments').EnvironmentRecord>
+        trust: (projectId: string, environmentId: string, revision: string) => Promise<{ manifest: import('@/shared/environments').EnvironmentManifest }>
+        delete: (projectId: string, environmentId: string) => Promise<{ ok: true }>
+        setDefault: (projectId: string, environmentId: string | null) => Promise<{ project: import('@/shared/projects').Project }>
         startSetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => Promise<import('@/shared/terminal').EnvironmentJob>
         retrySetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => Promise<import('@/shared/terminal').EnvironmentJob>
         startTest: (request: import('@/shared/terminal').EnvironmentTestRequest) => Promise<import('@/shared/terminal').EnvironmentJob>

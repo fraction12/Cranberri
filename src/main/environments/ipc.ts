@@ -7,10 +7,11 @@ import {
   environmentTestRequestSchema,
 } from '../../shared/terminal'
 import { EnvironmentRunner } from './runner'
+import { environmentRunner } from '../worktree-runtime'
 
 export function initEnvironmentIpc(
   getMainWindow: () => BrowserWindow | null,
-  runner = new EnvironmentRunner(),
+  runner: EnvironmentRunner = environmentRunner,
 ): EnvironmentRunner {
   runner.setEvents({
     onData: (jobId, data) => getMainWindow()?.webContents.send('environments:job:data', { jobId, data }),

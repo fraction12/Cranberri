@@ -224,6 +224,14 @@ export class EnvironmentRunner {
     return environmentJobSchema.parse(running.public)
   }
 
+  latestForTask(taskId: string): EnvironmentJob | null {
+    const jobs = [...this.jobs.values()]
+      .map((job) => job.public)
+      .filter((job) => job.identity.taskId === taskId)
+      .sort((left, right) => right.startedAt - left.startedAt)
+    return jobs[0] ? environmentJobSchema.parse(jobs[0]) : null
+  }
+
   write(jobId: string, data: string): void {
     const job = this.jobs.get(jobId)
     if (!job || job.public.status !== 'running') throw new Error('Environment job is not running')

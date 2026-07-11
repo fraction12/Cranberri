@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Stethoscope, Trash2, Wrench } from 'lucide-react'
+import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Laptop, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Stethoscope, Trash2, TreePine, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepos } from '../state/repos'
 import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useAppState } from '../state/appState'
+import { useOptionalTasks } from '../state/tasks'
+import { useWorkspace } from '../state/workspace'
 import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
 import { codexThreadSummary } from '../state/session-search'
 import { UsageMeter } from './UsageMeter'
@@ -574,6 +576,9 @@ function LeftRailFooter() {
 export function RepoRail() {
   const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
   const { state: appState, updateAppState } = useAppState()
+  const tasksApi = useOptionalTasks()
+  const { openChat, bindWindowToTask } = useWorkspace()
+  const { bindTaskWindow } = useCodexActions()
   const expandedRepoIds = appState.expandedRepoIds
   const [removeRepoTarget, setRemoveRepoTarget] = useState<{ id: string; name: string } | null>(null)
   const [removingRepo, setRemovingRepo] = useState(false)
@@ -612,6 +617,28 @@ export function RepoRail() {
       setRemovingRepo(false)
     }
   }
+
+  const openTask = useCallback(async (taskId: string) => {
+    if (!tasksApi) return
+    const task = tasksApi.tasks.find((candidate) => candidate.id === taskId)
+    const context = tasksApi.executionContextForTask(taskId)
+    if (!task || !context) {
+      toast.error('This task checkout is unavailable')
+      return
+    }
+    if (activeRepoId !== task.projectId) await setActiveRepo(task.projectId)
+    tasksApi.setActiveTask(task.id)
+    const windowId = `task-${task.id}`
+    openChat(windowId, task.role === 'control' ? 'Local control' : 'Task', task.projectId, context)
+    bindWindowToTask(windowId, context)
+    if (task.threadId) {
+      try {
+        await bindTaskWindow(windowId, task.id)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to open task')
+      }
+    }
+  }, [activeRepoId, bindTaskWindow, bindWindowToTask, openChat, setActiveRepo, tasksApi])
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-surface px-2.5 py-2">
@@ -698,6 +725,9 @@ export function RepoRail() {
               </button>
             </div>
             {expandedRepoIds[repo.id] && <RepoSessions repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} />}
+            {expandedRepoIds[repo.id] && tasksApi && (
+              <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id)} controlTaskId={tasksApi.projects.find((project) => project.id === repo.id)?.controlTaskId} onOpen={(taskId) => { void openTask(taskId) }} />
+            )}
           </div>
         ))}
       </div>
@@ -722,4 +752,15 @@ export function RepoRail() {
       )}
     </div>
   )
+}
+
+function ProjectTaskRows({ projectId, tasks, controlTaskId, onOpen }: { projectId: string; tasks: import('@/shared/tasks').Task[]; controlTaskId?: string; onOpen: (id: string) => void }) {
+  const control = tasks.find((task) => task.id === controlTaskId)
+  return <div className="ml-8 mt-1 space-y-0.5" data-project-tasks={projectId}>{control && <TaskRailRow task={control} fixed onOpen={onOpen} />}{tasks.filter((task) => task.id !== controlTaskId).map((task) => <TaskRailRow key={task.id} task={task} onOpen={onOpen} />)}</div>
+}
+
+function TaskRailRow({ task, fixed = false, onOpen }: { task: import('@/shared/tasks').Task; fixed?: boolean; onOpen: (id: string) => void }) {
+  const Icon = task.location === 'local' ? Laptop : TreePine
+  const detail = fixed ? 'Control' : task.baseRef ?? 'Detached'
+  return <button type="button" onClick={() => onOpen(task.id)} className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-app-surface-2/60" aria-label={`Open ${detail} task`}><Icon className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{task.location === 'local' ? 'Local' : 'Worktree'} · {detail}</span></button>
 }

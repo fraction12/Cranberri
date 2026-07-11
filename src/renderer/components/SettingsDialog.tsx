@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Activity, Command, Download, FileText, Keyboard, Loader2, Palette, PlugZap, Wrench, X } from 'lucide-react'
+import { Activity, Command, Download, FileText, GitBranch, Keyboard, Loader2, PackageOpen, Palette, PlugZap, Wrench, X } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { cn, dialogSurface, iconButton } from '../lib/ui'
@@ -12,6 +12,12 @@ import { GeneralSettings } from './settings/GeneralSettings'
 import { SettingsList, SettingsPage, SettingsRow } from './settings/settings-page'
 import { ToolsSettingsPane } from './settings/tools-settings-pane'
 import { UpdatesSettings } from './settings/UpdatesSettings'
+import { WorktreesSettings } from './settings/WorktreesSettings'
+import { EnvironmentsSettings } from './settings/EnvironmentsSettings'
+import { useTasks } from '../state/tasks'
+import { useRepos } from '../state/repos'
+import { toast } from 'sonner'
+import type { EnvironmentProfile, EnvironmentRecord } from '@/shared/environments'
 
 interface SettingsDialogProps {
   open: boolean
@@ -19,11 +25,13 @@ interface SettingsDialogProps {
   initialTab?: SettingsTabValue
 }
 
-export type SettingsTabValue = 'general' | 'appearance' | 'tools' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
+export type SettingsTabValue = 'general' | 'appearance' | 'worktrees' | 'environments' | 'tools' | 'apps' | 'updates' | 'diagnostics' | 'shortcuts' | 'about'
 
 const TABS: Array<{ value: SettingsTabValue; label: string; icon: React.ElementType }> = [
   { value: 'general', label: 'General', icon: Command },
   { value: 'appearance', label: 'Appearance', icon: Palette },
+  { value: 'worktrees', label: 'Worktrees', icon: GitBranch },
+  { value: 'environments', label: 'Environments', icon: PackageOpen },
   { value: 'tools', label: 'Tools', icon: Wrench },
   { value: 'apps', label: 'Extensions', icon: PlugZap },
   { value: 'updates', label: 'Updates', icon: Download },
@@ -110,12 +118,72 @@ function SettingsContent({ activeTab, version, update, settings, updateSection, 
 }) {
   if (activeTab === 'general') return <GeneralSettings />
   if (activeTab === 'appearance') return <AppearanceSettings />
+  if (activeTab === 'worktrees') return <WorktreesSettings settings={settings.worktrees} onChange={(next) => updateSection('worktrees', next)} />
+  if (activeTab === 'environments') return <LiveEnvironmentsSettings />
   if (activeTab === 'tools') return <ToolsSettingsPane onNavigate={onNavigate} />
   if (activeTab === 'apps') return <CodexResourcesSection />
   if (activeTab === 'updates') return <UpdatesSettings update={update} settings={settings} updateSection={updateSection} />
   if (activeTab === 'diagnostics') return <DiagnosticsSection />
   if (activeTab === 'shortcuts') return <ShortcutsSettings />
   return <AboutSettings version={version} />
+}
+
+function LiveEnvironmentsSettings() {
+  const tasks = useTasks()
+  const { activeProjectId, refresh: refreshProjects } = useRepos()
+  const [projectId, setProjectId] = useState(activeProjectId)
+  const [records, setRecords] = useState<EnvironmentRecord[]>([])
+
+  const load = useCallback(async (target = projectId) => {
+    if (!target) { setRecords([]); return }
+    setRecords((await window.cranberri.environments.list(target)).environments)
+  }, [projectId])
+
+  useEffect(() => { void load().catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to load environments')) }, [load])
+
+  const save = async (environmentId: string, profile: EnvironmentProfile) => {
+    if (!projectId) return
+    await window.cranberri.environments.save({ projectId, environmentId, profile })
+    await load()
+    toast.success('Environment saved')
+  }
+
+  return <EnvironmentsSettings
+    projects={tasks.projects}
+    activeProjectId={projectId}
+    environments={records.map((record) => ({
+      id: record.manifest.environmentId,
+      projectId: record.manifest.projectId,
+      revision: record.manifest.currentRevision,
+      trustedRevision: record.manifest.trustedRevision,
+      profile: record.profile,
+    }))}
+    onProjectChange={setProjectId}
+    onCreate={() => {
+      const environmentId = `environment-${Date.now()}`
+      void save(environmentId, { version: 1, name: 'Local setup', setup: { script: 'npm install', platform: {} }, inherit: [], actions: [] })
+    }}
+    onUpdate={(item, profile) => { void save(item.id, profile).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to save environment')) }}
+    onTrust={(item) => {
+      if (!projectId) return
+      void window.cranberri.environments.trust(projectId, item.id, item.revision).then(() => load()).then(() => toast.success('Environment trusted')).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to trust environment'))
+    }}
+    onTest={(item) => {
+      if (!projectId) return
+      void window.cranberri.environments.startTest({ projectId, environmentId: item.id, revision: item.revision }).then(() => toast.success('Environment test started')).catch((error) => toast.error(error instanceof Error ? error.message : 'Environment test failed'))
+    }}
+    onDelete={(item) => {
+      if (!projectId || !window.confirm(`Delete ${item.profile.name}?`)) return
+      void window.cranberri.environments.delete(projectId, item.id).then(() => load()).then(() => toast.success('Environment deleted')).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to delete environment'))
+    }}
+    onSetDefault={(environmentId) => {
+      if (!projectId) return
+      void window.cranberri.environments.setDefault(projectId, environmentId).then(async () => {
+        await Promise.all([tasks.refresh(), refreshProjects()])
+        toast.success(environmentId ? 'Default environment updated' : 'Default environment cleared')
+      }).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to update default environment'))
+    }}
+  />
 }
 
 function SidebarButton({ active, value, icon: Icon, label, onClick }: {

@@ -47,10 +47,15 @@ import {
   taskReadRequestSchema,
   taskSendRequestSchema,
 } from '../../shared/tasks'
-import { readProjectRegistry } from '../repos'
-import { TaskStore } from '../task-store'
-import { TaskCoordinator } from '../tasks'
+import { readProjectRegistry, writeProjectRegistry } from '../repos'
+import { HandoffCoordinator } from '../handoff'
 import { EnvironmentToolRouter, environmentDynamicTools } from '../environments/tools'
+import { normalizeEnvironmentToml } from '../environments/parser'
+import { environmentDefaultRequestSchema, environmentIdentityRequestSchema, environmentProjectRequestSchema, environmentRevisionRequestSchema, environmentSaveRequestSchema } from '../../shared/environments'
+import { projectIdRequestSchema } from '../../shared/worktrees'
+import { listSelectableRefs, refreshGitRefs } from '../git-worktrees'
+import { taskCoordinator, taskStore, environmentRunner, environmentStore } from '../worktree-runtime'
+import { taskDraftRequestSchema, taskHandoffRequestSchema, taskProvisionRequestSchema } from '../../shared/tasks'
 
 interface PluginManifest {
   name?: string
@@ -114,8 +119,6 @@ let idleRegistryLoad: Promise<ToolRegistryLoadResult> | null = null
 const toolCatalogService = new ToolCatalogService({
   projectRoots: () => [...catalogProjectRoots],
 })
-const taskStore = new TaskStore()
-const taskCoordinator = new TaskCoordinator(taskStore)
 let environmentToolClient: CodexClient | null = null
 
 async function approveEnvironmentTool(
@@ -1001,6 +1004,185 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       properties: ['openFile', 'openDirectory', 'multiSelections'],
     })
     return result.canceled ? { paths: [] } : { paths: result.filePaths }
+  })
+
+  const localCheckout = (projectId: string) => {
+    const registry = readProjectRegistry()
+    const project = registry.projects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new Error('Project not found')
+    const checkout = registry.checkouts.find((candidate) => candidate.id === project.localCheckoutId)
+    if (!checkout?.available) throw new Error('Local checkout unavailable')
+    return { registry, project, checkout }
+  }
+
+  const taskSnapshot = async () => {
+    const registry = readProjectRegistry()
+    await taskCoordinator.ensureControlTasks(registry)
+    const store = taskStore.read()
+    const managedCheckouts = store.managedWorktrees
+      .filter((worktree) => worktree.lifecycle !== 'removed')
+      .map((worktree) => ({
+        id: worktree.checkoutId,
+        projectId: worktree.projectId,
+        kind: 'managed' as const,
+        canonicalPath: worktree.path,
+        gitCommonDir: worktree.gitCommonDir,
+        ownership: 'cranberri' as const,
+        available: worktree.lifecycle !== 'failed' && worktree.lifecycle !== 'needsAttention',
+      }))
+    return {
+      projects: registry.projects,
+      checkouts: [...registry.checkouts, ...managedCheckouts],
+      tasks: store.tasks,
+      managedWorktrees: store.managedWorktrees,
+    }
+  }
+
+  ipcMain.handle('worktrees:refs:list', async (_, raw: unknown) => {
+    const { projectId } = projectIdRequestSchema.parse(raw)
+    const { checkout } = localCheckout(projectId)
+    return { refs: await listSelectableRefs(checkout.canonicalPath) }
+  })
+
+  ipcMain.handle('worktrees:refs:refresh', async (_, raw: unknown) => {
+    const { projectId } = projectIdRequestSchema.parse(raw)
+    const { checkout } = localCheckout(projectId)
+    const refresh = await refreshGitRefs(checkout.canonicalPath)
+    return { refresh, refs: await listSelectableRefs(checkout.canonicalPath) }
+  })
+
+  ipcMain.handle('environments:list', (_, raw: unknown) => {
+    const { projectId } = environmentProjectRequestSchema.parse(raw)
+    return {
+      environments: environmentStore.list(projectId).map((manifest) => ({
+        manifest,
+        profile: environmentStore.readRevision(projectId, manifest.environmentId, manifest.currentRevision),
+      })),
+    }
+  })
+
+  ipcMain.handle('environments:read', (_, raw: unknown) => {
+    const { projectId, environmentId } = environmentIdentityRequestSchema.parse(raw)
+    const manifest = environmentStore.readManifest(projectId, environmentId)
+    return { manifest, profile: environmentStore.readRevision(projectId, environmentId, manifest.currentRevision) }
+  })
+
+  ipcMain.handle('environments:save', (_, raw: unknown) => {
+    const request = environmentSaveRequestSchema.parse(raw)
+    const manifest = environmentStore.save(
+      request.projectId,
+      request.environmentId,
+      normalizeEnvironmentToml(request.profile),
+    )
+    return { manifest, profile: environmentStore.readRevision(request.projectId, request.environmentId, manifest.currentRevision) }
+  })
+
+  ipcMain.handle('environments:trust', (_, raw: unknown) => {
+    const request = environmentRevisionRequestSchema.parse(raw)
+    return { manifest: environmentStore.trust(request.projectId, request.environmentId, request.revision) }
+  })
+
+  ipcMain.handle('environments:delete', (_, raw: unknown) => {
+    const request = environmentIdentityRequestSchema.parse(raw)
+    const state = taskStore.read()
+    environmentStore.delete(request.projectId, request.environmentId, {
+      references: state.tasks.flatMap((task) => task.environmentId === request.environmentId && task.environmentRevision
+        ? [{ projectId: task.projectId, environmentId: task.environmentId, revision: task.environmentRevision }]
+        : []),
+    })
+    const registry = readProjectRegistry()
+    const project = registry.projects.find((candidate) => candidate.id === request.projectId)
+    if (project?.defaultEnvironmentId === request.environmentId) {
+      writeProjectRegistry({
+        ...registry,
+        projects: registry.projects.map((candidate) => candidate.id === project.id
+          ? { ...candidate, defaultEnvironmentId: null }
+          : candidate),
+      })
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('environments:set-default', (_, raw: unknown) => {
+    const request = environmentDefaultRequestSchema.parse(raw)
+    const registry = readProjectRegistry()
+    if (request.environmentId) environmentStore.readManifest(request.projectId, request.environmentId)
+    if (!registry.projects.some((candidate) => candidate.id === request.projectId)) throw new Error('Project not found')
+    const updated = writeProjectRegistry({
+      ...registry,
+      projects: registry.projects.map((project) => project.id === request.projectId
+        ? { ...project, defaultEnvironmentId: request.environmentId }
+        : project),
+    })
+    return { project: updated.projects.find((project) => project.id === request.projectId)! }
+  })
+
+  ipcMain.handle('tasks:snapshot', () => taskSnapshot())
+
+  ipcMain.handle('tasks:create-worktree-draft', async (_, raw: unknown) => {
+    const request = taskDraftRequestSchema.parse(raw)
+    const task = await taskCoordinator.createWorktreeDraft(request)
+    return { task }
+  })
+
+  ipcMain.handle('tasks:provision', async (_, raw: unknown) => {
+    const request = taskProvisionRequestSchema.parse(raw)
+    const task = taskCoordinator.get(request.taskId)
+    const { project, checkout } = localCheckout(task.projectId)
+    const settings = readSettings().worktrees
+    return {
+      task: await taskCoordinator.provisionWorktreeDraft(task.id, {
+        projectName: project.name,
+        localCheckoutId: checkout.id,
+        localCheckoutPath: checkout.canonicalPath,
+        managedRoot: settings.root,
+        cap: settings.cap,
+      }, request.includeLocalChanges),
+    }
+  })
+
+  ipcMain.handle('tasks:status', (_, raw: unknown) => {
+    const { taskId } = taskIdRequestSchema.parse(raw)
+    const task = taskCoordinator.get(taskId)
+    const worktree = task.worktreeId
+      ? taskStore.read().managedWorktrees.find((candidate) => candidate.id === task.worktreeId) ?? null
+      : null
+    return { task, worktree, setupJob: environmentRunner.latestForTask(taskId) }
+  })
+
+  ipcMain.handle('tasks:handoff-local', async (_, raw: unknown) => {
+    const request = taskHandoffRequestSchema.parse(raw)
+    const c = await getCodexClient()
+    const handoff = new HandoffCoordinator(taskStore, readProjectRegistry(), {
+      isThreadRunning: (threadId) => c instanceof CodexClient ? c.isThreadRunning(threadId) : false,
+      hasActiveWorkers: (threadId) => c instanceof CodexClient ? c.hasActiveWorkers(threadId) : false,
+      resumeThread: (threadId, runtime) => c.resumeThread(threadId, runtime),
+    }, path.join(os.homedir(), '.cranberri', 'handoff-bundles'))
+    return { task: await handoff.toLocal(request) }
+  })
+
+  ipcMain.handle('tasks:handoff-worktree', async (_, raw: unknown) => {
+    const request = taskHandoffRequestSchema.parse(raw)
+    const c = await getCodexClient()
+    const handoff = new HandoffCoordinator(taskStore, readProjectRegistry(), {
+      isThreadRunning: (threadId) => c instanceof CodexClient ? c.isThreadRunning(threadId) : false,
+      hasActiveWorkers: (threadId) => c instanceof CodexClient ? c.hasActiveWorkers(threadId) : false,
+      resumeThread: (threadId, runtime) => c.resumeThread(threadId, runtime),
+    }, path.join(os.homedir(), '.cranberri', 'handoff-bundles'))
+    return { task: await handoff.toWorktree(request) }
+  })
+
+  ipcMain.handle('tasks:unarchive', async (_, raw: unknown) => {
+    const { taskId } = taskIdRequestSchema.parse(raw)
+    const task = taskCoordinator.get(taskId)
+    const { checkout } = localCheckout(task.projectId)
+    const restored = await taskCoordinator.unarchive(taskId, checkout.canonicalPath, async (worktree, revision) => {
+      const job = await environmentRunner.startSetup({ taskId: worktree.taskId ?? taskId })
+      const result = await environmentRunner.wait(job.id)
+      if (result.status !== 'succeeded') throw new Error(`Environment setup ${result.status} for revision ${revision}`)
+    })
+    if (restored.threadId) await (await getCodexClient()).unarchiveThread(restored.threadId)
+    return { task: restored }
   })
 
   ipcMain.handle('tasks:list', (_, raw: unknown) => {

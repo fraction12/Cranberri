@@ -25,6 +25,7 @@ interface WorkspaceApi {
   closeWindow: (id: string) => void
   setActiveWindow: (id: string) => void
   renameWindow: (id: string, title: string) => void
+  bindWindowToTask: (windowId: string, context: TaskExecutionContext) => void
 }
 
 let nextId = 1
@@ -205,6 +206,15 @@ export function useWorkspace(): WorkspaceApi {
     }))
   }, [mutateWorkspace])
 
+  const bindWindowToTask = useCallback((windowId: string, context: TaskExecutionContext) => {
+    mutateWorkspace(context.projectId, (windows, activeWindowId) => ({
+      windows: windows.map((window) => window.id === windowId
+        ? { ...window, projectId: context.projectId, taskId: context.taskId, checkoutId: context.checkoutId }
+        : window),
+      activeWindowId: windowId || activeWindowId,
+    }))
+  }, [mutateWorkspace])
+
   const activeWindow = workspace.windows.find((window) => window.id === workspace.activeWindowId) ?? null
   const activeExecutionResolution = activeWindow && tasks
     ? resolveTaskExecutionContext(activeWindow, tasks)
@@ -231,5 +241,6 @@ export function useWorkspace(): WorkspaceApi {
     closeWindow,
     setActiveWindow,
     renameWindow,
+    bindWindowToTask,
   }
 }

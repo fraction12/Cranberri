@@ -87,3 +87,24 @@ export interface EnvironmentRevisionReference {
 export interface EnvironmentRevisionReferences {
   references: readonly EnvironmentRevisionReference[]
 }
+
+export const environmentProjectRequestSchema = z.object({ projectId: z.string().min(1) }).strict()
+export const environmentIdentityRequestSchema = environmentProjectRequestSchema.extend({
+  environmentId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+})
+export const environmentRevisionRequestSchema = environmentIdentityRequestSchema.extend({
+  revision: environmentRevisionSchema.shape.revision,
+})
+export const environmentSaveRequestSchema = environmentIdentityRequestSchema.extend({
+  profile: environmentProfileSchema,
+})
+export const environmentDefaultRequestSchema = environmentProjectRequestSchema.extend({
+  environmentId: z.string().min(1).nullable(),
+})
+
+export interface EnvironmentRecord {
+  manifest: EnvironmentManifest
+  profile: EnvironmentProfile
+}
+
+export type EnvironmentSaveRequest = z.infer<typeof environmentSaveRequestSchema>

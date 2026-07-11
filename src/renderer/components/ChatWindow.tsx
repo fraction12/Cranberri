@@ -11,6 +11,8 @@ import {
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
+import { useOptionalTasks } from '../state/tasks'
+import { useRepos } from '../state/repos'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
@@ -45,6 +47,11 @@ import { TranscriptList } from './chat/TranscriptList'
 import { composerBottomInset } from './chat/composer-layout'
 import { VoiceDictationButton } from './chat/VoiceDictationButton'
 import { PlanModePill } from './chat/PlanModePill'
+import { TaskTargetSelector, type TaskTarget } from './chat/TaskTargetSelector'
+import { BranchSelector } from './chat/BranchSelector'
+import { EnvironmentSelector } from './chat/EnvironmentSelector'
+import { TaskHeader } from './chat/TaskHeader'
+import { TaskSetupStatus } from './chat/TaskSetupStatus'
 import { buttonStyle, cn, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import {
@@ -114,6 +121,10 @@ function skillToken(skill: CodexSkillInfo, trigger: '/' | '$'): string {
   return `${trigger}${name}`
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Task action failed'
+}
+
 function contextInputAttachment(input: CodexUserInput): ContextInputAttachment {
   const id = `${input.type}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   return { id, label: contextInputLabel(input), input }
@@ -144,13 +155,19 @@ export function ChatWindow({ id }: { id: string }) {
     messageWorker,
     restoreSessionWindow,
     switchThread,
+    bindTaskWindow,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
-  const { activeWindowId, renameWindow } = useWorkspace()
+  const tasks = useOptionalTasks()
+  const { activeProject } = useRepos()
+  const { windows, activeWindowId, renameWindow, bindWindowToTask, openTerminal } = useWorkspace()
   const threadId = getThreadForWindow(id)
   const thread = threadId ? getThread(threadId) : undefined
+  const boundTaskId = windows.find((window) => window.id === id)?.taskId ?? null
+  const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
+  const taskProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
 
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
@@ -161,6 +178,14 @@ export function ChatWindow({ id }: { id: string }) {
   }))
   const [planMode, setPlanMode] = useState(false)
   const [goalMode, setGoalMode] = useState(false)
+  const [taskTarget, setTaskTarget] = useState<TaskTarget>('worktree')
+  const [baseRef, setBaseRef] = useState('HEAD')
+  const [environmentId, setEnvironmentId] = useState<string | null>(null)
+  const [branchOptions, setBranchOptions] = useState<Array<{ ref: string; label: string; remote?: string }>>([])
+  const [environmentOptions, setEnvironmentOptions] = useState<import('@/shared/environments').EnvironmentRecord[]>([])
+  const [loadingTargets, setLoadingTargets] = useState(false)
+  const [partialRefFallback, setPartialRefFallback] = useState(false)
+  const [includeLocalChanges, setIncludeLocalChanges] = useState(false)
   const [attachments, setAttachments] = useState<string[]>([])
   const [contextInputParts, setContextInputParts] = useState<ContextInputAttachment[]>([])
   const [voiceListening, setVoiceListening] = useState(false)
@@ -179,6 +204,39 @@ export function ChatWindow({ id }: { id: string }) {
   const shouldScrollToBottomRef = useRef(true)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const restoredSessionRef = useRef<string | null>(null)
+
+  const loadTaskTargets = useCallback(async (refreshRefs = false) => {
+    if (!tasks || !taskProject || threadId) return
+    setLoadingTargets(true)
+    try {
+      const [refsResult, environments] = await Promise.all([
+        tasks.loadRefs(taskProject.id, refreshRefs),
+        tasks.loadEnvironments(taskProject.id),
+      ])
+      const options = refsResult.refs.map((ref) => ({
+        ref: ref.fullName,
+        label: ref.name,
+        remote: ref.kind === 'remote' ? ref.name.split('/')[0] : undefined,
+      }))
+      setBranchOptions(options)
+      setPartialRefFallback(Boolean(refsResult.refresh?.usedLocalFallback))
+      setEnvironmentOptions(environments)
+      const preferredRef = taskProject.pinnedLocalBranch
+        ? `refs/heads/${taskProject.pinnedLocalBranch}`
+        : options[0]?.ref
+      if (preferredRef && options.some((option) => option.ref === preferredRef)) setBaseRef(preferredRef)
+      const defaultEnvironment = environments.find((record) => record.manifest.environmentId === taskProject.defaultEnvironmentId)
+      setEnvironmentId(defaultEnvironment && defaultEnvironment.manifest.trustedRevision === defaultEnvironment.manifest.currentRevision
+        ? defaultEnvironment.manifest.environmentId
+        : null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load task options')
+    } finally {
+      setLoadingTargets(false)
+    }
+  }, [taskProject, tasks, threadId])
+
+  useEffect(() => { void loadTaskTargets(false) }, [loadTaskTargets])
 
   useEffect(() => {
     const persistedThreadId = sessionThreadIdFromWindowId(id)
@@ -453,6 +511,51 @@ export function ChatWindow({ id }: { id: string }) {
           } else {
             await sendMessage(threadId, message.displayText, message.input, turnSettings)
           }
+        } else if (!threadId && tasks && taskProject) {
+          if (taskTarget === 'worktree') {
+            const selectedEnvironment = environmentOptions.find((record) => record.manifest.environmentId === environmentId)
+            const environmentRevision = selectedEnvironment && selectedEnvironment.manifest.trustedRevision === selectedEnvironment.manifest.currentRevision
+              ? selectedEnvironment.manifest.currentRevision
+              : null
+            const task = await tasks.submitWorktree({
+              draft: {
+                projectId: taskProject.id,
+                title: message.displayText,
+                baseRef,
+                environmentId: environmentRevision ? environmentId : null,
+                environmentRevision,
+                input: message.input,
+              },
+              includeLocalChanges,
+              settings: turnSettings,
+            })
+            const status = await window.cranberri.tasks.status(task.id)
+            if (!status.worktree) throw new Error('Provisioned worktree is unavailable')
+            bindWindowToTask(id, {
+              projectId: task.projectId,
+              taskId: task.id,
+              checkoutId: status.worktree.checkoutId,
+              worktreeId: status.worktree.id,
+              checkoutPath: status.worktree.path,
+            })
+            const hydrated = await bindTaskWindow(id, task.id)
+            renameWindow(id, hydrated.title)
+          } else {
+            const { task } = await window.cranberri.tasks.ensureControl(taskProject.id)
+            await window.cranberri.tasks.send({ taskId: task.id, input: message.input, settings: turnSettings })
+            const checkout = tasks.checkouts.find((candidate) => candidate.id === task.checkoutId)
+            if (!checkout) throw new Error('Local checkout is unavailable')
+            bindWindowToTask(id, {
+              projectId: task.projectId,
+              taskId: task.id,
+              checkoutId: task.checkoutId,
+              worktreeId: null,
+              checkoutPath: checkout.canonicalPath,
+            })
+            const hydrated = await bindTaskWindow(id, task.id)
+            renameWindow(id, hydrated.title)
+            await tasks.refresh()
+          }
         } else {
           await createThread(id, message.displayText, turnSettings, message.input)
         }
@@ -631,6 +734,26 @@ export function ChatWindow({ id }: { id: string }) {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
+      {activeTask && <TaskHeader
+        task={activeTask}
+        branch={activeTask.baseRef}
+        onOpen={() => {
+          const context = tasks?.executionContextForTask(activeTask.id)
+          if (context) void window.cranberri.openPath(context.checkoutPath)
+        }}
+        onOpenTerminal={() => {
+          const context = tasks?.executionContextForTask(activeTask.id)
+          if (context) openTerminal(undefined, 'Terminal', activeTask.projectId, context)
+        }}
+        onHandoff={async () => {
+          const branch = window.prompt('Branch for Local testing', activeTask.baseRef?.replace(/^refs\/(heads|remotes)\//, '') ?? `codex/task-${activeTask.id.slice(0, 8)}`)
+          if (!branch || !tasks) return
+          if (activeTask.location === 'worktree') await tasks.handoffToLocal({ taskId: activeTask.id, branch, createBranch: true })
+          else await tasks.handoffToWorktree({ taskId: activeTask.id, branch })
+        }}
+        onArchive={async () => { try { await tasks?.archive(activeTask.id); toast.success('Task archived') } catch (error) { toast.error(errorMessage(error)) } }}
+        onUnarchive={async () => { try { await tasks?.unarchive(activeTask.id); toast.success('Task restored') } catch (error) { toast.error(errorMessage(error)) } }}
+      />}
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollContainerRef}
@@ -700,6 +823,12 @@ export function ChatWindow({ id }: { id: string }) {
               attachments={attachments}
               onRemove={(filePath) => setAttachments((current) => current.filter((item) => item !== filePath))}
             />
+            {tasks && <TaskSetupStatus
+              phase={tasks.operation.phase}
+              onRetry={tasks.operation.phase === 'worktreeFailed' || tasks.operation.phase === 'setupFailed' ? () => { void tasks.retryProvisioning(turnSettings) } : undefined}
+              onCancel={tasks.operation.phase === 'setup' ? () => { void tasks.cancelSetup() } : undefined}
+              onInspect={tasks.operation.job?.logPath ? () => { void window.cranberri.openPath(tasks.operation.job!.logPath) } : undefined}
+            />}
             <ContextInputChips
               attachments={contextInputParts}
               onRemove={(attachmentId) => setContextInputParts((current) => current.filter((item) => item.id !== attachmentId))}
@@ -873,6 +1002,13 @@ export function ChatWindow({ id }: { id: string }) {
               data-composer-toolbar="true"
               className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-[var(--app-text-muted)]"
             >
+              {!threadId && (
+                <div className="flex min-w-0 items-center gap-1" aria-label="New task target">
+                  <TaskTargetSelector value={taskTarget} onChange={setTaskTarget} localUnavailableReason={taskProject?.localLeaseTaskId && taskProject.localLeaseTaskId !== taskProject.controlTaskId ? 'Local is in use by another task' : undefined} />
+                  <BranchSelector value={baseRef} options={branchOptions} loading={loadingTargets} partialFallback={partialRefFallback} includeLocalEligible={branchOptions.find((option) => option.ref === baseRef)?.ref === `refs/heads/${taskProject?.pinnedLocalBranch}`} includeLocalChanges={includeLocalChanges} onIncludeLocalChanges={setIncludeLocalChanges} onRetry={() => { void loadTaskTargets(true) }} onChange={setBaseRef} />
+                  {taskTarget === 'worktree' && <EnvironmentSelector value={environmentId} options={environmentOptions.map((record) => ({ id: record.manifest.environmentId, name: record.manifest.name, trusted: record.manifest.trustedRevision === record.manifest.currentRevision }))} defaultId={taskProject?.defaultEnvironmentId} onChange={setEnvironmentId} />}
+                </div>
+              )}
               <div className="flex shrink-0 items-center gap-3">
                 <AddMenu
                   onAttachFiles={attachFiles}

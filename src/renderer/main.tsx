@@ -5,6 +5,7 @@ import { App } from './App'
 import { ReposProvider } from './state/repos'
 import { CodexProvider } from './state/codex'
 import { SettingsProvider } from './state/settings'
+import { TasksProvider } from './state/tasks'
 import './index.css'
 
 const queryClient = new QueryClient()
@@ -14,9 +15,11 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <ReposProvider>
         <SettingsProvider>
-          <CodexProvider>
-            <App />
-          </CodexProvider>
+          <TasksProvider>
+            <CodexProvider>
+              <App />
+            </CodexProvider>
+          </TasksProvider>
         </SettingsProvider>
       </ReposProvider>
     </QueryClientProvider>

@@ -45,6 +45,7 @@ interface CodexActionsApi {
     repo?: { id: string; path: string },
   ) => Promise<CodexThread>
   restoreSessionWindow: (windowId: string, threadId: string) => Promise<CodexThread>
+  bindTaskWindow: (windowId: string, taskId: string) => Promise<CodexThread>
   archiveSession: (threadId: string, repoPath?: string) => Promise<void>
   unarchiveSession: (threadId: string, repoPath?: string) => Promise<void>
   deleteSession: (threadId: string, repoPath?: string) => Promise<void>
@@ -664,6 +665,16 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     return hydrated
   }, [activeRepo])
 
+  const bindTaskWindow = useCallback(async (windowId: string, taskId: string): Promise<CodexThread> => {
+    const { task, thread } = await window.cranberri.tasks.read(taskId)
+    const hydrated = hydrateThread(thread, task.projectId)
+    setWorkersByParent((current) => hydrateSessionWorkerGraph(current, thread, hydrated.workers ?? []))
+    setThreads((current) => [...current.filter((candidate) => candidate.id !== hydrated.id), hydrated])
+    setActiveThreadId(hydrated.id)
+    setWindowToThread((current) => ({ ...current, [windowId]: hydrated.id }))
+    return hydrated
+  }, [])
+
   const archiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
@@ -729,6 +740,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     closeThreadWindow,
     openSession,
     restoreSessionWindow,
+    bindTaskWindow,
     archiveSession,
     unarchiveSession,
     deleteSession,
@@ -746,6 +758,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     openSession,
     renameSession,
     restoreSessionWindow,
+    bindTaskWindow,
     sendMessage,
     stopWorker,
     switchThread,
