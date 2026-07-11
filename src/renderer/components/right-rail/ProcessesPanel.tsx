@@ -14,6 +14,7 @@ import { typeStyle } from '../../lib/typography'
 
 interface ProcessesPanelProps {
   repoPath: string | null
+  taskId?: string | null
 }
 
 const processRowClassName =
@@ -26,7 +27,7 @@ function processStatusTone(status: AgentProcessInfo['status']): 'success' | 'war
   return 'secondary'
 }
 
-export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
+export function ProcessesPanel({ repoPath, taskId }: ProcessesPanelProps) {
   const [processes, setProcesses] = useState<AgentProcessInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -46,14 +47,17 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
     setError(null)
     setProcesses((items) => items.filter((item) => item.id !== processInfo.id))
     try {
-      await window.cranberri.processes.terminate(repoPath, processInfo.id)
+      if (taskId) await window.cranberri.processes.terminateForTask(taskId, processInfo.id)
+      else await window.cranberri.processes.terminate(repoPath, processInfo.id)
       if (processInfo.kind === 'terminal' && processInfo.terminalWindowId) {
         window.dispatchEvent(createCloseProcessTerminalEvent(processInfo))
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to close process')
       try {
-        const result = await window.cranberri.processes.list(repoPath)
+        const result = taskId
+          ? await window.cranberri.processes.listForTask(taskId)
+          : await window.cranberri.processes.list(repoPath)
         setProcesses(result.processes)
       } catch (reloadError) {
         setError(reloadError instanceof Error ? reloadError.message : 'Failed to reload processes')
@@ -74,7 +78,9 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
     const load = async (showLoading: boolean) => {
       if (showLoading) setLoading(true)
       try {
-        const result = await window.cranberri.processes.list(repoPath)
+        const result = taskId
+          ? await window.cranberri.processes.listForTask(taskId)
+          : await window.cranberri.processes.list(repoPath)
         if (!cancelled) {
           setProcesses(result.processes)
           setError(null)
@@ -95,7 +101,7 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [reloadKey, repoPath])
+  }, [reloadKey, repoPath, taskId])
 
   if (!repoPath) {
     return <ProcessEmpty label="Select a repo to inspect running processes." />

@@ -958,12 +958,27 @@ async function runRepoWorkspaceSmoke() {
           .some((textarea) => textarea.value.includes('Repo file context:') && textarea.value.includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
-      await page.getByText('Fake Codex received: Repo file context:').waitFor({ timeout: 10_000 })
+      await page.getByText('Fake Codex received: Repo file context:').waitFor({ timeout: 20_000 }).catch(async (error) => {
+        const diagnostics = await page.evaluate(async () => ({
+          tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
+          composer: [...document.querySelectorAll('textarea')].map((item) => item.value),
+          notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
+        }))
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nWorktree send diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
+      })
       await page.getByRole('tab', { name: 'Files' }).click()
 
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-model-settings-smoke')
       await page.getByLabel('Send message').click()
-      await page.getByText('settings:gpt-5.4-mini|medium|standard').waitFor({ timeout: 10_000 })
+      await page.getByText('settings:gpt-5.4-mini|medium|standard').waitFor({ timeout: 20_000 }).catch(async (error) => {
+        const diagnostics = await page.evaluate(async () => ({
+          tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
+          composer: [...document.querySelectorAll('textarea')].map((item) => item.value),
+          notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
+          transcript: document.querySelector('[data-chat-transcript-end="true"]')?.parentElement?.textContent,
+        }))
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nTask follow-up diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
+      })
 
       await page.getByPlaceholder('Ask for follow-up changes').waitFor({ timeout: 10_000 })
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri fake codex smoke')
@@ -1501,18 +1516,21 @@ async function runRepoWorkspaceSmoke() {
       if (await page.locator('button[aria-label^="Expand workers for"]').count() !== 0) {
         throw new Error('Repo sessions should not expose worker disclosure controls')
       }
-      const restoredWorkerTree = await page.evaluate(async (targetRepoPath) => {
-        const listed = await window.cranberri.codex.listThreads(targetRepoPath, { archived: false, limit: 20 })
+      const restoredWorkerTree = await page.evaluate(async (projectId) => {
+        const listed = await window.cranberri.tasks.history({ projectId, archived: false, limit: 20 })
         const parent = listed.sessions.find((session) => session.workers?.some((worker) => worker.nickname === 'Euclid'))
         if (!parent) return null
-        const restored = await window.cranberri.codex.readThread(targetRepoPath, parent.id, false)
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.threadId === parent.id)
+        if (!task) return null
+        const restored = await window.cranberri.tasks.read(task.id, false)
         return {
           parentId: parent.id,
           listedStatus: parent.workers?.[0]?.status,
           restoredStatus: restored.thread.workers?.[0]?.status,
           hasHistoricalSpawn: restored.thread.turns.some((turn) => turn.items?.some((item) => item.type === 'collabAgentToolCall')),
         }
-      }, repoPath)
+      }, 'smoke-repo')
       if (!restoredWorkerTree
         || restoredWorkerTree.listedStatus !== 'completed'
         || restoredWorkerTree.restoredStatus !== 'completed'
@@ -2236,7 +2254,19 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
       await page.getByTitle('Repo processes').click()
       await page.getByText('Processes', { exact: true }).waitFor({ timeout: 10_000 })
-      await page.getByText('terminal', { exact: true }).first().waitFor({ timeout: 10_000 })
+      await page.getByText('terminal', { exact: true }).first().waitFor({ timeout: 10_000 }).catch(async (error) => {
+        const diagnostics = await page.evaluate(async () => {
+          const tasks = await window.cranberri.tasks.snapshot()
+          const activeTask = [...tasks.tasks].reverse().find((task) => task.threadId)
+          return {
+            tasks,
+            processes: activeTask ? await window.cranberri.processes.listForTask(activeTask.id) : null,
+            appState: await window.cranberri.appState.read(),
+            panel: document.body.textContent?.slice(-3000),
+          }
+        })
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nTask terminal diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
+      })
       await page.getByText(/pid \d+/).first().waitFor({ timeout: 10_000 })
       await page.getByText(/running \d/).first().waitFor({ timeout: 10_000 })
       await page.getByLabel('Focus process terminal').first().click()
@@ -2852,6 +2882,26 @@ async function runRepoWorkspaceSmoke() {
       }, repoPath, { timeout: 10_000 })
 
       smokeStep('cross-repo session management')
+      await page.evaluate(async () => {
+        const created = await window.cranberri.tasks.createWorktreeDraft({
+          projectId: 'smoke-repo-secondary',
+          title: 'Renamed Smoke Codex Thread',
+          baseRef: 'refs/heads/main',
+          environmentId: null,
+          environmentRevision: null,
+          input: [{ type: 'text', text: 'secondary repo smoke task' }],
+        })
+        await window.cranberri.tasks.provision({ taskId: created.task.id, includeLocalChanges: false })
+        await window.cranberri.tasks.send({
+          taskId: created.task.id,
+          input: [{ type: 'text', text: 'secondary repo smoke task' }],
+        })
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.id === created.task.id)
+        if (!task?.threadId) throw new Error('Secondary smoke task did not create a thread')
+        await window.cranberri.codex.renameThread('', task.threadId, 'Renamed Smoke Codex Thread')
+        await window.cranberri.tasks.archive(task.id)
+      })
       const secondaryRepoName = path.basename(secondaryRepoPath)
       const secondaryRepo = page.locator('[data-repo-id="smoke-repo-secondary"]')
       await secondaryRepo.getByRole('button', { name: `Expand sessions for ${secondaryRepoName}` }).click()
@@ -2866,9 +2916,9 @@ async function runRepoWorkspaceSmoke() {
       const resetSessionChanges = async () => page.evaluate(() => {
         window.__cranberriSmokeSessionChanges = []
       })
-      const waitForSecondaryRepoChange = async () => page.waitForFunction((targetRepoPath) => (
-        window.__cranberriSmokeSessionChanges.some((detail) => detail?.repoPath === targetRepoPath)
-      ), secondaryRepoPath, { timeout: 10_000 })
+      const waitForSecondaryRepoChange = async () => page.waitForFunction(() => (
+        window.__cranberriSmokeSessionChanges.some((detail) => detail?.projectId === 'smoke-repo-secondary')
+      ), undefined, { timeout: 10_000 })
 
       let inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })

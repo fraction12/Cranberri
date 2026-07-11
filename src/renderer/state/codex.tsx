@@ -7,6 +7,7 @@ import {
   workersFromSessionThread,
 } from '@/shared/codex-workers'
 import { useRepos } from './repos'
+import { useOptionalTasks } from './tasks'
 import { applyCodexSendFailure } from './codex-send-failure'
 import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
@@ -136,6 +137,7 @@ function logRendererTelemetry(type: string, payload: unknown): void {
 
 export function CodexProvider({ children }: { children: React.ReactNode }) {
   const { activeRepo, repos } = useRepos()
+  const tasks = useOptionalTasks()
   const [threads, setThreads] = useState<CodexThread[]>([])
   const threadsRef = useRef(threads)
   threadsRef.current = threads
@@ -483,13 +485,25 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     })
 
     try {
-      if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
-      await window.cranberri.codex.sendMessage(activeRepo.path, threadId, input ?? [{ type: 'text', text: content }], settings)
+      const taskApi = tasks
+      const boundTask = taskApi?.tasks.find((task) => task.threadId === threadId)
+      if (boundTask && taskApi) {
+        if (shouldResume) await window.cranberri.tasks.resume(boundTask.id)
+        await window.cranberri.tasks.send({
+          taskId: boundTask.id,
+          input: input ?? [{ type: 'text', text: content }],
+          settings,
+        })
+        await taskApi.refresh()
+      } else {
+        if (shouldResume) await window.cranberri.codex.resumeThread(activeRepo.path, threadId, settings)
+        await window.cranberri.codex.sendMessage(activeRepo.path, threadId, input ?? [{ type: 'text', text: content }], settings)
+      }
     } catch (error) {
       markSendFailed(threadId, error)
       throw error
     }
-  }, [activeRepo, markSendFailed])
+  }, [activeRepo, markSendFailed, tasks])
 
   const compactThread = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')

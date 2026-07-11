@@ -20,6 +20,7 @@ import { typeStyle } from '../lib/typography'
 interface TerminalWindowProps {
   id: string
   repoPath: string | null
+  taskId?: string | null
   onSendToChat: (text: string) => void
 }
 
@@ -33,7 +34,7 @@ function readTerminalBuffer(term: XTerm): string {
   return lines.join('\n')
 }
 
-export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowProps) {
+export function TerminalWindow({ id, repoPath, taskId, onSendToChat }: TerminalWindowProps) {
   const { settings } = useSettings()
   const { theme } = useAppearance()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -129,7 +130,10 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       fitAndResize()
       const cols = t.cols > 0 ? t.cols : 100
       const rows = t.rows > 0 ? t.rows : 30
-      window.cranberri.terminal.create(termId, repoPath, cols, rows)
+      const create = taskId
+        ? window.cranberri.terminal.createForTask({ id: termId, taskId, cols, rows })
+        : window.cranberri.terminal.create(termId, repoPath, cols, rows)
+      create
         .then((result) => {
           if (result.buffer && termRef.current) termRef.current.write(result.buffer)
           setTerminalStatus('ready')
@@ -167,7 +171,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       searchRef.current = null
       setTerminalStatus('starting')
     }
-  }, [id, reloadKey, repoPath, termId])
+  }, [id, reloadKey, repoPath, taskId, termId])
 
   useEffect(() => {
     const term = termRef.current

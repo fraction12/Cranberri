@@ -520,7 +520,7 @@ export function ChatWindow({ id }: { id: string }) {
             const task = await tasks.submitWorktree({
               draft: {
                 projectId: taskProject.id,
-                title: message.displayText,
+                title: message.displayText.split('\n')[0]?.trim().slice(0, 160) || 'Task',
                 baseRef,
                 environmentId: environmentRevision ? environmentId : null,
                 environmentRevision,

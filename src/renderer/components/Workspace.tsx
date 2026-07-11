@@ -323,7 +323,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
               <ChatWindow id={win.id} />
             ) : win.type === 'terminal' ? (
               <Suspense fallback={<div className={cn('flex h-full items-center justify-center', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading terminal...</div>}>
-                <TerminalWindow id={win.id} repoPath={activeRepoPath} onSendToChat={sendContextToChat} />
+                <TerminalWindow id={win.id} repoPath={activeRepoPath} taskId={win.taskId} onSendToChat={sendContextToChat} />
               </Suspense>
             ) : (
               <BrowserPane

@@ -31,4 +31,16 @@ describe('TaskStore', () => {
     const target = path.join(electron.userDataPath, 'tasks.json'); fs.writeFileSync(target, 'broken'); const store = new TaskStore()
     expect(() => store.read()).toThrow(/task store/i); expect(fs.readFileSync(target, 'utf8')).toBe('broken')
   })
+
+  it('resolves the default user-data path lazily', async () => {
+    const store = new TaskStore()
+    const nextUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-tasks-late-path-'))
+    tempDirs.push(nextUserData)
+    electron.userDataPath = nextUserData
+
+    await store.update((state) => ({ ...state, tasks: [task('late')] }))
+
+    expect(fs.existsSync(path.join(nextUserData, 'tasks.json'))).toBe(true)
+    expect(store.read().tasks[0]?.id).toBe('late')
+  })
 })

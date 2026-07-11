@@ -29,16 +29,18 @@ function emptyTaskStore(): TaskStoreState {
 
 export class TaskStore {
   private writes: Promise<void> = Promise.resolve()
-  private readonly targetPath: string
 
-  constructor(targetPath = path.join(app.getPath('userData'), 'tasks.json')) {
-    this.targetPath = targetPath
+  constructor(private readonly configuredPath?: string) {}
+
+  private targetPath(): string {
+    return this.configuredPath ?? path.join(app.getPath('userData'), 'tasks.json')
   }
 
   read(): TaskStoreState {
-    if (!fs.existsSync(this.targetPath)) return emptyTaskStore()
+    const targetPath = this.targetPath()
+    if (!fs.existsSync(targetPath)) return emptyTaskStore()
     try {
-      return taskStoreSchema.parse(JSON.parse(fs.readFileSync(this.targetPath, 'utf8')))
+      return taskStoreSchema.parse(JSON.parse(fs.readFileSync(targetPath, 'utf8')))
     } catch (error) {
       throw new Error('Cannot read authoritative task store', { cause: error })
     }
@@ -55,11 +57,12 @@ export class TaskStore {
   }
 
   private write(state: TaskStoreState): void {
-    const temporary = `${this.targetPath}.${process.pid}.tmp`
-    fs.mkdirSync(path.dirname(this.targetPath), { recursive: true })
+    const targetPath = this.targetPath()
+    const temporary = `${targetPath}.${process.pid}.tmp`
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true })
     try {
       fs.writeFileSync(temporary, JSON.stringify(state, null, 2))
-      fs.renameSync(temporary, this.targetPath)
+      fs.renameSync(temporary, targetPath)
     } catch (error) {
       fs.rmSync(temporary, { force: true })
       throw error

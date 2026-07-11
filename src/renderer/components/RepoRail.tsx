@@ -123,9 +123,10 @@ function SessionRow({
   )
 }
 
-function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRepo: boolean }) {
+function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string; repoPath: string; isActiveRepo: boolean }) {
   const { openThreadIds } = useCodexWindows()
   const { archiveSession, unarchiveSession, deleteSession, renameSession } = useCodexActions()
+  const tasksApi = useOptionalTasks()
   const { state: appState, updateAppState } = useAppState()
   const [recent, setRecent] = useState<CodexSessionSummary[]>([])
   const [archived, setArchived] = useState<CodexSessionSummary[]>([])
@@ -165,13 +166,20 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     updateAppState((current) => removePinnedSessions(current, repoPath, ids))
   }, [repoPath, updateAppState])
 
+  const taskForSession = useCallback(async (threadId: string) => {
+    const cached = tasksApi?.tasks.find((candidate) => candidate.threadId === threadId)
+    if (cached) return cached
+    const snapshot = await window.cranberri.tasks.snapshot()
+    return snapshot.tasks.find((candidate) => candidate.threadId === threadId) ?? null
+  }, [tasksApi])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
       const [recentResult, archivedResult] = await Promise.all([
-        window.cranberri.codex.listThreads(repoPath, { archived: false, limit: 8 }),
-        window.cranberri.codex.listThreads(repoPath, { archived: true, limit: 8 }),
+        window.cranberri.tasks.history({ projectId, archived: false, limit: 8 }),
+        window.cranberri.tasks.history({ projectId, archived: true, limit: 8 }),
       ])
       const loadedIds = new Set([...recentResult.sessions, ...archivedResult.sessions].map((session) => session.id))
       const hydratedPinnedResults = await Promise.all(pinnedRecords
@@ -210,7 +218,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     } finally {
       setLoading(false)
     }
-  }, [pinnedRecords, removePinnedIds, repoPath])
+  }, [pinnedRecords, projectId, removePinnedIds, repoPath])
 
   useEffect(() => {
     if (!shouldAutoLoadRepoSessions({ loaded, loading, loadError })) return
@@ -236,7 +244,16 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     try {
       setRecent((prev) => prev.filter((item) => item.id !== session.id))
       setArchived((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
-      await archiveSession(session.id, repoPath)
+      const task = await taskForSession(session.id)
+      if (task) {
+        await window.cranberri.tasks.archive(task.id)
+        await tasksApi?.refresh()
+        window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
+          detail: { projectId, repoPath, threadId: session.id },
+        }))
+      } else {
+        await archiveSession(session.id, repoPath)
+      }
       toast.success('Session archived')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to archive session')
@@ -250,7 +267,16 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     try {
       setArchived((prev) => prev.filter((item) => item.id !== session.id))
       setRecent((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
-      await unarchiveSession(session.id, repoPath)
+      const task = await taskForSession(session.id)
+      if (task) {
+        await window.cranberri.tasks.unarchive(task.id)
+        await tasksApi?.refresh()
+        window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
+          detail: { projectId, repoPath, threadId: session.id },
+        }))
+      } else {
+        await unarchiveSession(session.id, repoPath)
+      }
       toast.success('Session restored')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to restore session')
@@ -274,6 +300,9 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     setArchived((prev) => prev.filter((item) => item.id !== session.id))
     try {
       await deleteSession(session.id, repoPath)
+      window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
+        detail: { projectId, repoPath, threadId: session.id },
+      }))
       removePinnedIds([session.id])
       setDeleteTarget(null)
       toast.success('Session deleted')
@@ -309,6 +338,9 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
     setRenameError(null)
     try {
       await renameSession(renameTarget.id, name, repoPath)
+      window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
+        detail: { projectId, repoPath, threadId: renameTarget.id },
+      }))
       setRecent((prev) => prev.map((item) => item.id === renameTarget.id ? { ...item, title: name } : item))
       setArchived((prev) => prev.map((item) => item.id === renameTarget.id ? { ...item, title: name } : item))
       setRenameTarget(null)
@@ -724,7 +756,7 @@ export function RepoRail() {
                 <ChevronRight className={`w-3 h-3 transition-transform ${expandedRepoIds[repo.id] ? 'rotate-90' : ''}`} />
               </button>
             </div>
-            {expandedRepoIds[repo.id] && <RepoSessions repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} />}
+            {expandedRepoIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} />}
             {expandedRepoIds[repo.id] && tasksApi && (
               <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id)} controlTaskId={tasksApi.projects.find((project) => project.id === repo.id)?.controlTaskId} onOpen={(taskId) => { void openTask(taskId) }} />
             )}

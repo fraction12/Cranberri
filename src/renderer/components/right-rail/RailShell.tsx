@@ -17,6 +17,7 @@ interface RightRailTabsProps {
 interface BottomPanelContentProps {
   bottomPanel: BottomPanelKind
   repoPath: string | null
+  taskId?: string | null
   onOpenToolsSettings: () => void
 }
 
@@ -54,7 +55,7 @@ export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailT
   )
 }
 
-export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings }: BottomPanelContentProps) {
+export function BottomPanelContent({ bottomPanel, repoPath, taskId, onOpenToolsSettings }: BottomPanelContentProps) {
   return (
     <div className="flex basis-1/2 min-h-0 flex-col bg-app-bg">
       <div className="flex h-9 shrink-0 items-center bg-app-surface px-3 pt-1">
@@ -72,7 +73,7 @@ export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings 
             No linked issue
           </div>
         ) : bottomPanel === 'processes' ? (
-          <ProcessesPanel repoPath={repoPath} />
+          <ProcessesPanel repoPath={repoPath} taskId={taskId} />
         ) : bottomPanel === 'github' ? (
           <GitHubPanel repoPath={repoPath} />
         ) : (

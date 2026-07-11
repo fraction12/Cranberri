@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useGitStatus, useGitFiles } from '../state/git'
 import { useCodexThreads } from '../state/codex'
 import { useRepos } from '../state/repos'
+import { useWorkspace } from '../state/workspace'
 import { ChangeList } from './right-rail/ChangeList'
 import { AgentsPanel } from './right-rail/AgentsPanel'
 import { CommitDialog, type CommitDraftState, type CommitState } from './right-rail/CommitDialog'
@@ -57,6 +58,8 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const { data: status, isLoading: statusLoading, isError: statusFailed, error: statusError, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
   const { data: allFiles, isLoading: filesLoading, isError: filesFailed, error: filesError } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
+  const { windows, activeWindowId } = useWorkspace()
+  const activeTaskId = windows.find((window) => window.id === activeWindowId)?.taskId ?? null
   const { activeThread } = useCodexThreads()
   const agentCount = activeThread?.workers?.length ?? 0
 
@@ -487,7 +490,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         )}
 
       </div>
-      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} onOpenToolsSettings={onOpenToolsSettings} />}
+      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} taskId={activeTaskId} onOpenToolsSettings={onOpenToolsSettings} />}
       <BottomPanelNav bottomPanel={bottomPanel} onTogglePanel={(panel) => setBottomPanel((current) => current === panel ? null : panel)} />
     </div>
   )

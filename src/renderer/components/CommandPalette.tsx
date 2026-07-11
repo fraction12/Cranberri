@@ -82,6 +82,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   const queryClient = useQueryClient()
   const { repos, activeRepoId, activeRepo, setActiveRepo } = useRepos()
   const { windows, activeWindowId, openChat, openTerminal, openBrowser, updateBrowserState, setActiveWindow } = useWorkspace()
+  const activeTaskId = windows.find((window) => window.id === activeWindowId)?.taskId ?? null
   const { activeThreadId, openThreadIds } = useCodexWindows()
   const { getThreadSnapshot, compactThread, archiveSession, unarchiveSession, deleteSession, renameSession, approve, abort } = useCodexActions()
   const activeThreadSnapshot = activeThreadId ? getThreadSnapshot(activeThreadId) ?? null : null
@@ -209,15 +210,15 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     pinnedRecords.map((record) => `${record.id}:${record.archived ? 'archived' : 'recent'}`).join('|')
   ), [pinnedRecords])
   const sessionsQuery = useQuery({
-    queryKey: ['command-palette', 'sessions', activeRepo?.path, trimmedQuery, pinnedSessionCacheKey],
+    queryKey: ['command-palette', 'sessions', activeRepo?.id, trimmedQuery, pinnedSessionCacheKey],
     queryFn: async () => {
       if (!activeRepo) return []
       const searchTerm = trimmedQuery.length >= 2 ? trimmedQuery : null
       const [recentResult, archivedResult, broadRecentResult, broadArchivedResult] = await Promise.all([
-        window.cranberri.codex.listThreads(activeRepo.path, { archived: false, limit: searchTerm ? 20 : 10, searchTerm }),
-        window.cranberri.codex.listThreads(activeRepo.path, { archived: true, limit: searchTerm ? 20 : 5, searchTerm }),
-        searchTerm ? window.cranberri.codex.listThreads(activeRepo.path, { archived: false, limit: 30 }) : Promise.resolve(null),
-        searchTerm ? window.cranberri.codex.listThreads(activeRepo.path, { archived: true, limit: 20 }) : Promise.resolve(null),
+        window.cranberri.tasks.history({ projectId: activeRepo.id, archived: false, limit: searchTerm ? 20 : 10, searchTerm }),
+        window.cranberri.tasks.history({ projectId: activeRepo.id, archived: true, limit: searchTerm ? 20 : 5, searchTerm }),
+        searchTerm ? window.cranberri.tasks.history({ projectId: activeRepo.id, archived: false, limit: 30 }) : Promise.resolve(null),
+        searchTerm ? window.cranberri.tasks.history({ projectId: activeRepo.id, archived: true, limit: 20 }) : Promise.resolve(null),
       ])
       const baseItems: SessionSearchResult[] = [
         ...recentResult.sessions.map((session) => ({ session: compactSessionSummary(session), repoPath: activeRepo.path, archived: false })),
@@ -276,10 +277,12 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   })
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data])
   const processesQuery = useQuery({
-    queryKey: ['command-palette', 'processes', activeRepo?.path],
+    queryKey: ['command-palette', 'processes', activeRepo?.path, activeTaskId],
     queryFn: async () => {
       if (!activeRepo) return []
-      const result = await window.cranberri.processes.list(activeRepo.path)
+      const result = activeTaskId
+        ? await window.cranberri.processes.listForTask(activeTaskId)
+        : await window.cranberri.processes.list(activeRepo.path)
       return result.processes
     },
     enabled: open && Boolean(activeRepo),
@@ -288,10 +291,12 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   })
   const processes = useMemo(() => processesQuery.data ?? [], [processesQuery.data])
   const gitStatusQuery = useQuery({
-    queryKey: ['command-palette', 'git-status', activeRepo?.path],
+    queryKey: ['command-palette', 'git-status', activeRepo?.path, activeTaskId],
     queryFn: async () => {
       if (!activeRepo) return []
-      return window.cranberri.git.status(activeRepo.path)
+      return activeTaskId
+        ? window.cranberri.git.taskStatus(activeTaskId)
+        : window.cranberri.git.status(activeRepo.path)
     },
     enabled: open && Boolean(activeRepo),
     staleTime: 3000,
@@ -322,28 +327,34 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
   const toolEventsQuery = useRecentToolEvents(activeThread?.id ?? null, 80, open)
   const toolEvents = useMemo(() => toolEventsQuery.data ?? [], [toolEventsQuery.data])
   const repoFileSearchQuery = useQuery({
-    queryKey: ['command-palette', 'repo-file-search', activeRepo?.path, trimmedQuery],
+    queryKey: ['command-palette', 'repo-file-search', activeRepo?.path, activeTaskId, trimmedQuery],
     queryFn: async () => {
       if (!activeRepo || trimmedQuery.length < 2) return []
-      const result = await window.cranberri.search.files(activeRepo.path, {
+      const options = {
         query: trimmedQuery,
         maxResults: 8,
         globs: ['!package-lock.json'],
-      })
+      }
+      const result = activeTaskId
+        ? await window.cranberri.search.taskFiles(activeTaskId, options)
+        : await window.cranberri.search.files(activeRepo.path, options)
       return result.matches
     },
     enabled: open && Boolean(activeRepo) && trimmedQuery.length >= 2,
     staleTime: 5000,
   })
   const repoContentSearchQuery = useQuery({
-    queryKey: ['command-palette', 'repo-content-search', activeRepo?.path, trimmedQuery],
+    queryKey: ['command-palette', 'repo-content-search', activeRepo?.path, activeTaskId, trimmedQuery],
     queryFn: async () => {
       if (!activeRepo || trimmedQuery.length < 2) return []
-      const result = await window.cranberri.search.repo(activeRepo.path, {
+      const options = {
         query: trimmedQuery,
         maxResults: 6,
         globs: ['!package-lock.json'],
-      })
+      }
+      const result = activeTaskId
+        ? await window.cranberri.search.taskRepo(activeTaskId, options)
+        : await window.cranberri.search.repo(activeRepo.path, options)
       return result.matches
     },
     enabled: open && Boolean(activeRepo) && trimmedQuery.length >= 2,
