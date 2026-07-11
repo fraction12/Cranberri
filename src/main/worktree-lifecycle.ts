@@ -84,6 +84,64 @@ export class WorktreeLifecycle {
     return this.serialize(() => this.removeInternal(worktreeId))
   }
 
+  archive(worktreeId: string, now = Date.now()): Promise<ManagedWorktree> {
+    return this.serialize(() => this.updateRecord(worktreeId, (record) => ({
+      ...record,
+      lifecycle: 'archived',
+      archivedAt: record.archivedAt ?? now,
+      updatedAt: now,
+    })))
+  }
+
+  restore(
+    worktreeId: string,
+    localCheckoutPath: string,
+    runEnvironment: (worktree: ManagedWorktree, revision: string) => Promise<void> = async () => undefined,
+  ): Promise<ManagedWorktree> {
+    return this.serialize(async () => {
+      const record = this.store.read().managedWorktrees.find((item) => item.id === worktreeId)
+      if (!record) throw new Error('Managed worktree not found')
+      if (record.lifecycle !== 'removed') {
+        if (!fs.existsSync(record.path)) throw new Error('Archived worktree path is unavailable')
+        return this.updateRecord(worktreeId, (current) => ({
+          ...current, lifecycle: 'active', archivedAt: null, cleanupReason: null, updatedAt: Date.now(),
+        }))
+      }
+      if (!record.privateRef || !record.archiveHeadSha) throw new Error('Removed worktree has no restorable private ref')
+      const sha = await resolveGitRef(localCheckoutPath, record.privateRef)
+      if (sha !== record.archiveHeadSha) throw new Error('Private archive ref no longer matches the recorded HEAD')
+      await createDetachedWorktree(localCheckoutPath, record.path, sha)
+      try {
+        writeManifest(record.manifestPath, {
+          version: 1,
+          worktreeId: record.id,
+          projectId: record.projectId,
+          taskId: record.taskId ?? '',
+          checkoutPath: record.path,
+          gitCommonDir: record.gitCommonDir,
+          createdAt: record.createdAt,
+        })
+        if (record.environmentRevision) await runEnvironment(record, record.environmentRevision)
+        return this.updateRecord(worktreeId, (current) => ({
+          ...current,
+          lifecycle: 'active',
+          headSha: sha,
+          archivedAt: null,
+          cleanupReason: null,
+          updatedAt: Date.now(),
+        }))
+      } catch (error) {
+        await this.updateRecord(worktreeId, (current) => ({
+          ...current,
+          lifecycle: 'needsAttention',
+          cleanupReason: error instanceof Error ? error.message : 'Worktree restoration failed',
+          updatedAt: Date.now(),
+        }))
+        throw error
+      }
+    })
+  }
+
   removeByPath(worktreePath: string): Promise<ManagedWorktree> {
     const record = this.store.read().managedWorktrees.find((item) => path.resolve(item.path) === path.resolve(worktreePath))
     if (!record) return Promise.reject(new Error('Path is not managed by Cranberri'))

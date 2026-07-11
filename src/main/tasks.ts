@@ -22,10 +22,16 @@ export interface WorktreeProvisioningContext {
   cap: number
 }
 
+interface TaskCodexLifecycle {
+  archiveThread(threadId: string): Promise<void>
+  unarchiveThread(threadId: string): Promise<unknown>
+}
+
 export class TaskCoordinator {
   constructor(
     private readonly store = new TaskStore(),
     private readonly worktrees?: WorktreeLifecycle,
+    private readonly codex?: TaskCodexLifecycle,
   ) {}
 
   async ensureControlTasks(registry: ProjectRegistry, now = Date.now()): Promise<Task[]> {
@@ -218,8 +224,24 @@ export class TaskCoordinator {
   async archive(taskId: string): Promise<Task> {
     const task = this.requireTask(taskId)
     if (task.role === 'control') throw new Error('The Local control task cannot be archived')
+    if (task.threadId && this.codex) await this.codex.archiveThread(task.threadId)
+    if (task.worktreeId && this.worktrees) await this.worktrees.archive(task.worktreeId)
     await this.releaseLocalLease(task.projectId, task.id)
-    return this.patchTask(taskId, { state: 'archived', archivedAt: Date.now() })
+    return this.patchTask(taskId, { state: 'archived', archivedAt: Date.now(), handoff: null })
+  }
+
+  async unarchive(taskId: string, localCheckoutPath: string, runEnvironment?: (worktree: import('../shared/worktrees').ManagedWorktree, revision: string) => Promise<void>): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (task.state !== 'archived' || !task.worktreeId || !this.worktrees) throw new Error('Task is not a restorable archived worktree task')
+    const worktree = await this.worktrees.restore(task.worktreeId, localCheckoutPath, runEnvironment)
+    if (task.threadId && this.codex) await this.codex.unarchiveThread(task.threadId)
+    return this.patchTask(taskId, {
+      checkoutId: worktree.checkoutId,
+      location: 'worktree',
+      state: 'active',
+      archivedAt: null,
+      handoff: null,
+    })
   }
 
   private requireTask(taskId: string): Task {

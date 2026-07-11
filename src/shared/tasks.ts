@@ -37,6 +37,14 @@ export const taskSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   archivedAt: z.number().nullable().optional(),
+  handoff: z.object({
+    direction: z.enum(['toLocal', 'toWorktree']),
+    phase: z.enum(['preflight', 'captured', 'branchReleased', 'applied', 'resumed', 'rollback', 'needsAttention']),
+    branch: z.string().min(1),
+    bundlePath: z.string().min(1).nullable(),
+    startedAt: z.number(),
+    error: z.string().nullable(),
+  }).nullable().optional(),
 })
 
 export type PendingFirstTurn = z.infer<typeof pendingFirstTurnSchema>

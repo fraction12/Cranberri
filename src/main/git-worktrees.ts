@@ -151,6 +151,66 @@ async function applyPatch(checkoutPath: string, patch: Buffer, staged: boolean):
   }
 }
 
+export async function applyLocalChanges(checkoutPath: string, changes: LocalChanges): Promise<void> {
+  const head = await resolveGitRef(checkoutPath, 'HEAD')
+  if (head !== changes.baseSha) throw new Error('Transfer bundle does not match checkout HEAD')
+  await applyPatch(checkoutPath, changes.stagedPatch, true)
+  await applyPatch(checkoutPath, changes.unstagedPatch, false)
+  for (const file of changes.untrackedFiles) {
+    const destination = path.resolve(checkoutPath, file.relativePath)
+    const relative = path.relative(path.resolve(checkoutPath), destination)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Untracked path escapes checkout')
+    if (fs.existsSync(destination)) throw new Error(`Transfer would overwrite untracked file: ${file.relativePath}`)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, file.contents, { mode: file.mode })
+  }
+}
+
+export async function clearTransferredChanges(checkoutPath: string, changes: LocalChanges): Promise<void> {
+  await runGit(checkoutPath, ['reset', '--hard', changes.baseSha])
+  for (const file of changes.untrackedFiles) {
+    const candidate = path.resolve(checkoutPath, file.relativePath)
+    const relative = path.relative(path.resolve(checkoutPath), candidate)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Untracked path escapes checkout')
+    if (!fs.existsSync(candidate)) continue
+    const stat = fs.lstatSync(candidate)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Refusing to remove changed path: ${file.relativePath}`)
+    if (!fs.readFileSync(candidate).equals(file.contents)) throw new Error(`Transferred file changed during handoff: ${file.relativePath}`)
+    fs.rmSync(candidate)
+  }
+}
+
+export async function checkoutBranch(checkoutPath: string, branch: string, createAt?: string): Promise<void> {
+  if (!branch || branch.startsWith('-') || /[\0\n\r]/.test(branch)) throw new Error('Invalid branch name')
+  if (createAt) await runGit(checkoutPath, ['switch', '-c', branch, createAt])
+  else await runGit(checkoutPath, ['switch', branch])
+}
+
+export async function detachCheckout(checkoutPath: string, expectedSha: string): Promise<void> {
+  const head = await resolveGitRef(checkoutPath, 'HEAD')
+  if (head !== expectedSha) throw new Error('Checkout HEAD changed during handoff')
+  await runGit(checkoutPath, ['switch', '--detach', expectedSha])
+}
+
+export async function branchExists(checkoutPath: string, branch: string): Promise<boolean> {
+  try {
+    await resolveGitRef(checkoutPath, `refs/heads/${branch}`)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function createBranch(checkoutPath: string, branch: string, sha: string): Promise<void> {
+  if (await branchExists(checkoutPath, branch)) throw new Error('Branch already exists')
+  await runGit(checkoutPath, ['branch', branch, sha])
+}
+
+export async function branchCheckoutPath(checkoutPath: string, branch: string): Promise<string | null> {
+  const entry = (await listGitWorktrees(checkoutPath)).find((item) => item.branch === branch)
+  return entry?.path ?? null
+}
+
 export async function createDetachedWorktree(
   localPath: string,
   targetPath: string,
@@ -164,15 +224,7 @@ export async function createDetachedWorktree(
     const changes = options.localChanges
     if (!changes) return
     if (changes.baseSha !== sha) throw new Error('Local changes do not match the selected base SHA')
-    await applyPatch(targetPath, changes.stagedPatch, true)
-    await applyPatch(targetPath, changes.unstagedPatch, false)
-    for (const file of changes.untrackedFiles) {
-      const destination = path.resolve(targetPath, file.relativePath)
-      const relative = path.relative(path.resolve(targetPath), destination)
-      if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Untracked path escapes managed worktree')
-      fs.mkdirSync(path.dirname(destination), { recursive: true })
-      fs.writeFileSync(destination, file.contents, { mode: file.mode })
-    }
+    await applyLocalChanges(targetPath, changes)
   } catch (error) {
     try { await runGit(localPath, ['worktree', 'remove', targetPath]) } catch { /* retained for reconciliation */ }
     throw error

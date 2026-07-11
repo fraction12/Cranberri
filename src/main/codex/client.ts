@@ -206,6 +206,16 @@ export class CodexClient extends EventEmitter {
     throw new Error(messages[capability])
   }
 
+  isThreadRunning(threadId: string): boolean {
+    return this.activeRunThreads.has(threadId)
+  }
+
+  hasActiveWorkers(threadId: string): boolean {
+    return [...this.workerByThread.values()].some(
+      (worker) => worker.parentThreadId === threadId && codexWorkerIsActive(worker.status),
+    )
+  }
+
   registerRequestHandler(method: string, handler: CodexServerRequestHandler): () => void {
     if (!method || this.requestHandlers.has(method)) {
       throw new Error(`Codex request handler already registered or invalid: ${method || '<empty>'}`)

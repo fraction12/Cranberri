@@ -30,6 +30,7 @@ export const managedWorktreeSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   archivedAt: z.number().nullable(),
+  environmentRevision: z.string().nullable().optional(),
 })
 
 export type ManagedWorktree = z.infer<typeof managedWorktreeSchema>
