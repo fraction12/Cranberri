@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker, CodexRuntimeContext, CodexServerRequestHandler, CodexTransportCapabilities } from '../../shared/codex'
 import {
   codexWorkerIsActive,
   mergeCodexWorker,
@@ -20,14 +20,14 @@ import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
-  id: number
+  id: number | string
   method: string
   params?: Record<string, unknown>
 }
 
 interface JsonRpcResponse {
   jsonrpc: '2.0'
-  id?: number
+  id?: number | string
   result?: unknown
   error?: { code: number; message: string }
 }
@@ -159,23 +159,62 @@ function getThreadApprovalSettings(mode: CodexTurnSettings['approvalMode']): { a
 export class CodexClient extends EventEmitter {
   private process: ChildProcess | null = null
   private nextId = 1
-  private pending = new Map<number, { resolve: (res: JsonRpcResponse) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>()
+  private pending = new Map<number | string, { resolve: (res: JsonRpcResponse) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>()
   private buffer = ''
-  private cwd: string
+  private readonly processCwd: string
   private startPromise: Promise<void> | null = null
   private activeRunThreads = new Set<string>()
   private currentTurnIdByThread = new Map<string, string>()
   private pendingApprovalsByThread = new Map<string, boolean>()
   private parentThreadByWorker = new Map<string, string>()
   private workerByThread = new Map<string, CodexWorker>()
+  private runtimeByThread = new Map<string, CodexRuntimeContext>()
+  private readonly requestHandlers = new Map<string, CodexServerRequestHandler>()
+  private transportCapabilities: CodexTransportCapabilities = {
+    cwdArrayHistory: false,
+    explicitTurnCwd: false,
+    dynamicTools: false,
+  }
 
   constructor(cwd: string) {
     super()
-    this.cwd = cwd
+    this.processCwd = cwd
   }
 
+  /** @deprecated Runtime routing must be supplied to each thread or turn call. */
   setCwd(cwd: string): void {
-    this.cwd = cwd
+    if (cwd !== this.processCwd) {
+      this.emit('event', {
+        type: 'log',
+        level: 'warning',
+        text: 'Ignoring mutable Codex cwd update; pass cwd to the thread or turn operation.',
+      } satisfies CodexEvent)
+    }
+  }
+
+  setTransportCapabilities(capabilities: CodexTransportCapabilities): void {
+    this.transportCapabilities = { ...capabilities }
+  }
+
+  requireTransportCapability(capability: keyof CodexTransportCapabilities): void {
+    if (this.transportCapabilities[capability]) return
+    const messages: Record<keyof CodexTransportCapabilities, string> = {
+      cwdArrayHistory: 'Codex app-server does not support multi-root project history. Update Codex to load sessions across Local and worktrees.',
+      explicitTurnCwd: 'Codex app-server does not support explicit turn cwd routing. Update Codex before running task-bound worktrees.',
+      dynamicTools: 'Codex app-server does not support dynamic tool requests. Update Codex before using environment tools.',
+    }
+    throw new Error(messages[capability])
+  }
+
+  registerRequestHandler(method: string, handler: CodexServerRequestHandler): () => void {
+    if (!method || this.requestHandlers.has(method)) {
+      throw new Error(`Codex request handler already registered or invalid: ${method || '<empty>'}`)
+    }
+    if (this.requestHandlers.size >= 16) throw new Error('Codex request handler limit reached')
+    this.requestHandlers.set(method, handler)
+    return () => {
+      if (this.requestHandlers.get(method) === handler) this.requestHandlers.delete(method)
+    }
   }
 
   private rememberWorker(worker: CodexWorker, emit = false): CodexWorker {
@@ -233,7 +272,7 @@ export class CodexClient extends EventEmitter {
 
   private async startProcess(): Promise<void> {
     this.process = spawn('codex', ['app-server', '--stdio'], {
-      cwd: this.cwd,
+      cwd: this.processCwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: await makeCodexEnv({ FORCE_COLOR: '0', NO_COLOR: '1' }),
     })
@@ -275,7 +314,15 @@ export class CodexClient extends EventEmitter {
   }
 
   private async initializeSession(): Promise<void> {
-    await this.call('initialize', CODEX_INITIALIZE_PARAMS)
+    const response = await this.call('initialize', CODEX_INITIALIZE_PARAMS)
+    const capabilities = (response.result as { capabilities?: Record<string, unknown> } | undefined)?.capabilities
+    if (capabilities) {
+      this.transportCapabilities = {
+        cwdArrayHistory: capabilities.cwdArrayHistory === true || capabilities.threadListCwds === true,
+        explicitTurnCwd: capabilities.explicitTurnCwd === true || capabilities.turnStartCwd === true,
+        dynamicTools: capabilities.dynamicTools === true || capabilities.serverRequests === true,
+      }
+    }
     this.notify('initialized')
   }
 
@@ -287,12 +334,14 @@ export class CodexClient extends EventEmitter {
     this.currentTurnIdByThread.clear()
     this.parentThreadByWorker.clear()
     this.workerByThread.clear()
+    this.runtimeByThread.clear()
+    this.requestHandlers.clear()
   }
 
-  async createThread(cwd?: string, settings?: CodexTurnSettings): Promise<Thread> {
-    if (cwd) this.cwd = cwd
+  async createThread(cwdOrRuntime: string | CodexRuntimeContext = this.processCwd, settings?: CodexTurnSettings): Promise<Thread> {
+    const runtime = typeof cwdOrRuntime === 'string' ? { cwd: cwdOrRuntime } : cwdOrRuntime
     const approvalSettings = getThreadApprovalSettings(settings?.approvalMode)
-    const res = await this.call('thread/start', { cwd: this.cwd, ...approvalSettings })
+    const res = await this.call('thread/start', { cwd: runtime.cwd, ...approvalSettings })
     const thread = (res.result as { thread: Thread } | undefined)?.thread
     if (!thread?.id) {
       throw new Error('thread/start did not return a thread id')
@@ -300,14 +349,21 @@ export class CodexClient extends EventEmitter {
     if (thread.name) {
       this.emit('event', { type: 'thread_name_updated', threadId: thread.id, title: thread.name } as CodexEvent)
     }
+    this.runtimeByThread.set(thread.id, { ...runtime })
     return thread
   }
 
-  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
+  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings, runtime?: CodexRuntimeContext): Promise<void> {
+    const resolvedRuntime = runtime ?? this.runtimeByThread.get(threadId)
+    if (runtime) {
+      this.requireTransportCapability('explicitTurnCwd')
+      this.runtimeByThread.set(threadId, { ...runtime })
+    }
     const approvalSettings = getTurnApprovalSettings(settings?.approvalMode)
     const res = await this.call('turn/start', {
       threadId,
       input,
+      ...(resolvedRuntime ? { cwd: resolvedRuntime.cwd } : {}),
       ...buildCodexTurnOverrides(settings),
       ...approvalSettings,
     })
@@ -365,8 +421,9 @@ export class CodexClient extends EventEmitter {
         }
       }
     }
-    await this.resumeThread(parentThreadId, this.cwd)
-    await this.sendMessage(parentThreadId, input)
+    const runtime = this.runtimeByThread.get(parentThreadId)
+    await this.resumeThread(parentThreadId, runtime)
+    await this.sendMessage(parentThreadId, input, undefined, runtime)
   }
 
   async compactThread(threadId: string): Promise<void> {
@@ -412,8 +469,8 @@ export class CodexClient extends EventEmitter {
     })
   }
 
-  async listThreads(cwd: string, options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
-    this.cwd = cwd
+  async listThreads(cwd: string | string[], options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
+    if (Array.isArray(cwd) && cwd.length > 1) this.requireTransportCapability('cwdArrayHistory')
     const archived = options.archived ?? false
     const res = await this.call('thread/list', {
       cwd,
@@ -426,6 +483,10 @@ export class CodexClient extends EventEmitter {
     })
     const result = res.result as { data?: SdkThread[]; nextCursor?: string | null; backwardsCursor?: string | null } | undefined
     const roots = result?.data ?? []
+    for (const thread of roots) {
+      const threadCwd = cwdToString(thread.cwd)
+      if (threadCwd) this.runtimeByThread.set(thread.id, { cwd: threadCwd })
+    }
     const descendants = await Promise.all(roots.map((thread) => this.listDescendantThreads(thread.id).catch(() => [])))
     const descendantsWithOutcomes = await Promise.all(
       descendants.flat().map((descendant) => this.withLatestTurnOutcome(descendant)),
@@ -455,18 +516,21 @@ export class CodexClient extends EventEmitter {
     return normalized
   }
 
-  async resumeThread(threadId: string, cwd?: string, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
-    if (cwd) this.cwd = cwd
+  async resumeThread(threadId: string, cwdOrRuntime?: string | CodexRuntimeContext, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
+    const runtime = typeof cwdOrRuntime === 'string'
+      ? { cwd: cwdOrRuntime }
+      : cwdOrRuntime ?? this.runtimeByThread.get(threadId) ?? { cwd: this.processCwd }
     const approvalSettings = getThreadApprovalSettings(settings?.approvalMode)
     const res = await this.call('thread/resume', {
       threadId,
-      cwd: this.cwd,
+      cwd: runtime.cwd,
       model: settings?.model ?? null,
       ...approvalSettings,
     })
     const thread = (res.result as { thread?: SdkThread } | undefined)?.thread
     if (!thread?.id) throw new Error('thread/resume did not return a thread')
     const normalized = normalizeThread(thread, false)
+    this.runtimeByThread.set(threadId, { ...runtime })
     this.rememberSessionWorkers(normalized)
     return normalized
   }
@@ -610,7 +674,7 @@ export class CodexClient extends EventEmitter {
       const trimmed = line.trim()
       if (!trimmed) continue
       try {
-        const msg = JSON.parse(trimmed) as JsonRpcResponse | JsonRpcNotification
+        const msg = JSON.parse(trimmed) as JsonRpcResponse | JsonRpcNotification | JsonRpcRequest
         this.handleMessage(msg)
       } catch {
         this.emit('event', { type: 'log', level: 'parse-error', text: trimmed } as CodexEvent)
@@ -641,7 +705,12 @@ export class CodexClient extends EventEmitter {
     }
   }
 
-  private handleMessage(msg: JsonRpcResponse | JsonRpcNotification): void {
+  private handleMessage(msg: JsonRpcResponse | JsonRpcNotification | JsonRpcRequest): void {
+    if ('id' in msg && msg.id !== undefined && 'method' in msg) {
+      void this.handleServerRequest(msg)
+      return
+    }
+
     if ('id' in msg && msg.id !== undefined) {
       const pending = this.pending.get(msg.id)
       if (pending) {
@@ -878,6 +947,36 @@ export class CodexClient extends EventEmitter {
       default:
         break
     }
+  }
+
+  private async handleServerRequest(request: JsonRpcRequest): Promise<void> {
+    const handler = this.requestHandlers.get(request.method)
+    if (!handler) {
+      this.writeResponse({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: { code: -32601, message: `Unsupported Codex server request: ${request.method}` },
+      })
+      return
+    }
+    try {
+      const result = await handler(request.params ?? {})
+      this.writeResponse({ jsonrpc: '2.0', id: request.id, result: result ?? null })
+    } catch (error) {
+      this.writeResponse({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32000,
+          message: error instanceof Error ? error.message : 'Codex request handler failed',
+        },
+      })
+    }
+  }
+
+  private writeResponse(response: JsonRpcResponse): void {
+    if (!this.process?.stdin?.writable) return
+    this.process.stdin.write(`${JSON.stringify(response)}\n`)
   }
 
   private describeGuardianAction(action: unknown): string {

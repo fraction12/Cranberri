@@ -145,6 +145,22 @@ export interface CodexTurnSettings {
   approvalMode?: CodexApprovalMode
 }
 
+export interface CodexRuntimeContext {
+  cwd: string
+  runtimeRoots?: string[]
+  taskId?: string
+}
+
+export interface CodexTransportCapabilities {
+  cwdArrayHistory: boolean
+  explicitTurnCwd: boolean
+  dynamicTools: boolean
+}
+
+export type CodexServerRequestHandler = (
+  params: Record<string, unknown>,
+) => unknown | Promise<unknown>
+
 export interface CodexPluginInfo {
   id: string
   name: string

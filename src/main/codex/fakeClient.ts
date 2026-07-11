@@ -3,6 +3,7 @@ import type {
   CodexAccountUsageReadResult,
   CodexEvent,
   CodexRateLimitsReadResult,
+  CodexRuntimeContext,
   CodexSessionSummary,
   CodexSessionThread,
   CodexTurnSettings,
@@ -25,6 +26,7 @@ interface FakeThreadRecord {
   status: CodexWorkerStatus
   title: string
   cwd: string
+  taskId?: string
   createdAt: number
   updatedAt: number
   archived: boolean
@@ -140,7 +142,7 @@ function fakeWorkerEvent(parentThreadId: string, worker: FakeThreadRecord, messa
 }
 
 export class FakeCodexClient extends EventEmitter {
-  private cwd: string
+  private readonly processCwd: string
   private nextThread = 1
   private nextTurn = 1
   private readonly threads = new Map<string, FakeThreadRecord>()
@@ -148,7 +150,7 @@ export class FakeCodexClient extends EventEmitter {
 
   constructor(cwd: string) {
     super()
-    this.cwd = cwd
+    this.processCwd = cwd
   }
 
   async start(): Promise<void> {}
@@ -159,11 +161,11 @@ export class FakeCodexClient extends EventEmitter {
   }
 
   setCwd(cwd: string): void {
-    this.cwd = cwd
+    void cwd
   }
 
-  async createThread(cwd?: string, _settings?: CodexTurnSettings): Promise<{ id: string; name?: string | null }> {
-    if (cwd) this.cwd = cwd
+  async createThread(cwdOrRuntime: string | CodexRuntimeContext = this.processCwd, _settings?: CodexTurnSettings): Promise<{ id: string; name?: string | null }> {
+    const runtime = typeof cwdOrRuntime === 'string' ? { cwd: cwdOrRuntime } : cwdOrRuntime
     const id = `fake-thread-${this.nextThread++}`
     const now = Date.now()
     const thread: FakeThreadRecord = {
@@ -171,7 +173,8 @@ export class FakeCodexClient extends EventEmitter {
       sessionId: `fake-session-${id}`,
       status: 'completed',
       title: 'Smoke Codex Thread',
-      cwd: this.cwd,
+      cwd: runtime.cwd,
+      taskId: runtime.taskId,
       createdAt: now,
       updatedAt: now,
       archived: false,
@@ -182,8 +185,11 @@ export class FakeCodexClient extends EventEmitter {
     return { id, name: thread.title }
   }
 
-  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> {
+  async sendMessage(threadId: string, input: CodexUserInput[], settings?: CodexTurnSettings, runtime?: CodexRuntimeContext): Promise<void> {
     const thread = this.requireThread(threadId)
+    if (runtime && (thread.cwd !== runtime.cwd || (thread.taskId && runtime.taskId && thread.taskId !== runtime.taskId))) {
+      throw new Error(`Fake Codex runtime does not match task identity for thread ${threadId}`)
+    }
     const turnId = `fake-turn-${this.nextTurn++}`
     const itemId = `${turnId}-assistant`
     const userText = firstText(input)
@@ -301,7 +307,7 @@ export class FakeCodexClient extends EventEmitter {
   }
 
   async runOneShot(cwd: string, content: string, _settings?: CodexTurnSettings, _timeoutMs?: number): Promise<string> {
-    this.cwd = cwd
+    void cwd
     if (content.includes('"title"') && content.includes('"summary"') && content.includes('Git status:')) {
       return JSON.stringify({
         title: 'chore(git): draft smoke commit',
@@ -319,12 +325,12 @@ export class FakeCodexClient extends EventEmitter {
     }, 25)
   }
 
-  async listThreads(cwd: string, options: { archived?: boolean } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor: null; backwardsCursor: null }> {
-    this.cwd = cwd
+  async listThreads(cwd: string | string[], options: { archived?: boolean } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor: null; backwardsCursor: null }> {
+    const roots = new Set(Array.isArray(cwd) ? cwd : [cwd])
     const archived = options.archived ?? false
     return {
       sessions: [...this.threads.values()]
-        .filter((thread) => thread.archived === archived && !thread.parentThreadId)
+        .filter((thread) => thread.archived === archived && !thread.parentThreadId && roots.has(thread.cwd))
         .map((thread) => sessionSummary(thread, this.threads.values())),
       nextCursor: null,
       backwardsCursor: null,
@@ -336,9 +342,17 @@ export class FakeCodexClient extends EventEmitter {
     return { ...sessionSummary(thread, this.threads.values()), archived, turns: thread.turns }
   }
 
-  async resumeThread(threadId: string, cwd?: string, _settings?: CodexTurnSettings): Promise<CodexSessionThread> {
-    if (cwd) this.cwd = cwd
+  async resumeThread(threadId: string, cwdOrRuntime?: string | CodexRuntimeContext, _settings?: CodexTurnSettings): Promise<CodexSessionThread> {
+    const thread = this.requireThread(threadId)
+    const runtime = typeof cwdOrRuntime === 'string' ? { cwd: cwdOrRuntime } : cwdOrRuntime
+    if (runtime && (thread.cwd !== runtime.cwd || (thread.taskId && runtime.taskId && thread.taskId !== runtime.taskId))) {
+      throw new Error(`Fake Codex runtime does not match task identity for thread ${threadId}`)
+    }
     return this.readThread(threadId)
+  }
+
+  getTaskIdForThread(threadId: string): string | undefined {
+    return this.requireThread(threadId).taskId
   }
 
   async archiveThread(threadId: string): Promise<void> {
