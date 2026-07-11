@@ -1,147 +1,204 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import fs from 'node:fs'
 import { ipcMain } from 'electron'
 import * as pty from 'node-pty'
+import type { AgentProcessInfo } from '../shared/processes'
 import { getMainWindow } from './index'
 import { registerProcess, updateProcess } from './processRegistry'
 
-export interface TerminalSession {
+const MAX_BUFFER_LENGTH = 200_000
+
+export interface PtyExit {
+  exitCode: number
+  signal?: number
+}
+
+export interface PtyJob {
   readonly pid: number
-  readonly onData: (cb: (data: string) => void) => { dispose: () => void }
-  readonly onExit: (cb: (event: { exitCode: number; signal?: number }) => void) => { dispose: () => void }
+  readonly completion: Promise<PtyExit>
+  snapshot(): string
+  clear(): void
   kill(signal?: string): void
   resize(cols: number, rows: number): void
   write(data: string): void
+  onData(callback: (data: string) => void): () => void
+  onExit(callback: (event: PtyExit) => void): () => void
 }
 
-function defaultShell(platform: NodeJS.Platform = process.platform): string {
+export interface PtyJobOptions {
+  cwd: string
+  command?: string
+  args?: string[]
+  env?: NodeJS.ProcessEnv
+  cols?: number
+  rows?: number
+  logPath?: string
+  process?: Omit<AgentProcessInfo, 'id' | 'pid' | 'ppid' | 'startedAt' | 'status'> & { id?: string }
+}
+
+export function defaultShell(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32') return process.env.ComSpec || 'powershell.exe'
-  if (process.env.SHELL && process.env.SHELL.startsWith('/')) return process.env.SHELL
-  for (const shell of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
-    if (fs.existsSync(shell)) return shell
+  if (process.env.SHELL?.startsWith('/')) return process.env.SHELL
+  return ['/bin/zsh', '/bin/bash', '/bin/sh'].find(fs.existsSync) ?? '/bin/sh'
+}
+
+function ptyEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined))
+}
+
+function appendBuffer(current: string, chunk: string): string {
+  const next = current + chunk
+  return next.length > MAX_BUFFER_LENGTH ? next.slice(-MAX_BUFFER_LENGTH) : next
+}
+
+export function createPtyJob(options: PtyJobOptions): PtyJob {
+  const cwd = fs.realpathSync(options.cwd)
+  const command = options.command ?? defaultShell()
+  const env = {
+    ...options.env,
+    TERM: options.env?.TERM ?? 'xterm-256color',
+    TERM_PROGRAM: options.env?.TERM_PROGRAM ?? 'Cranberri',
+    COLORTERM: options.env?.COLORTERM ?? 'truecolor',
   }
-  return '/bin/sh'
-}
-
-function buildEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const base = { ...env }
-  if (!base.TERM) base.TERM = 'xterm-256color'
-  if (!base.TERM_PROGRAM) base.TERM_PROGRAM = 'Cranberri'
-  if (!base.COLORTERM) base.COLORTERM = 'truecolor'
-  return base
-}
-
-function resolveCwd(cwd: string): string {
-  return path.resolve(cwd || os.homedir())
-}
-
-function startSession(cwd: string, cols = 100, rows = 30): TerminalSession {
-  const shell = defaultShell()
-  const resolvedCwd = resolveCwd(cwd)
-  if (process.env.ELECTRON_VITE_DEV_SERVER_URL || process.env.CRANBERRI_DEBUG_TERMINAL) {
-    console.debug('[terminal] spawning', shell, 'in', resolvedCwd, `${cols}x${rows}`)
+  let logFd: number | null = null
+  if (options.logPath) {
+    fs.mkdirSync(path.dirname(options.logPath), { recursive: true, mode: 0o700 })
+    logFd = fs.openSync(options.logPath, 'a', 0o600)
+    fs.chmodSync(options.logPath, 0o600)
   }
-  const session = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd: resolvedCwd,
-    env: buildEnv(),
+
+  let session: pty.IPty
+  try {
+    session = pty.spawn(command, options.args ?? [], {
+      name: 'xterm-256color',
+      cols: options.cols ?? 100,
+      rows: options.rows ?? 30,
+      cwd,
+      env: ptyEnvironment(env),
+    })
+  } catch (error) {
+    if (logFd !== null) fs.closeSync(logFd)
+    throw error
+  }
+
+  let buffer = ''
+  let settled = false
+  const dataCallbacks = new Set<(data: string) => void>()
+  const exitCallbacks = new Set<(event: PtyExit) => void>()
+  const processRecord = options.process
+    ? registerProcess({ ...options.process, pid: session.pid, ppid: process.pid })
+    : null
+
+  const completion = new Promise<PtyExit>((resolve) => {
+    session.onData((data) => {
+      buffer = appendBuffer(buffer, data)
+      if (logFd !== null) fs.writeSync(logFd, data)
+      for (const callback of dataCallbacks) callback(data)
+    })
+    session.onExit((event) => {
+      settled = true
+      if (logFd !== null) {
+        fs.closeSync(logFd)
+        logFd = null
+      }
+      const exit = { exitCode: event.exitCode, signal: event.signal }
+      if (processRecord) {
+        updateProcess(processRecord.id, {
+          status: event.exitCode === 0 ? 'exited' : 'failed',
+          endedAt: Date.now(),
+          exitCode: event.exitCode,
+          signal: event.signal,
+        })
+      }
+      for (const callback of exitCallbacks) callback(exit)
+      resolve(exit)
+    })
   })
 
   return {
     pid: session.pid,
-    onData: (cb) => session.onData(cb),
-    onExit: (cb) => session.onExit(cb),
-    kill: (signal) => session.kill(signal),
+    completion,
+    snapshot: () => buffer,
+    clear: () => { buffer = '' },
+    kill: (signal) => { if (!settled) session.kill(signal) },
     resize: (cols, rows) => session.resize(cols, rows),
     write: (data) => session.write(data),
+    onData: (callback) => {
+      dataCallbacks.add(callback)
+      return () => dataCallbacks.delete(callback)
+    },
+    onExit: (callback) => {
+      exitCallbacks.add(callback)
+      return () => exitCallbacks.delete(callback)
+    },
   }
 }
 
-const MAX_BUFFER_LENGTH = 200_000
-const sessions = new Map<string, { session: TerminalSession; processRecordId: string; disposables: Array<() => void>; buffer: string }>()
+interface IntegratedTerminalOptions {
+  id: string
+  cwd: string
+  cols?: number
+  rows?: number
+  script?: string
+  env?: NodeJS.ProcessEnv
+  process?: PtyJobOptions['process']
+}
 
-function appendBuffer(current: string, chunk: string): string {
-  const next = current + chunk
-  return next.length > MAX_BUFFER_LENGTH ? next.slice(next.length - MAX_BUFFER_LENGTH) : next
+const sessions = new Map<string, { job: PtyJob; processRecordId?: string }>()
+
+export function openIntegratedTerminal(options: IntegratedTerminalOptions): { pid: number; buffer: string } {
+  const existing = sessions.get(options.id)
+  if (existing) {
+    if (options.cols && options.rows) existing.job.resize(options.cols, options.rows)
+    return { pid: existing.job.pid, buffer: existing.job.snapshot() }
+  }
+
+  const shell = defaultShell()
+  const args = options.script
+    ? (process.platform === 'win32' ? ['-NoExit', '-Command', options.script] : ['-lc', `${options.script}; exec ${shell} -l`])
+    : []
+  const job = createPtyJob({
+    cwd: options.cwd || os.homedir(),
+    command: shell,
+    args,
+    env: options.env ?? process.env,
+    cols: options.cols,
+    rows: options.rows,
+    process: options.process ?? {
+      id: `terminal:${options.id}`,
+      command: 'Cranberri terminal',
+      cwd: path.resolve(options.cwd || os.homedir()),
+      terminalWindowId: options.id,
+      repoPath: path.resolve(options.cwd || os.homedir()),
+      kind: 'terminal',
+      source: 'terminal',
+    },
+  })
+  sessions.set(options.id, { job, processRecordId: options.process?.id })
+  job.onData((data) => getMainWindow()?.webContents.send('terminal:data', { id: options.id, data }))
+  job.onExit(({ exitCode, signal }) => {
+    sessions.delete(options.id)
+    getMainWindow()?.webContents.send('terminal:exit', { id: options.id, exitCode, signal })
+  })
+  return { pid: job.pid, buffer: '' }
 }
 
 export function initTerminalIpc(): void {
-  ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => {
-    const existing = sessions.get(id)
-    if (existing) {
-      if (cols && rows) existing.session.resize(cols, rows)
-      return { pid: existing.session.pid, buffer: existing.buffer }
-    }
-
-    const session = startSession(cwd, cols, rows)
-    const resolvedCwd = resolveCwd(cwd)
-    const processRecord = registerProcess({
-      id: `terminal:${id}`,
-      pid: session.pid,
-      ppid: process.pid,
-      command: 'Cranberri terminal',
-      cwd: resolvedCwd,
-      terminalWindowId: id,
-      repoPath: resolvedCwd,
-      kind: 'terminal',
-      source: 'terminal',
-    })
-    const disposables: Array<() => void> = []
-
-    const dataHandler = session.onData((data: string) => {
-      const current = sessions.get(id)
-      if (current) current.buffer = appendBuffer(current.buffer, data)
-      getMainWindow()?.webContents.send('terminal:data', { id, data })
-    })
-    disposables.push(() => dataHandler.dispose())
-
-    const exitHandler = session.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-      getMainWindow()?.webContents.send('terminal:exit', { id, exitCode, signal })
-      updateProcess(processRecord.id, { status: exitCode === 0 ? 'exited' : 'failed', endedAt: Date.now(), exitCode, signal })
-      sessions.delete(id)
-    })
-    disposables.push(() => exitHandler.dispose())
-
-    sessions.set(id, { session, processRecordId: processRecord.id, disposables, buffer: '' })
-    return { pid: session.pid, buffer: '' }
-  })
-
-  ipcMain.handle('terminal:snapshot', async (_, id: string) => {
-    const existing = sessions.get(id)
-    return { buffer: existing?.buffer ?? '' }
-  })
-
-  ipcMain.handle('terminal:clear', async (_, id: string) => {
-    const existing = sessions.get(id)
-    if (existing) existing.buffer = ''
-  })
-
-  ipcMain.handle('terminal:write', async (_, id: string, data: string) => {
-    sessions.get(id)?.session.write(data)
-  })
-
-  ipcMain.handle('terminal:resize', async (_, id: string, cols: number, rows: number) => {
-    sessions.get(id)?.session.resize(cols, rows)
-  })
-
+  ipcMain.handle('terminal:create', async (_, id: string, cwd: string, cols?: number, rows?: number) => (
+    openIntegratedTerminal({ id, cwd, cols, rows })
+  ))
+  ipcMain.handle('terminal:snapshot', async (_, id: string) => ({ buffer: sessions.get(id)?.job.snapshot() ?? '' }))
+  ipcMain.handle('terminal:clear', async (_, id: string) => sessions.get(id)?.job.clear())
+  ipcMain.handle('terminal:write', async (_, id: string, data: string) => sessions.get(id)?.job.write(data))
+  ipcMain.handle('terminal:resize', async (_, id: string, cols: number, rows: number) => sessions.get(id)?.job.resize(cols, rows))
   ipcMain.handle('terminal:kill', async (_, id: string) => {
-    const existing = sessions.get(id)
-    if (!existing) return
-    existing.disposables.forEach((d) => d())
-    existing.session.kill()
-    updateProcess(existing.processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
+    sessions.get(id)?.job.kill()
     sessions.delete(id)
   })
 }
 
 export function killAllTerminals(): void {
-  for (const { session, processRecordId, disposables } of sessions.values()) {
-    disposables.forEach((d) => d())
-    session.kill()
-    updateProcess(processRecordId, { status: 'killed', endedAt: Date.now(), signal: 'SIGTERM' })
-  }
+  for (const { job } of sessions.values()) job.kill()
   sessions.clear()
 }

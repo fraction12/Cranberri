@@ -108,6 +108,25 @@ const api = {
       return () => ipcRenderer.off('terminal:exit', handler)
     },
   },
+  environments: {
+    startSetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => ipcRenderer.invoke('environments:setup:start', request),
+    retrySetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => ipcRenderer.invoke('environments:setup:retry', request),
+    startTest: (request: import('@/shared/terminal').EnvironmentTestRequest) => ipcRenderer.invoke('environments:test:start', request),
+    snapshotJob: (jobId: string) => ipcRenderer.invoke('environments:job:snapshot', { jobId }),
+    writeJob: (jobId: string, data: string) => ipcRenderer.invoke('environments:job:write', { jobId, data }),
+    cancelJob: (jobId: string) => ipcRenderer.invoke('environments:job:cancel', { jobId }),
+    openAction: (request: import('@/shared/terminal').EnvironmentActionRequest) => ipcRenderer.invoke('environments:action:open', request),
+    onJobData: (cb: (payload: import('@/shared/terminal').EnvironmentJobDataEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/terminal').EnvironmentJobDataEvent) => cb(payload)
+      ipcRenderer.on('environments:job:data', handler)
+      return () => ipcRenderer.off('environments:job:data', handler)
+    },
+    onJobExit: (cb: (payload: import('@/shared/terminal').EnvironmentJobExitEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/terminal').EnvironmentJobExitEvent) => cb(payload)
+      ipcRenderer.on('environments:job:exit', handler)
+      return () => ipcRenderer.off('environments:job:exit', handler)
+    },
+  },
   processes: {
     list: (repoPath: string) => ipcRenderer.invoke('processes:list', repoPath),
     terminate: (repoPath: string, processId: string) => ipcRenderer.invoke('processes:terminate', repoPath, processId),

@@ -15,6 +15,7 @@ import { initTelemetryIpc } from './telemetry'
 import { initUpdaterIpc } from './updater'
 import { initSearchIpc } from './search'
 import { initBrowserIpc } from './browser'
+import { initEnvironmentIpc } from './environments/ipc'
 
 const APP_SCHEME = 'cranberri'
 const MEDIA_SCHEME = 'cranberri-media'
@@ -165,6 +166,7 @@ app.whenReady().then(() => {
   initSettingsIpc()
   initCodexIpc(getMainWindow)
   initTerminalIpc()
+  initEnvironmentIpc(getMainWindow)
   initProcessesIpc()
   initSearchIpc()
   initBrowserIpc(getMainWindow)

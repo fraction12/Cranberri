@@ -108,6 +108,17 @@ declare global {
         onData: (cb: (payload: { id: string; data: string }) => void) => () => void
         onExit: (cb: (payload: { id: string; exitCode: number; signal?: number }) => void) => () => void
       }
+      environments: {
+        startSetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => Promise<import('@/shared/terminal').EnvironmentJob>
+        retrySetup: (request: import('@/shared/terminal').EnvironmentSetupRequest) => Promise<import('@/shared/terminal').EnvironmentJob>
+        startTest: (request: import('@/shared/terminal').EnvironmentTestRequest) => Promise<import('@/shared/terminal').EnvironmentJob>
+        snapshotJob: (jobId: string) => Promise<import('@/shared/terminal').EnvironmentJob>
+        writeJob: (jobId: string, data: string) => Promise<void>
+        cancelJob: (jobId: string) => Promise<void>
+        openAction: (request: import('@/shared/terminal').EnvironmentActionRequest) => Promise<{ terminalId: string; pid: number }>
+        onJobData: (cb: (payload: import('@/shared/terminal').EnvironmentJobDataEvent) => void) => () => void
+        onJobExit: (cb: (payload: import('@/shared/terminal').EnvironmentJobExitEvent) => void) => () => void
+      }
       processes: {
         list: (repoPath: string) => Promise<{ processes: AgentProcessInfo[] }>
         terminate: (repoPath: string, processId: string) => Promise<{ process: AgentProcessInfo }>

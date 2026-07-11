@@ -1,6 +1,6 @@
 export type AgentProcessKind = 'dev-server' | 'agent' | 'terminal' | 'process'
 export type AgentProcessStatus = 'running' | 'exited' | 'killed' | 'failed' | 'unknown'
-export type AgentProcessSource = 'codex' | 'terminal' | 'app-server' | 'manual'
+export type AgentProcessSource = 'codex' | 'terminal' | 'environment' | 'app-server' | 'manual'
 
 export interface AgentProcessInfo {
   id: string
