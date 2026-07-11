@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { codexThreadIdForActiveWindow, renameWorkspaceWindow } from './workspace-model'
+import { codexThreadIdForActiveWindow, createBoundWorkspaceWindow, renameWorkspaceWindow } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -47,5 +47,19 @@ describe('workspace execution identity', () => {
   it('permits a nullable task binding while preserving project and checkout identity', () => {
     const window: WorkspaceWindowState = { id: 'draft', type: 'chat', title: 'Draft', projectId: 'project', taskId: null, checkoutId: 'local' }
     expect(window).toMatchObject({ projectId: 'project', taskId: null, checkoutId: 'local' })
+  })
+
+  it('captures task and checkout identity when a window opens', () => {
+    const window = createBoundWorkspaceWindow(
+      { id: 'terminal', type: 'terminal', title: 'Terminal' },
+      {
+        projectId: 'project',
+        taskId: 'task',
+        checkoutId: 'checkout',
+        worktreeId: 'worktree',
+        checkoutPath: '/worktrees/task',
+      },
+    )
+    expect(window).toMatchObject({ projectId: 'project', taskId: 'task', checkoutId: 'checkout' })
   })
 })

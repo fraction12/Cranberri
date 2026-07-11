@@ -1,15 +1,22 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
-export interface Repo {
+export interface Project {
   id: string
   name: string
   path: string
+  localCheckoutId?: string
 }
+
+/** Compatibility alias while repo-oriented UI migrates to project language. */
+export type Repo = Project
 
 interface ReposState {
   repos: Repo[]
+  projects: Project[]
   activeRepoId: string | null
   activeRepo: Repo | null
+  activeProjectId: string | null
+  activeProject: Project | null
 }
 
 interface ReposApi extends ReposState {
@@ -22,12 +29,25 @@ interface ReposApi extends ReposState {
 const ReposContext = createContext<ReposApi | null>(null)
 
 export function ReposProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<ReposState>({ repos: [], activeRepoId: null, activeRepo: null })
+  const [state, setState] = useState<ReposState>({
+    repos: [],
+    projects: [],
+    activeRepoId: null,
+    activeRepo: null,
+    activeProjectId: null,
+    activeProject: null,
+  })
 
   const refresh = async () => {
     const data = await window.cranberri.repos.list()
     const activeRepo = data.repos.find((r) => r.id === data.activeRepoId) ?? null
-    setState({ ...data, activeRepo })
+    setState({
+      ...data,
+      projects: data.repos,
+      activeRepo,
+      activeProjectId: data.activeRepoId,
+      activeProject: activeRepo,
+    })
   }
 
   const addRepo = async () => {

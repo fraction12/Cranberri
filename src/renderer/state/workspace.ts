@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useRepos } from './repos'
 import { useAppState } from './appState'
-import { renameWorkspaceWindow } from './workspace-model'
+import { createBoundWorkspaceWindow, renameWorkspaceWindow } from './workspace-model'
+import { useOptionalTasks } from './tasks'
+import { resolveTaskExecutionContext, type ExecutionContextResolution, type TaskExecutionContext } from './execution-context'
 import type { WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
 
 export type WorkspaceWindow = WorkspaceWindowState
@@ -12,9 +14,13 @@ interface WorkspaceApi {
   activeWindowId: string | null
   activeRepoId: string | null
   activeRepoPath: string | null
-  openChat: (id?: string, title?: string, repoId?: string | null) => string
-  openTerminal: (id?: string, title?: string, repoId?: string | null) => string
-  openBrowser: (options?: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string }) => string
+  activeProjectId: string | null
+  activeCheckoutPath: string | null
+  activeExecutionContext: TaskExecutionContext | null
+  activeExecutionResolution: ExecutionContextResolution | null
+  openChat: (id?: string, title?: string, projectId?: string | null, context?: TaskExecutionContext) => string
+  openTerminal: (id?: string, title?: string, projectId?: string | null, context?: TaskExecutionContext) => string
+  openBrowser: (options?: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string; context?: TaskExecutionContext }) => string
   updateBrowserState: (id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => void
   closeWindow: (id: string) => void
   setActiveWindow: (id: string) => void
@@ -27,39 +33,60 @@ function generateId(): string {
   return `win-${Date.now()}-${nextId++}`
 }
 
-function defaultWorkspace() {
-  const first: WorkspaceWindow = { id: generateId(), type: 'chat', title: 'Chat 1' }
+function defaultWorkspace(context: TaskExecutionContext) {
+  const first = createBoundWorkspaceWindow({ id: generateId(), type: 'chat', title: 'Chat 1' }, context)
   return { windows: [first], activeWindowId: first.id }
 }
 
+function localExecutionContext(project: { id: string; path: string; localCheckoutId?: string }): TaskExecutionContext {
+  return {
+    projectId: project.id,
+    taskId: null,
+    checkoutId: project.localCheckoutId ?? `local:${project.id}`,
+    worktreeId: null,
+    checkoutPath: project.path,
+  }
+}
+
 export function useWorkspace(): WorkspaceApi {
-  const { activeRepoId, activeRepo } = useRepos()
+  const { activeProjectId, activeProject, projects } = useRepos()
+  const tasks = useOptionalTasks()
   const { state, updateAppState } = useAppState()
 
+  const contextForProject = useCallback((projectId: string): TaskExecutionContext | null => {
+    if (tasks?.activeTask?.projectId === projectId) {
+      return tasks.executionContextForTask(tasks.activeTask.id)
+    }
+    const project = projects.find((candidate) => candidate.id === projectId)
+    return project ? localExecutionContext(project) : null
+  }, [projects, tasks])
+
   const workspace = useMemo(() => {
-    if (!activeRepoId) return { windows: [], activeWindowId: null }
-    return state.workspacesByRepoId[activeRepoId] ?? defaultWorkspace()
-  }, [activeRepoId, state.workspacesByRepoId])
+    if (!activeProjectId) return { windows: [], activeWindowId: null }
+    return state.workspacesByProjectId[activeProjectId] ?? { windows: [], activeWindowId: null }
+  }, [activeProjectId, state.workspacesByProjectId])
 
   useEffect(() => {
-    if (!activeRepoId || state.workspacesByRepoId[activeRepoId]) return
+    if (!activeProjectId || state.workspacesByProjectId[activeProjectId]) return
+    const context = contextForProject(activeProjectId)
+    if (!context) return
     updateAppState((current) => {
-      if (current.workspacesByRepoId[activeRepoId]) return current
+      if (current.workspacesByProjectId[activeProjectId]) return current
       return {
         ...current,
-        workspacesByRepoId: {
-          ...current.workspacesByRepoId,
-          [activeRepoId]: defaultWorkspace(),
+        workspacesByProjectId: {
+          ...current.workspacesByProjectId,
+          [activeProjectId]: defaultWorkspace(context),
         },
       }
     })
-  }, [activeRepoId, state.workspacesByRepoId, updateAppState])
+  }, [activeProjectId, contextForProject, state.workspacesByProjectId, updateAppState])
 
-  const mutateWorkspace = useCallback((repoId: string | null | undefined, mutator: (windows: WorkspaceWindow[], activeWindowId: string | null) => { windows: WorkspaceWindow[]; activeWindowId: string | null }) => {
-    const targetRepoId = repoId ?? activeRepoId
-    if (!targetRepoId) return
+  const mutateWorkspace = useCallback((projectId: string | null | undefined, mutator: (windows: WorkspaceWindow[], activeWindowId: string | null) => { windows: WorkspaceWindow[]; activeWindowId: string | null }) => {
+    const targetProjectId = projectId ?? activeProjectId
+    if (!targetProjectId) return
     updateAppState((current) => {
-      const currentWorkspace = current.workspacesByRepoId[targetRepoId] ?? defaultWorkspace()
+      const currentWorkspace = current.workspacesByProjectId[targetProjectId] ?? { windows: [], activeWindowId: null }
       const nextWorkspace = mutator(currentWorkspace.windows, currentWorkspace.activeWindowId)
       if (
         nextWorkspace.windows === currentWorkspace.windows
@@ -69,48 +96,56 @@ export function useWorkspace(): WorkspaceApi {
       }
       return {
         ...current,
-        workspacesByRepoId: {
-          ...current.workspacesByRepoId,
-          [targetRepoId]: nextWorkspace,
+        workspacesByProjectId: {
+          ...current.workspacesByProjectId,
+          [targetProjectId]: nextWorkspace,
         },
       }
     })
-  }, [activeRepoId, updateAppState])
+  }, [activeProjectId, updateAppState])
 
-  const openChat = useCallback((id?: string, title?: string, repoId?: string | null) => {
+  const openChat = useCallback((id?: string, title?: string, projectId?: string | null, explicitContext?: TaskExecutionContext) => {
     const windowId = id ?? generateId()
-    mutateWorkspace(repoId, (windows) => {
+    const targetProjectId = projectId ?? activeProjectId
+    const context = explicitContext ?? (targetProjectId ? contextForProject(targetProjectId) : null)
+    if (!context) return windowId
+    mutateWorkspace(targetProjectId, (windows) => {
       const existingWindow = windows.find((w) => w.id === windowId)
       if (existingWindow) return { windows, activeWindowId: windowId }
       const existingCount = windows.filter((w) => w.type === 'chat').length + 1
-      const newWindow: WorkspaceWindow = { id: windowId, type: 'chat', title: title ?? `Chat ${existingCount}` }
+      const newWindow = createBoundWorkspaceWindow({ id: windowId, type: 'chat', title: title ?? `Chat ${existingCount}` }, context)
       return { windows: [...windows, newWindow], activeWindowId: windowId }
     })
     return windowId
-  }, [mutateWorkspace])
+  }, [activeProjectId, contextForProject, mutateWorkspace])
 
-  const openTerminal = useCallback((id?: string, title?: string, repoId?: string | null) => {
+  const openTerminal = useCallback((id?: string, title?: string, projectId?: string | null, explicitContext?: TaskExecutionContext) => {
     const windowId = id ?? generateId()
-    mutateWorkspace(repoId, (windows) => {
+    const targetProjectId = projectId ?? activeProjectId
+    const context = explicitContext ?? (targetProjectId ? contextForProject(targetProjectId) : null)
+    if (!context) return windowId
+    mutateWorkspace(targetProjectId, (windows) => {
       const existingWindow = windows.find((w) => w.id === windowId)
       if (existingWindow) return { windows, activeWindowId: windowId }
       const existingCount = windows.filter((w) => w.type === 'terminal').length + 1
-      const newWindow: WorkspaceWindow = { id: windowId, type: 'terminal', title: title ?? `Terminal ${existingCount}` }
+      const newWindow = createBoundWorkspaceWindow({ id: windowId, type: 'terminal', title: title ?? `Terminal ${existingCount}` }, context)
       return { windows: [...windows, newWindow], activeWindowId: windowId }
     })
     return windowId
-  }, [mutateWorkspace])
+  }, [activeProjectId, contextForProject, mutateWorkspace])
 
-  const openBrowser = useCallback((options: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string } = {}) => {
+  const openBrowser = useCallback((options: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string; context?: TaskExecutionContext } = {}) => {
     const windowId = options.id ?? generateId()
-    const repoId = options.repoId ?? activeRepoId
-    const profileId = repoId ? `repo-${repoId}` : 'default'
-    mutateWorkspace(options.repoId, (windows) => {
+    const projectId = options.repoId ?? activeProjectId
+    const context = options.context ?? (projectId ? contextForProject(projectId) : null)
+    if (!context) return windowId
+    const profileId = `project-${context.projectId}`
+    mutateWorkspace(projectId, (windows) => {
       const existingWindow = windows.find((w) => w.id === windowId)
       if (existingWindow) return { windows, activeWindowId: windowId }
       const existingCount = windows.filter((w) => w.type === 'browser').length + 1
       const url = options.url ?? 'about:blank'
-      const newWindow: WorkspaceWindow = {
+      const newWindow = createBoundWorkspaceWindow({
         id: windowId,
         type: 'browser',
         title: options.title ?? `Browser ${existingCount}`,
@@ -121,11 +156,11 @@ export function useWorkspace(): WorkspaceApi {
           viewportMode: 'responsive',
           devServerProcessId: options.processId,
         },
-      }
+      }, context)
       return { windows: [...windows, newWindow], activeWindowId: windowId }
     })
     return windowId
-  }, [activeRepoId, mutateWorkspace])
+  }, [activeProjectId, contextForProject, mutateWorkspace])
 
   const updateBrowserState = useCallback((id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => {
     mutateWorkspace(null, (windows, activeWindowId) => ({
@@ -170,11 +205,25 @@ export function useWorkspace(): WorkspaceApi {
     }))
   }, [mutateWorkspace])
 
+  const activeWindow = workspace.windows.find((window) => window.id === workspace.activeWindowId) ?? null
+  const activeExecutionResolution = activeWindow && tasks
+    ? resolveTaskExecutionContext(activeWindow, tasks)
+    : activeWindow && activeProject
+      ? { status: 'available' as const, context: localExecutionContext(activeProject) }
+      : null
+  const activeExecutionContext = activeExecutionResolution?.status === 'available'
+    ? activeExecutionResolution.context
+    : null
+
   return {
     windows: workspace.windows,
     activeWindowId: workspace.activeWindowId,
-    activeRepoId,
-    activeRepoPath: activeRepo?.path ?? null,
+    activeRepoId: activeProjectId,
+    activeRepoPath: activeExecutionContext?.checkoutPath ?? activeProject?.path ?? null,
+    activeProjectId,
+    activeCheckoutPath: activeExecutionContext?.checkoutPath ?? null,
+    activeExecutionContext,
+    activeExecutionResolution,
     openChat,
     openTerminal,
     openBrowser,

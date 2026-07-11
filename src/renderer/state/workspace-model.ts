@@ -1,4 +1,5 @@
 import type { WorkspaceWindowState } from '../../shared/appState'
+import type { TaskExecutionContext } from './execution-context'
 
 export function renameWorkspaceWindow(
   windows: WorkspaceWindowState[],
@@ -11,6 +12,18 @@ export function renameWorkspaceWindow(
   const next = [...windows]
   next[index] = { ...windows[index], title }
   return next
+}
+
+export function createBoundWorkspaceWindow(
+  window: Pick<WorkspaceWindowState, 'id' | 'type' | 'title' | 'browser'>,
+  context: TaskExecutionContext,
+): WorkspaceWindowState {
+  return {
+    ...window,
+    projectId: context.projectId,
+    taskId: context.taskId,
+    checkoutId: context.checkoutId,
+  }
 }
 
 export function codexThreadIdForActiveWindow(

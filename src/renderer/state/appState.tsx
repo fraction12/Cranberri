@@ -5,6 +5,19 @@ interface AppStateApi {
   state: CranberriAppState
   loaded: boolean
   updateAppState: (updater: (state: CranberriAppState) => CranberriAppState) => void
+  setProjectExpanded: (projectId: string, expanded: boolean) => void
+}
+
+export function withProjectExpanded(
+  state: CranberriAppState,
+  projectId: string,
+  expanded: boolean,
+): CranberriAppState {
+  if (state.expandedProjectIds[projectId] === expanded) return state
+  return {
+    ...state,
+    expandedProjectIds: { ...state.expandedProjectIds, [projectId]: expanded },
+  }
 }
 
 const AppStateContext = createContext<AppStateApi | null>(null)
@@ -40,7 +53,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setState((current) => updater(current))
   }, [])
 
-  const value = useMemo(() => ({ state, loaded, updateAppState }), [loaded, state, updateAppState])
+  const setProjectExpanded = useCallback((projectId: string, expanded: boolean) => {
+    setState((current) => withProjectExpanded(current, projectId, expanded))
+  }, [])
+
+  const value = useMemo(
+    () => ({ state, loaded, updateAppState, setProjectExpanded }),
+    [loaded, setProjectExpanded, state, updateAppState],
+  )
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
 }
