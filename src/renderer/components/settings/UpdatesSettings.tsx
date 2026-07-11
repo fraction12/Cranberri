@@ -4,9 +4,11 @@ import type { AppSettings } from '@/shared/settings'
 import type { UpdateInfo } from '@/shared/update'
 import { useUpdate } from '../../state/update'
 import { buttonStyle, cn, fieldStyle, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import { SettingsPage, SettingsSection } from './settings-page'
 
 type UpdateController = ReturnType<typeof useUpdate>
+type UpdateStatusTone = Exclude<ReturnType<typeof updateStatusCopy>['tone'], 'default'> | 'primary'
 type UpdateSettingsWriter = <Section extends keyof AppSettings>(
   section: Section,
   values: Partial<AppSettings[Section]>,
@@ -33,6 +35,10 @@ export function updateStatusCopy(status: UpdateInfo | null, channel: AppSettings
   if (status.status === 'readyToInstall') return { title: 'Update ready to install', description: refs, tone: 'success' }
   if (status.status === 'installing') return { title: 'Installing update', description: 'Cranberri will relaunch when installation finishes.', tone: 'default' }
   return { title: 'Update status unavailable', description: 'Check again to refresh update status.', tone: 'default' }
+}
+
+function updateStatusTone(tone: ReturnType<typeof updateStatusCopy>['tone']): UpdateStatusTone {
+  return tone === 'default' ? 'primary' : tone
 }
 
 export function UpdatesSettings({
@@ -106,14 +112,14 @@ export function UpdatesSettings({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => void saveUpdater({ channel })}
-                className={cn(segmentedItem, 'h-9 px-3 text-sm capitalize', selected && segmentedItemActive)}
+                className={cn(segmentedItem, 'h-9 px-3 capitalize', selected && segmentedItemActive)}
               >
                 {channel}
               </button>
             )
           })}
         </div>
-        <p className="text-xs text-app-text-muted">
+        <p className={typeStyle({ role: 'body', tone: 'secondary' })}>
           {settings.updater.channel === 'stable'
             ? 'Install signed, published Cranberri releases.'
             : 'Build and install the latest origin/main from a local clone.'}
@@ -121,14 +127,14 @@ export function UpdatesSettings({
 
         {settings.updater.channel === 'beta' && (
           <div className="space-y-2 pt-2">
-            <label className="block text-xs text-app-text-muted" htmlFor="settings-beta-repo">Local Cranberri repo</label>
+            <label className={cn('block', typeStyle({ role: 'label', tone: 'secondary' }))} htmlFor="settings-beta-repo">Local Cranberri repo</label>
             <div className="flex gap-2">
               <input
                 id="settings-beta-repo"
                 value={settings.updater.sourceRepoPath ?? ''}
                 onChange={(event) => void saveUpdater({ sourceRepoPath: event.target.value })}
                 placeholder="Choose a local clone"
-                className={cn(fieldStyle, 'flex-1 font-mono text-xs')}
+                className={cn(fieldStyle, 'flex-1', typeStyle({ role: 'control', family: 'mono' }))}
               />
               <button
                 type="button"
@@ -147,8 +153,8 @@ export function UpdatesSettings({
         <div className="flex items-start gap-3 rounded-md bg-app-bg/70 px-3 py-3">
           <StatusIcon tone={statusCopy.tone} />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-app-text">{statusCopy.title}</div>
-            <div className="mt-0.5 text-caption text-app-text-muted">{statusCopy.description}</div>
+            <div className={typeStyle({ role: 'status', tone: updateStatusTone(statusCopy.tone) })}>{statusCopy.title}</div>
+            <div className={cn('mt-0.5 break-words', typeStyle({ role: 'metadata', tone: statusCopy.tone === 'default' ? 'secondary' : updateStatusTone(statusCopy.tone) }))}>{statusCopy.description}</div>
           </div>
         </div>
 
@@ -160,9 +166,9 @@ export function UpdatesSettings({
 
         {update.progress && update.status?.status !== 'upToDate' && (
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-caption text-app-text-muted">
-              <span>{update.progress.message}</span>
-              {update.progress.percent !== null && <span>{update.progress.percent}%</span>}
+            <div className={cn('flex items-center justify-between gap-3', typeStyle({ role: 'metadata', tone: 'secondary' }))}>
+              <span className="min-w-0 break-words">{update.progress.message}</span>
+              {update.progress.percent !== null && <span className="shrink-0">{update.progress.percent}%</span>}
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-surface-2">
               <div className="h-full rounded-full bg-app-accent transition-all" style={{ width: `${update.progress.percent ?? 0}%` }} />
@@ -198,7 +204,7 @@ export function UpdatesSettings({
 }
 
 function StatusIcon({ tone }: { tone: ReturnType<typeof updateStatusCopy>['tone'] }) {
-  if (tone === 'success') return <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-app-success" />
-  if (tone === 'warning' || tone === 'danger') return <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${tone === 'danger' ? 'text-app-danger' : 'text-app-warning'}`} />
-  return <Download className="mt-0.5 h-4 w-4 shrink-0 text-app-text-muted" />
+  if (tone === 'success') return <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-app-status-success" />
+  if (tone === 'warning' || tone === 'danger') return <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${tone === 'danger' ? 'text-app-status-danger' : 'text-app-status-warning'}`} />
+  return <Download className="mt-0.5 h-4 w-4 shrink-0 text-app-text-secondary" />
 }

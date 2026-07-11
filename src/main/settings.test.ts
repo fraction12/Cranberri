@@ -119,10 +119,66 @@ describe('Codex settings persistence', () => {
       appearance: {
         theme: 'dark',
         accent: 'green',
-        uiFontSize: 14,
+        typePreset: 'standard',
         reducedMotion: 'system',
       },
     })
+  })
+
+  it.each([
+    [11, 'compact'],
+    [12, 'compact'],
+    [13, 'compact'],
+    [14, 'standard'],
+    [15, 'large'],
+    [16, 'large'],
+  ] as const)('migrates legacy Interface size %i to the %s preset', (uiFontSize, typePreset) => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 3,
+      data: {
+        ...DEFAULT_APP_SETTINGS,
+        appearance: {
+          theme: 'system',
+          accent: 'green',
+          uiFontSize,
+          reducedMotion: 'system',
+        },
+      },
+    }))
+
+    expect(readSettings().appearance).toMatchObject({ typePreset })
+  })
+
+  it('prefers a valid preset over a stale legacy font size', () => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 3,
+      data: {
+        ...DEFAULT_APP_SETTINGS,
+        appearance: {
+          ...DEFAULT_APP_SETTINGS.appearance,
+          typePreset: 'compact',
+          uiFontSize: 16,
+        },
+      },
+    }))
+
+    expect(readSettings().appearance.typePreset).toBe('compact')
+  })
+
+  it('recovers from a malformed preset using the legacy font size when available', () => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({
+      version: 3,
+      data: {
+        ...DEFAULT_APP_SETTINGS,
+        appearance: {
+          ...DEFAULT_APP_SETTINGS.appearance,
+          typePreset: 'enormous',
+          uiFontSize: 15,
+        },
+      },
+    }))
+
+    expect(readSettings().appearance.typePreset).toBe('large')
   })
 
   it('keeps Electron native theme in sync with persisted settings', () => {
@@ -167,6 +223,12 @@ describe('Tool curation settings persistence', () => {
 
     expect(readSettings()).toEqual({
       ...preToolsSettings,
+      appearance: {
+        theme: 'dark',
+        accent: 'rose',
+        typePreset: 'large',
+        reducedMotion: 'on',
+      },
       tools: {
         pinnedToolIds: [],
         dismissedDefaultToolIds: [],
@@ -187,7 +249,7 @@ describe('Tool curation settings persistence', () => {
 
     expect(readSettings().tools).toEqual(tools)
     const persisted = JSON.parse(fs.readFileSync(path.join(electron.userDataPath, 'settings.json'), 'utf8'))
-    expect(persisted).toMatchObject({ version: 3, data: { tools } })
+    expect(persisted).toMatchObject({ version: 4, data: { tools } })
   })
 
   it('drops malformed tool IDs without discarding valid persisted choices', () => {

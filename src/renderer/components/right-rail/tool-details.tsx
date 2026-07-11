@@ -1,6 +1,7 @@
 import { MessageSquare } from 'lucide-react'
 import type { ToolCatalogEntry } from '@/shared/tools'
 import { buttonStyle, cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import {
   toolAvailability,
   toolAvailabilityLabel,
@@ -50,37 +51,37 @@ export function ToolDetails({ entry, divided = true, onSend }: { entry: ToolCata
   const canSend = Boolean(onSend && (entry.machine.diagnosticCode || attention))
 
   return (
-    <div className={cn('mx-2 mb-2 rounded-md bg-app-bg/65 px-3 py-3 text-caption text-app-text-muted', divided && 'ml-7')}>
-      <p className="text-xs leading-5 text-app-text">{entry.description}</p>
+    <div className={cn('mx-2 mb-2 rounded-md bg-app-bg/65 px-3 py-3', typeStyle({ role: 'metadata', tone: 'secondary' }), divided && 'ml-7')}>
+      <p className={typeStyle({ role: 'body' })}>{entry.description}</p>
       <dl className="mt-2 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1">
         <dt>Status</dt>
-        <dd className="text-app-text">{toolAvailabilityLabel(entry)}</dd>
+        <dd className={typeStyle({ role: 'status', tone: attention ? 'warning' : 'success' })}>{toolAvailabilityLabel(entry)}</dd>
         <dt>Source</dt>
-        <dd className="truncate text-app-text" title={toolSourceDisplayLabel(entry.source)}>
+        <dd className={cn('[overflow-wrap:anywhere]', typeStyle({ role: 'metadata' }))} title={toolSourceDisplayLabel(entry.source)}>
           {toolSourceDisplayLabel(entry.source)}
         </dd>
         {entry.machine.version && (
           <>
             <dt>Version</dt>
-            <dd className="truncate font-mono text-app-text">{entry.machine.version}</dd>
+            <dd className={cn('[overflow-wrap:anywhere]', typeStyle({ role: 'metadata' }))}>{entry.machine.version}</dd>
           </>
         )}
         {checkedAt && (
           <>
             <dt>Checked</dt>
-            <dd className="text-app-text">{checkedAt}{entry.machine.stale ? ' · Refresh needed' : ''}</dd>
+            <dd className={typeStyle({ role: 'metadata' })}>{checkedAt}{entry.machine.stale ? ' · Refresh needed' : ''}</dd>
           </>
         )}
         {entry.activity && (
           <>
             <dt>Recent use</dt>
-            <dd className="text-app-text">{activityLabel(entry.activity)}</dd>
+            <dd className={typeStyle({ role: 'metadata' })}>{activityLabel(entry.activity)}</dd>
           </>
         )}
         {remediation && (
           <>
             <dt>Next step</dt>
-            <dd className="text-app-text">{remediation}</dd>
+            <dd className={cn('[overflow-wrap:anywhere]', typeStyle({ role: 'body' }))}>{remediation}</dd>
           </>
         )}
       </dl>

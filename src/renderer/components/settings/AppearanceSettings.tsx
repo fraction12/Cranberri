@@ -3,15 +3,16 @@ import { toast } from 'sonner'
 import { useAppearance } from '../../state/appearance-context'
 import { useSettings } from '../../state/settings'
 import { cn, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import { SettingsList, SettingsPage, SettingsSection } from './settings-page'
 import {
   APP_CODE_FONT_SIZE_RANGE,
   APP_TERMINAL_FONT_SIZE_RANGE,
-  APP_UI_FONT_SIZE_RANGE,
   type AppSettings,
   type AppAccent,
   type AppReducedMotion,
   type AppTheme,
+  type AppTypePreset,
 } from '@/shared/settings'
 
 const THEMES: Array<{ value: AppTheme; label: string; icon: React.ElementType }> = [
@@ -22,16 +23,22 @@ const THEMES: Array<{ value: AppTheme; label: string; icon: React.ElementType }>
 
 const ACCENTS: Array<{ value: AppAccent; label: string; dark: string; light: string; darkContrast: string }> = [
   { value: 'green', label: 'Green', dark: '#22c55e', light: '#15803d', darkContrast: '#08180f' },
-  { value: 'blue', label: 'Blue', dark: '#3b82f6', light: '#2563eb', darkContrast: '#ffffff' },
+  { value: 'blue', label: 'Blue', dark: '#3b82f6', light: '#2563eb', darkContrast: '#07111e' },
   { value: 'orange', label: 'Orange', dark: '#f97316', light: '#c2410c', darkContrast: '#200e04' },
-  { value: 'rose', label: 'Rose', dark: '#f43f5e', light: '#e11d48', darkContrast: '#ffffff' },
-  { value: 'violet', label: 'Violet', dark: '#8b5cf6', light: '#7c3aed', darkContrast: '#ffffff' },
+  { value: 'rose', label: 'Rose', dark: '#f43f5e', light: '#e11d48', darkContrast: '#20070d' },
+  { value: 'violet', label: 'Violet', dark: '#8b5cf6', light: '#7c3aed', darkContrast: '#0e081c' },
 ]
 
 const MOTION: Array<{ value: AppReducedMotion; label: string }> = [
   { value: 'system', label: 'System' },
   { value: 'on', label: 'Reduced' },
   { value: 'off', label: 'Full' },
+]
+
+const TYPE_PRESETS: Array<{ value: AppTypePreset; label: string }> = [
+  { value: 'compact', label: 'Compact' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'large', label: 'Large' },
 ]
 
 export function AppearanceSettings() {
@@ -60,7 +67,7 @@ export function AppearanceSettings() {
                 onClick={() => void saveSetting('appearance', { theme: value })}
                 className={cn(
                   segmentedItem,
-                  'flex h-9 items-center justify-center gap-2 text-sm',
+                  'flex h-9 items-center justify-center gap-2',
                   selected && segmentedItemActive,
                 )}
               >
@@ -98,14 +105,23 @@ export function AppearanceSettings() {
       </SettingsSection>
 
       <SettingsSection title="Text size">
+        <div className={cn(segmentedControl, 'grid-cols-3')} role="group" aria-label="Interface text size">
+          {TYPE_PRESETS.map(({ value, label }) => {
+            const selected = settings.appearance.typePreset === value
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => void saveSetting('appearance', { typePreset: value })}
+                className={cn(segmentedItem, 'h-9', selected && segmentedItemActive)}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
         <SettingsList>
-          <SizeRow
-            label="Interface"
-            value={settings.appearance.uiFontSize}
-            min={APP_UI_FONT_SIZE_RANGE.min}
-            max={APP_UI_FONT_SIZE_RANGE.max}
-            onChange={(uiFontSize) => void saveSetting('appearance', { uiFontSize })}
-          />
           <SizeRow
             label="Code"
             value={settings.editor.fontSize}
@@ -133,7 +149,7 @@ export function AppearanceSettings() {
                 type="button"
                 aria-pressed={selected}
                 onClick={() => void saveSetting('appearance', { reducedMotion: value })}
-                className={cn(segmentedItem, 'h-9 text-sm', selected && segmentedItemActive)}
+                className={cn(segmentedItem, 'h-9', selected && segmentedItemActive)}
               >
                 {label}
               </button>
@@ -160,7 +176,7 @@ function SizeRow({
 }) {
   return (
     <div className="flex min-h-12 items-center justify-between gap-4 py-1.5">
-      <span className="text-sm text-app-text">{label}</span>
+      <span className={typeStyle({ role: 'body' })}>{label}</span>
       <div className="flex items-center gap-1" role="group" aria-label={label}>
         <button
           type="button"
@@ -171,7 +187,7 @@ function SizeRow({
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
-        <output className="w-12 text-center font-mono text-sm text-app-text" aria-live="polite">{value}px</output>
+        <output className={cn('w-12 text-center', typeStyle({ role: 'code' }))} aria-live="polite">{value}px</output>
         <button
           type="button"
           aria-label={`Increase ${label} font size`}

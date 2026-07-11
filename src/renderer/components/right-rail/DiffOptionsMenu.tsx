@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, Copy, ExternalLink, FileText, FolderOpen, MoreHorizontal, WrapText } from 'lucide-react'
 import { cn, iconButton, menuSurface } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface DiffOptionsMenuProps {
   wrapContent: boolean
@@ -14,7 +15,10 @@ interface DiffOptionsMenuProps {
   onRevealFile: () => void
 }
 
-const ITEM_CLASS = 'flex min-h-8 select-none items-center gap-2 rounded-md px-2 text-xs text-app-text outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40'
+const ITEM_CLASS = cn(
+  'flex min-h-8 select-none items-center gap-2 rounded-md px-2 outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
+  typeStyle({ role: 'control' }),
+)
 
 export function DiffOptionsMenu({
   wrapContent,
@@ -39,7 +43,7 @@ export function DiffOptionsMenu({
           align="end"
           sideOffset={6}
           collisionPadding={8}
-          className={cn(menuSurface, 'z-[1400] w-52 text-xs outline-none')}
+          className={cn(menuSurface, 'z-[1400] w-52 outline-none')}
         >
           <DropdownMenu.CheckboxItem checked={wrapContent} onCheckedChange={onToggleWrapContent} className={ITEM_CLASS}>
             <WrapText className="h-3.5 w-3.5 text-app-text-muted" />

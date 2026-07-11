@@ -7,8 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:metadata && electron-vite dev",
-    "build": "npm run build:metadata && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
-    "build:packaged": "npm run build:metadata -- --packaged && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
+    "build": "npm run build:metadata && npm run typography:audit && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
+    "build:packaged": "npm run build:metadata -- --packaged && npm run typography:audit && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
     "copy:updater-helper": "node -e \"const fs=require('fs'), path=require('path'); fs.mkdirSync('out/updater',{recursive:true}); fs.copyFileSync('scripts/updater/install-helper.mjs','out/updater/install-helper.mjs'); console.log('copied updater helper');\"",
     "build:metadata": "node scripts/build-metadata.mjs",
     "package": "npm run build:packaged && node scripts/run-electron-builder.mjs",
@@ -20,7 +20,8 @@
     "lint": "npm run build:metadata && eslint . --max-warnings 0",
     "test": "npm run build:metadata && vitest run",
     "test:watch": "npm run build:metadata && vitest",
-    "typecheck": "npm run build:metadata && tsc --noEmit"
+    "typecheck": "npm run build:metadata && tsc --noEmit",
+    "typography:audit": "node scripts/typography-audit.mjs"
   },
   "dependencies": {
     "@braintree/sanitize-url": "^7.1.2",

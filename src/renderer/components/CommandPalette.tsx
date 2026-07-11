@@ -51,6 +51,7 @@ import type { ToolEventRecord } from '@/shared/tools'
 import type { SettingsTabValue } from './SettingsDialog'
 import type { ActiveBrowserCommand, ActiveBrowserViewportMode, ActiveTerminalCommand, ActiveWindowContextKind, GitHubContextKind, RepoChangesContextKind } from '../state/actions'
 import { buttonStyle, cn, dialogSurface, fieldStyle } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 const COMMAND_GITHUB_ITEM_KINDS: GitHubPanelKind[] = ['branches', 'commits', 'releases']
 
@@ -1490,9 +1491,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
             className={cn(dialogSurface, 'fixed left-1/2 top-[28%] z-[1601] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 p-5')}
             onSubmit={submitRenameSession}
           >
-            <Dialog.Title className="text-sm font-semibold text-app-text">Rename session</Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-app-text-muted">Update the Codex task name.</Dialog.Description>
-            <label htmlFor="command-palette-rename-session" className="mt-4 block text-xs font-medium text-app-text">Name</label>
+            <Dialog.Title className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>Rename session</Dialog.Title>
+            <Dialog.Description className={cn('mt-1', typeStyle({ role: 'body', tone: 'secondary' }))}>Update the Codex task name.</Dialog.Description>
+            <label htmlFor="command-palette-rename-session" className={cn('mt-4 block', typeStyle({ role: 'label', tone: 'primary' }))}>Name</label>
             <input
               id="command-palette-rename-session"
               autoFocus
@@ -1503,7 +1504,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
                 setRenameError(null)
               }}
             />
-            {renameError && <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">{renameError}</div>}
+            {renameError && <div className={cn('mt-3 break-words rounded-md bg-app-danger/8 px-3 py-2', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">{renameError}</div>}
             <div className="mt-5 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button type="button" className={buttonStyle({ tone: 'ghost', size: 'small' })}>Cancel</button>
@@ -1561,41 +1562,41 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
                 placeholder="Run command or switch repo..."
                 value={query}
                 onValueChange={setQuery}
-                className="h-12 w-full bg-app-surface-2/35 px-4 text-sm text-app-text outline-none placeholder:text-app-text-muted"
+                className={cn('h-12 w-full bg-app-surface-2/35 px-4 outline-none placeholder:text-app-text-tertiary', typeStyle({ role: 'body', tone: 'primary' }))}
               />
               <CommandList className="max-h-[420px] overflow-y-auto p-2">
-            <CommandEmpty className="px-3 py-8 text-center text-sm text-app-text-muted">No command found.</CommandEmpty>
+            <CommandEmpty className={cn('px-3 py-8 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>No command found.</CommandEmpty>
             {sessionsQuery.isLoading && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Loading recent sessions...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading recent sessions...</div>
             )}
             {processesQuery.isLoading && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Loading running processes...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading running processes...</div>
             )}
             {pluginsQuery.isLoading && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Loading Codex plugins...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading Codex plugins...</div>
             )}
             {(skillsQuery.isLoading || registryQuery.isLoading) && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Loading Codex capabilities...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading Codex capabilities...</div>
             )}
             {(repoFileSearchQuery.isLoading || repoContentSearchQuery.isLoading) && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Searching repo...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Searching repo...</div>
             )}
             {githubItemPanelsQuery.isLoading && (
-              <div className="px-3 py-2 text-xs text-app-text-muted">Loading GitHub refs...</div>
+              <div className={cn('px-3 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading GitHub refs...</div>
             )}
             {GROUP_ORDER.map((group) => grouped[group]?.length ? (
-              <CommandGroup key={group} heading={GROUP_LABELS[group]} className="text-xs text-app-text-muted [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium">
+              <CommandGroup key={group} heading={GROUP_LABELS[group]} className={cn('[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5', typeStyle({ role: 'label', tone: 'secondary' }))}>
                 {grouped[group].map((action) => (
                   <CommandItem
                     key={action.id}
                     value={actionSearchText(action)}
                     disabled={Boolean(action.disabledReason)}
                     onSelect={() => run(action)}
-                    className="flex cursor-default items-center gap-2 rounded-md px-2 py-2 text-sm text-app-text aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-selected:bg-app-surface-2"
+                    className={cn('flex cursor-default items-center gap-2 rounded-md px-2 py-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-selected:bg-app-surface-2', typeStyle({ role: 'control', tone: 'primary' }))}
                   >
                     <ActionIcon icon={action.icon} />
                     <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                    {action.description && <span className="hidden max-w-[240px] truncate text-xs text-app-text-muted sm:inline">{action.disabledReason ?? action.description}</span>}
+                    {action.description && <span className={cn('hidden max-w-[240px] truncate sm:inline', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{action.disabledReason ?? action.description}</span>}
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -1661,7 +1662,7 @@ function ActionIcon({ icon }: { icon: AppActionIcon }) {
                     : icon === 'tools'
                       ? PlugZap
                       : LayoutPanelTop
-  return <Icon className="h-4 w-4 shrink-0 text-app-text-muted" />
+  return <Icon className="h-4 w-4 shrink-0 text-app-text-secondary" />
 }
 
 function openCodexSession(session: CodexSessionSummary, repoPath: string, archived = false) {

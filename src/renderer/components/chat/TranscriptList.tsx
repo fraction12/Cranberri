@@ -1,6 +1,8 @@
 import { ReasoningGroup, TranscriptMessage } from './Transcript'
 import { renderSkillText } from './composer-text'
 import { memo, type ReactNode } from 'react'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import type { CodexMessage, CodexSkillInfo, CodexThread } from '@/shared/codex'
 
 function isVisibleSystemError(message: CodexMessage): boolean {
@@ -13,6 +15,7 @@ function belongsInReasoningGroup(message: CodexMessage): boolean {
 
 function CompactMessage({ message }: { message: CodexMessage }) {
   const isPending = message.pending ?? false
+  const isError = !isPending && /^Compaction failed:/i.test(message.content.trim())
   const [muted, bright] = isPending
     ? ['Compacting', '…']
     : message.content === 'Context compacted'
@@ -20,8 +23,14 @@ function CompactMessage({ message }: { message: CodexMessage }) {
       : ['', message.content]
 
   return (
-    <div className="flex justify-center text-xs">
-      <div className="flex items-center gap-2 rounded-full bg-app-surface/70 px-2.5 py-1 text-app-text-muted">
+    <div className="flex justify-center">
+      <div
+        role={isError ? 'alert' : undefined}
+        className={cn(
+          typeStyle({ role: 'status', tone: isError ? 'danger' : 'secondary' }),
+          'flex items-center gap-2 rounded-full bg-app-surface/70 px-2.5 py-1',
+        )}
+      >
         {isPending && (
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40" />
@@ -30,7 +39,7 @@ function CompactMessage({ message }: { message: CodexMessage }) {
         )}
         {!isPending && <span className="h-2 w-2 rounded-full bg-[var(--app-text-muted)]" />}
         {muted && <span>{muted}</span>}
-        <span className="text-[var(--app-text)]">{bright}</span>
+        <span className={isError ? undefined : 'text-app-text'}>{bright}</span>
       </div>
     </div>
   )

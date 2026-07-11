@@ -19,6 +19,7 @@ import { createSendChatContextEvent } from '../chat/chat-context-events'
 import { createGitHubContextCapturedEvent } from '../github-context-events'
 import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
 import { githubPanelBadges } from './github-panel-model'
+import { typeStyle } from '../../lib/typography'
 
 interface GitHubPanelProps {
   repoPath: string | null
@@ -33,6 +34,14 @@ const panelKinds: Array<{ kind: GitHubPanelKind; label: string; icon: ReactNode 
   { kind: 'commits', label: 'Commits', icon: <FileText className="h-3.5 w-3.5" /> },
   { kind: 'releases', label: 'Releases', icon: <UploadCloud className="h-3.5 w-3.5" /> },
 ]
+
+function githubStateTone(state: string): 'success' | 'warning' | 'info' | 'danger' {
+  const normalized = state.toLowerCase()
+  if (/failed|failure|error|closed|cancelled/.test(normalized)) return 'danger'
+  if (/pending|queued|draft|waiting/.test(normalized)) return 'warning'
+  if (/open|passed|success|merged|completed|active/.test(normalized)) return 'success'
+  return 'info'
+}
 
 export function GitHubPanel({ repoPath }: GitHubPanelProps) {
   const [summary, setSummary] = useState<GitHubRepoSummary | null>(null)
@@ -113,13 +122,13 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
   const activeLabel = panelKinds.find((item) => item.kind === activeKind)?.label ?? activeKind
 
   return (
-    <div className="h-full overflow-y-auto px-2 pb-3 text-xs">
+    <div className={cn('h-full overflow-y-auto px-2 pb-3', typeStyle({ role: 'body' }))}>
       <div className="flex items-start gap-2 px-1 py-2.5">
         <Github className="mt-0.5 h-4 w-4 shrink-0 text-app-text-muted" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-app-text">{summary.owner}/{summary.repo}</div>
-          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-caption text-app-text-muted">
-            {summary.branch && <span className="font-mono">{summary.branch}</span>}
+          <div className={cn('truncate', typeStyle({ role: 'panelTitle' }))}>{summary.owner}/{summary.repo}</div>
+          <div className={cn('mt-1 flex flex-wrap gap-x-2 gap-y-0.5', typeStyle({ role: 'metadata', tone: 'secondary' }))}>
+            {summary.branch && <span className="[overflow-wrap:anywhere]">{summary.branch}</span>}
             <span>{summary.ahead} ahead</span>
             <span>{summary.behind} behind</span>
           </div>
@@ -155,8 +164,8 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 
       <div className="mt-1">
         <div className="flex h-9 items-center gap-2 px-1">
-          <span className="font-medium text-app-text">{activeLabel}</span>
-          {dataBadges.map((badge) => <span key={badge.id} className="text-caption text-app-text-muted" title={badge.title}>{badge.label}</span>)}
+          <span className={typeStyle({ role: 'panelTitle' })}>{activeLabel}</span>
+          {dataBadges.map((badge) => <span key={badge.id} className={typeStyle({ role: 'metadata', tone: 'secondary' })} title={badge.title}>{badge.label}</span>)}
           <button type="button" onClick={() => setReloadKey((key) => key + 1)} className={cn(iconButton(), 'ml-auto')} title="Refresh GitHub" aria-label="Refresh GitHub">
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
           </button>
@@ -167,21 +176,21 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 
         {loading && !data && <PanelLoading label={`Loading ${activeLabel.toLowerCase()}`} />}
         {error && summary && <PanelError message={error} onRetry={() => setReloadKey((key) => key + 1)} compact />}
-        {!loading && !error && data?.items.length === 0 && <div className="px-2 py-4 text-xs text-app-text-muted">No {activeLabel.toLowerCase()} found.</div>}
+        {!loading && !error && data?.items.length === 0 && <div className={cn('px-2 py-4', typeStyle({ role: 'body', tone: 'secondary' }))}>No {activeLabel.toLowerCase()} found.</div>}
         <div className="space-y-0.5">
           {data?.items.map((item) => (
             <div key={item.id} className="group rounded-md px-2 py-2 hover:bg-app-surface-2/55">
               <div className="flex items-start gap-2">
                 <button type="button" onClick={() => item.url && void window.cranberri.openExternal(item.url)} disabled={!item.url} className="min-w-0 flex-1 text-left disabled:cursor-default">
-                  <span className="block truncate text-xs font-medium text-app-text" title={item.title}>{item.title}</span>
-                  {item.subtitle && <span className="mt-0.5 block truncate text-caption text-app-text-muted" title={item.subtitle}>{item.subtitle}</span>}
+                  <span className={cn('block truncate', typeStyle({ role: 'label' }))} title={item.title}>{item.title}</span>
+                  {item.subtitle && <span className={cn('mt-0.5 block truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={item.subtitle}>{item.subtitle}</span>}
                 </button>
-                {item.state && <span className="shrink-0 text-micro capitalize text-app-text-muted">{item.state}</span>}
+                {item.state && <span className={cn('shrink-0 capitalize', typeStyle({ role: 'status', tone: githubStateTone(item.state) }))}>{item.state}</span>}
                 <button type="button" onClick={() => sendItemContext(item)} className={iconButton()} title="Send GitHub item context to chat" aria-label="Send GitHub item context to chat">
                   <MessageSquare className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-2 text-micro text-app-text-muted">
+              <div className={cn('mt-1 flex flex-wrap gap-x-2', typeStyle({ role: 'micro', tone: 'secondary' }))}>
                 {item.author && <span>@{item.author}</span>}
                 {item.createdAt && <span>{new Date(item.createdAt).toLocaleString()}</span>}
                 {item.meta && Object.entries(item.meta).map(([key, value]) => value !== null && value !== undefined ? <span key={key}>{key}: {String(value)}</span> : null)}
@@ -195,25 +204,25 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
 }
 
 function PanelLoading({ label }: { label: string }) {
-  return <div className="flex items-center gap-2 px-3 py-4 text-xs text-app-text-muted" role="status"><Loader2 className="h-4 w-4 animate-spin" />{label}</div>
+  return <div className={cn('flex items-center gap-2 px-3 py-4', typeStyle({ role: 'status', tone: 'secondary' }))} role="status"><Loader2 className="h-4 w-4 animate-spin" />{label}</div>
 }
 
 function PanelError({ message, onRetry, compact = false }: { message: string; onRetry: () => void; compact?: boolean }) {
   return (
-    <div role="alert" className={cn('flex items-start gap-2 text-xs text-app-text-muted', compact ? 'px-2 py-3' : 'p-4')}>
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-app-danger" />
-      <span className="min-w-0 flex-1">{message}</span>
-      <button type="button" onClick={onRetry} className="font-medium text-app-text hover:underline">Retry</button>
+    <div role="alert" className={cn('flex items-start gap-2', typeStyle({ role: 'status', tone: 'danger' }), compact ? 'px-2 py-3' : 'p-4')}>
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{message}</span>
+      <button type="button" onClick={onRetry} className={cn('hover:underline', typeStyle({ role: 'control' }))}>Retry</button>
     </div>
   )
 }
 
 function PanelEmpty({ icon: Icon, label, detail }: { icon: React.ElementType; label: string; detail?: string }) {
   return (
-    <div className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+    <div className={cn('flex h-full min-h-40 flex-col items-center justify-center p-5 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
       <Icon className="mb-2 h-7 w-7 opacity-45" />
       <span>{label}</span>
-      {detail && <span className="mt-1 max-w-full truncate font-mono text-caption" title={detail}>{detail}</span>}
+      {detail && <span className={cn('mt-1 max-w-full [overflow-wrap:anywhere]', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={detail}>{detail}</span>}
     </div>
   )
 }

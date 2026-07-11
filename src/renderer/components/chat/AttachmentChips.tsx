@@ -1,15 +1,18 @@
 import { FileText, X } from 'lucide-react'
 import { attachmentPreviewFromPath } from './composer-attachments'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface AttachmentChipsProps {
   attachments: string[]
   onRemove: (filePath: string) => void
 }
 
-const ATTACHMENT_CHIP_CLASS = [
+const ATTACHMENT_CHIP_CLASS = cn(
+  typeStyle({ role: 'metadata' }),
   'inline-flex max-w-full items-center gap-1.5 rounded-lg bg-app-surface-2 px-1.5 py-1',
-  'text-caption text-app-text ring-1 ring-app-border/55 hover:bg-app-border/70',
-].join(' ')
+  'ring-1 ring-app-border/55 hover:bg-app-border/70',
+)
 
 export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps) {
   if (attachments.length === 0) return null
@@ -37,11 +40,11 @@ export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps)
               />
             ) : (
               <span className="flex h-8 w-8 items-center justify-center rounded-md bg-app-surface">
-                <FileText className="h-3.5 w-3.5 text-[var(--app-text-muted)]" />
+                <FileText className="h-3.5 w-3.5 text-app-text-secondary" />
               </span>
             )}
             <span className="max-w-44 truncate">{label}</span>
-            <X className="h-3 w-3 shrink-0 text-[var(--app-text-muted)]" aria-hidden="true" />
+            <X className="h-3 w-3 shrink-0 text-app-text-secondary" aria-hidden="true" />
           </button>
         )
       })}

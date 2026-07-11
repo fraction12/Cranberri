@@ -32,7 +32,7 @@ export function ToolCatalogControls({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Search tools"
-            className={cn(fieldStyle, 'w-full pl-8 pr-3 text-xs')}
+            className={cn(fieldStyle, 'w-full pl-8 pr-3')}
           />
         </label>
         {onRefresh && (
@@ -59,7 +59,7 @@ export function ToolCatalogControls({
             onClick={() => onFilterChange(option.value)}
             className={cn(
               segmentedItem,
-              'h-8 px-2 text-caption font-medium',
+              'h-8 px-2',
               filter === option.value
                 ? segmentedItemActive
                 : '',

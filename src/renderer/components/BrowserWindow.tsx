@@ -9,6 +9,7 @@ import { BROWSER_VIEWPORT_PROFILES, type BrowserViewportMode, browserViewportFra
 import { browserInspectionChatContext, browserScreenshotChatContext, browserSnapshotChatContext } from './browser-chat-context'
 import { createBrowserScreenshotContextCapturedEvent, createBrowserSnapshotContextCapturedEvent } from './browser-context-events'
 import { cn, iconButton, menuSurface } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 interface BrowserWindowProps {
   windowState: WorkspaceWindow
@@ -418,7 +419,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   }, [actionsMenuPending, cancelActionsMenuOpen])
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg text-app-text">
+    <div className={cn('flex h-full min-h-0 flex-col bg-app-bg', typeStyle({ role: 'body' }))}>
       <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2 shadow-sm">
         <button
           type="button"
@@ -465,13 +466,14 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
             ref={addressInputRef}
             value={address}
             name="browser-address"
+            aria-label="Browser address"
             onFocus={() => { addressEditingRef.current = true }}
             onBlur={() => { addressEditingRef.current = false }}
             onChange={(event) => {
               addressEditingRef.current = true
               setAddress(event.target.value)
             }}
-            className="h-7 min-w-0 flex-1 bg-transparent text-xs text-app-text outline-none"
+            className={cn('h-7 min-w-0 flex-1 bg-transparent outline-none', typeStyle({ role: 'control' }))}
             placeholder="https://localhost:5173"
           />
           <button
@@ -508,7 +510,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
         />
       </div>
       {state.error && (
-        <div className="bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">
+        <div className={cn('bg-app-status-danger/8 px-3 py-2 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">
           {state.error}
         </div>
       )}
@@ -522,14 +524,14 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
             style={{ width: viewportFrame.width, height: viewportFrame.height }}
           >
             {!active && (
-              <div className="absolute inset-0 flex items-center justify-center bg-app-bg text-sm text-app-text-muted">
+              <div className={cn('absolute inset-0 flex items-center justify-center bg-app-bg', typeStyle({ role: 'status', tone: 'secondary' }))}>
                 Browser paused
               </div>
             )}
             {active && (obscured || actionsMenuOpen) && (
               <div
                 data-browser-surface-frozen="true"
-                className="absolute inset-0 flex items-center justify-center overflow-hidden bg-app-surface text-sm text-app-text-muted"
+                className={cn('absolute inset-0 flex items-center justify-center overflow-hidden bg-app-surface', typeStyle({ role: 'status', tone: 'secondary' }))}
               >
                 {frozenSurfaceDataUrl ? (
                   <img
@@ -549,7 +551,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
             )}
           </div>
           {active && viewportMode !== 'responsive' && (
-            <div className="mx-auto mt-2 text-center text-micro text-app-text-muted" style={{ width: viewportFrame.width }}>
+            <div className={cn('mx-auto mt-2 text-center', typeStyle({ role: 'micro', tone: 'secondary' }))} style={{ width: viewportFrame.width }}>
               {viewportFrame.label}
             </div>
           )}
@@ -607,7 +609,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
                 {capture.screenshotDataUrl ? (
                   <img src={capture.screenshotDataUrl} alt="Captured browser screenshot" className="max-w-full rounded border border-app-border" />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-app-text-muted">No screenshot captured yet.</div>
+                  <div className={cn('flex h-full items-center justify-center', typeStyle({ role: 'body', tone: 'secondary' }))}>No screenshot captured yet.</div>
                 )}
               </div>
             </div>
@@ -657,7 +659,7 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
               {inspection ? (
                 <ElementInspectionView inspection={inspection} />
               ) : (
-                <pre className="h-52 overflow-auto whitespace-pre-wrap break-words bg-app-bg p-3 font-mono text-caption leading-relaxed text-app-text-muted">
+                <pre className={cn('h-52 overflow-auto whitespace-pre-wrap break-words bg-app-bg p-3 [overflow-wrap:anywhere]', typeStyle({ role: 'code', tone: 'secondary' }))}>
                   {capture.snapshot?.text || 'No page text captured yet.'}
                 </pre>
               )}
@@ -681,31 +683,31 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
   ]
 
   return (
-    <div className="h-52 overflow-auto bg-app-bg p-3 text-xs">
+    <div className={cn('h-52 overflow-auto bg-app-bg p-3', typeStyle({ role: 'body' }))}>
       <div className="grid grid-cols-2 gap-2">
         <InfoCell label="Tag" value={inspection.tagName} />
         <InfoCell label="Rect" value={`${inspection.rect.width}x${inspection.rect.height} @ ${inspection.rect.x},${inspection.rect.y}`} />
       </div>
       {inspection.text && (
-        <pre className="mt-3 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 font-mono text-caption leading-relaxed text-app-text-muted">
+        <pre className={cn('mt-3 max-h-20 overflow-auto whitespace-pre-wrap break-words rounded bg-app-surface px-2 py-1.5 [overflow-wrap:anywhere]', typeStyle({ role: 'code', tone: 'secondary' }))}>
           {inspection.text}
         </pre>
       )}
       <div className="mt-3 space-y-1">
         {styleRows.map(([label, value]) => (
           <div key={label} className="flex gap-3">
-            <span className="w-20 shrink-0 text-app-text-muted">{label}</span>
-            <span className="min-w-0 flex-1 break-words font-mono text-caption">{value || '-'}</span>
+            <span className={cn('w-20 shrink-0', typeStyle({ role: 'label', tone: 'secondary' }))}>{label}</span>
+            <span className={cn('min-w-0 flex-1 break-words [overflow-wrap:anywhere]', typeStyle({ role: 'code' }))}>{value || '-'}</span>
           </div>
         ))}
       </div>
       {Object.keys(inspection.attributes).length > 0 && (
         <div className="mt-3 rounded-md bg-app-surface px-2 py-2">
-          <div className="mb-1 text-caption font-medium text-app-text-muted">Attributes</div>
+          <div className={cn('mb-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Attributes</div>
           {Object.entries(inspection.attributes).slice(0, 8).map(([name, value]) => (
             <div key={name} className="flex gap-3">
-              <span className="w-20 shrink-0 text-app-text-muted">{name}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-caption" title={value}>{value}</span>
+              <span className={cn('w-20 shrink-0', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{name}</span>
+              <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere]', typeStyle({ role: 'code' }))} title={value}>{value}</span>
             </div>
           ))}
         </div>
@@ -717,8 +719,8 @@ function ElementInspectionView({ inspection }: { inspection: BrowserElementInspe
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-app-surface px-2 py-1.5">
-      <div className="text-caption text-app-text-muted">{label}</div>
-      <div className="mt-1 truncate font-mono text-caption" title={value}>{value}</div>
+      <div className={typeStyle({ role: 'label', tone: 'secondary' })}>{label}</div>
+      <div className={cn('mt-1 [overflow-wrap:anywhere]', typeStyle({ role: 'code' }))} title={value}>{value}</div>
     </div>
   )
 }
@@ -739,7 +741,7 @@ function viewportModeIcon(mode: BrowserViewportMode): React.ElementType {
 function CaptureHeader({ icon: Icon, label, children }: { icon: React.ElementType; label: string; children?: React.ReactNode }) {
   return (
     <div className="flex h-9 items-center justify-between gap-2 px-3">
-      <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
+      <div className={cn('flex min-w-0 items-center gap-2', typeStyle({ role: 'panelTitle' }))}>
         <Icon className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
         <span className="truncate" title={label}>{label}</span>
       </div>
@@ -748,7 +750,10 @@ function CaptureHeader({ icon: Icon, label, children }: { icon: React.ElementTyp
   )
 }
 
-const BROWSER_MENU_ITEM = 'flex min-h-8 select-none items-center gap-2 rounded-md px-2 text-xs text-app-text outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40'
+const BROWSER_MENU_ITEM = cn(
+  'flex min-h-8 select-none items-center gap-2 rounded-md px-2 outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
+  typeStyle({ role: 'control' }),
+)
 
 function BrowserActionsMenu({
   open,
@@ -783,8 +788,8 @@ function BrowserActionsMenu({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1300] w-56 text-xs outline-none')}>
-          <DropdownMenu.Label className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Viewport</DropdownMenu.Label>
+        <DropdownMenu.Content align="end" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1300] w-56 outline-none')}>
+          <DropdownMenu.Label className={cn('px-2 pb-1 pt-0.5', typeStyle({ role: 'label', tone: 'secondary' }))}>Viewport</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={viewportMode} onValueChange={(mode) => onSelectViewport(mode as BrowserViewportMode)}>
             {BROWSER_VIEWPORT_PROFILES.map((profile) => {
               const Icon = viewportModeIcon(profile.mode)
@@ -797,7 +802,7 @@ function BrowserActionsMenu({
               )
             })}
           </DropdownMenu.RadioGroup>
-          <DropdownMenu.Label className="mt-2 px-2 pb-1 pt-1 text-caption font-medium text-app-text-muted">Page</DropdownMenu.Label>
+          <DropdownMenu.Label className={cn('mt-2 px-2 pb-1 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Page</DropdownMenu.Label>
           <DropdownMenu.Item disabled={!canUseUrl} onSelect={onCopyUrl} className={BROWSER_MENU_ITEM} title="Copy browser URL">
             <Clipboard className="h-3.5 w-3.5 text-app-text-muted" /> Copy URL
           </DropdownMenu.Item>

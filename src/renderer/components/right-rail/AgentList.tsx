@@ -4,6 +4,8 @@ import type { CodexThread, CodexWorker } from '@/shared/codex'
 import { codexWorkerIsActive } from '@/shared/codex-workers'
 import { AgentRow } from './AgentRow'
 import { agentDisplayName, agentStatusLabel } from './agent-presentation'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface AgentListProps {
   thread: CodexThread | null
@@ -109,8 +111,8 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
   return (
     <section className="flex h-full min-h-0 flex-col bg-app-surface" data-agents-panel="true">
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
-        <span className="text-xs font-semibold text-app-text">Task agents</span>
-        <span className="text-caption text-app-text-muted">{activeCount > 0 ? `${activeCount} active` : 'None active'}</span>
+        <span className={typeStyle({ role: 'panelTitle' })}>Task agents</span>
+        <span className={typeStyle({ role: 'status', tone: activeCount > 0 ? 'info' : 'secondary' })}>{activeCount > 0 ? `${activeCount} active` : 'None active'}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -118,16 +120,16 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
 
         {thread?.parentThreadId && (
           <div className="mb-3 rounded-md bg-app-surface-2/45 px-3 py-2.5">
-            <div className="text-caption font-medium text-app-text-muted">Current agent</div>
+            <div className={typeStyle({ role: 'label', tone: 'secondary' })}>Current agent</div>
             <div className="mt-1 flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium text-app-text">{thread.agentNickname || thread.title}</div>
-                {thread.agentRole && <div className="truncate text-caption text-app-text-muted">{thread.agentRole}</div>}
+                <div className={cn('truncate', typeStyle({ role: 'body' }))}>{thread.agentNickname || thread.title}</div>
+                {thread.agentRole && <div className={cn('truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{thread.agentRole}</div>}
               </div>
               <button
                 type="button"
                 onClick={() => onOpenParent(thread.parentThreadId!)}
-                className="flex h-7 items-center gap-1 rounded-md px-2 text-caption text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                className={cn('flex h-7 items-center gap-1 rounded-md px-2 hover:bg-app-surface-2 hover:text-app-text', typeStyle({ role: 'control', tone: 'secondary' }))}
                 aria-label="Open parent task"
               >
                 <CornerUpLeft className="h-3.5 w-3.5" />
@@ -148,7 +150,7 @@ export function AgentList({ thread, onOpenAgent, onOpenParent, onMessageAgent, o
 function AgentGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="mb-3">
-      <h3 className="px-2 pb-1 text-caption font-medium text-app-text-muted">{label}</h3>
+      <h3 className={cn('px-2 pb-1', typeStyle({ role: 'label', tone: 'secondary' }))}>{label}</h3>
       <div className="space-y-0.5">{children}</div>
     </section>
   )
@@ -156,7 +158,7 @@ function AgentGroup({ label, children }: { label: string; children: React.ReactN
 
 function EmptyAgents({ label }: { label: string }) {
   return (
-    <div className="flex min-h-48 flex-col items-center justify-center px-4 text-center text-sm text-app-text-muted">
+    <div className={cn('flex min-h-48 flex-col items-center justify-center px-4 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
       <Network className="mb-2 h-7 w-7 opacity-50" />
       {label}
     </div>

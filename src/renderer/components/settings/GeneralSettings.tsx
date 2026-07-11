@@ -12,6 +12,7 @@ import {
 } from '@/shared/codex'
 import { useSettings } from '../../state/settings'
 import { buttonStyle, cn, fieldStyle } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import { SettingsList, SettingsPage, SettingsRow, SettingsSection } from './settings-page'
 
 const SELECT_CLASS = cn(fieldStyle, 'w-56 max-w-[45vw]')
@@ -76,7 +77,7 @@ export function GeneralSettings() {
         <SettingsList>
           <SettingsRow label="Connection" description={connectionDetail}>
             {status?.authenticated && !status.updateRequired ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-app-success">
+              <span className={cn('inline-flex items-center gap-1.5', typeStyle({ role: 'status', tone: 'success' }))}>
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Connected
               </span>

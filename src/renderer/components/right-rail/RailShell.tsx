@@ -2,6 +2,8 @@ import { Activity, Bot, FileDiff, FileText, Github, PlugZap, Ticket } from 'luci
 import { GitHubPanel } from './GitHubPanel'
 import { ProcessesPanel } from './ProcessesPanel'
 import { ToolsPanel } from './ToolsPanel'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 export type RightRailTab = 'files' | 'diff' | 'agents'
 export type BottomPanelKind = 'issue' | 'processes' | 'github' | 'tools'
@@ -56,7 +58,7 @@ export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings 
   return (
     <div className="flex basis-1/2 min-h-0 flex-col bg-app-bg">
       <div className="flex h-9 shrink-0 items-center bg-app-surface px-3 pt-1">
-        <div className="flex items-center gap-2 text-xs font-medium text-app-text">
+        <div className={cn('flex items-center gap-2', typeStyle({ role: 'panelTitle' }))}>
           {bottomPanel === 'issue' && <Ticket className="h-3.5 w-3.5 text-app-text-muted" />}
           {bottomPanel === 'processes' && <Activity className="h-3.5 w-3.5 text-app-text-muted" />}
           {bottomPanel === 'github' && <Github className="h-3.5 w-3.5 text-app-text-muted" />}
@@ -66,7 +68,7 @@ export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings 
       </div>
       <div className="min-h-0 flex-1">
         {bottomPanel === 'issue' ? (
-          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-app-text-muted">
+          <div className={cn('flex h-full items-center justify-center p-4 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
             No linked issue
           </div>
         ) : bottomPanel === 'processes' ? (
@@ -83,7 +85,7 @@ export function BottomPanelContent({ bottomPanel, repoPath, onOpenToolsSettings 
 
 export function BottomPanelNav({ bottomPanel, onTogglePanel }: BottomPanelNavProps) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2 text-caption text-app-text">
+    <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2">
       <PanelNavButton
         active={bottomPanel === 'issue'}
         onClick={() => onTogglePanel('issue')}
@@ -135,13 +137,15 @@ function TabButton({
       id={`right-rail-${tab}-tab`}
       aria-controls={`right-rail-${tab}-panel`}
       aria-selected={active}
-      className={`flex h-8 items-center justify-center gap-1.5 rounded-md text-xs transition-colors duration-fast ease-standard hover:text-app-text ${
-        active ? 'bg-app-bg text-app-text shadow-[inset_0_0_0_1px_var(--app-inset)]' : 'text-app-text-muted hover:bg-app-surface-2/65'
-      }`}
+      className={cn(
+        'flex h-8 items-center justify-center gap-1.5 rounded-md transition-colors duration-fast ease-standard hover:text-app-text',
+        typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }),
+        active ? 'bg-app-bg shadow-[inset_0_0_0_1px_var(--app-inset)]' : 'hover:bg-app-surface-2/65',
+      )}
     >
       {icon}
       {label}
-      {Boolean(count) && <span className="min-w-4 rounded-full bg-app-accent/14 px-1 text-center text-micro font-medium text-app-accent">{count}</span>}
+      {Boolean(count) && <span className={cn('min-w-4 rounded-full bg-app-accent/14 px-1 text-center', typeStyle({ role: 'micro', tone: 'info' }))}>{count}</span>}
     </button>
   )
 }

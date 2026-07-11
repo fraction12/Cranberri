@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { AlertCircle, ChevronRight, FileText, Folder, Loader2 } from 'lucide-react'
 import type { GitFileStatus } from '@/shared/git'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface ChangeListProps {
   status?: GitFileStatus[]
@@ -23,20 +25,39 @@ function statusColor(status: GitFileStatus['status']) {
   switch (status) {
     case 'added':
     case 'untracked':
-      return 'text-app-success bg-app-success/10'
+      return cn(typeStyle({ role: 'status', tone: 'success' }), 'bg-app-status-success/10')
     case 'deleted':
-      return 'text-app-danger bg-app-danger/10'
+      return cn(typeStyle({ role: 'status', tone: 'danger' }), 'bg-app-status-danger/10')
     case 'modified':
-      return 'text-app-warning bg-app-warning/10'
+      return cn(typeStyle({ role: 'status', tone: 'warning' }), 'bg-app-status-warning/10')
     case 'renamed':
-      return 'text-app-info bg-app-info/10'
+      return cn(typeStyle({ role: 'status', tone: 'info' }), 'bg-app-status-info/10')
     case 'conflict':
-      return 'text-app-warning bg-app-warning/10'
+      return cn(typeStyle({ role: 'status', tone: 'warning' }), 'bg-app-status-warning/10')
     case 'staged':
-      return 'text-app-success bg-app-success/10'
+      return cn(typeStyle({ role: 'status', tone: 'success' }), 'bg-app-status-success/10')
     case 'tracked':
     default:
-      return 'text-app-text-muted bg-app-surface-2'
+      return cn(typeStyle({ role: 'status', tone: 'secondary' }), 'bg-app-surface-2')
+  }
+}
+
+function statusDotColor(status: GitFileStatus['status']): string {
+  switch (status) {
+    case 'added':
+    case 'untracked':
+    case 'staged':
+      return 'bg-app-status-success'
+    case 'deleted':
+      return 'bg-app-status-danger'
+    case 'modified':
+    case 'conflict':
+      return 'bg-app-status-warning'
+    case 'renamed':
+      return 'bg-app-status-info'
+    case 'tracked':
+    default:
+      return 'bg-app-text-secondary'
   }
 }
 
@@ -48,22 +69,22 @@ export function ChangeList({
   onSelectFile,
 }: ChangeListProps) {
   if (statusLoading) {
-    return <div className="flex items-center gap-2 p-3 text-sm text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading changes</div>
+    return <div className={cn('flex items-center gap-2 p-3', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-4 w-4 animate-spin" /> Loading changes</div>
   }
 
   if (error) {
     return (
-      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
-        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
-        <span className="font-medium text-app-text">Changes could not be loaded</span>
-        <span className="mt-1 text-caption">{error.message}</span>
+      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-status-danger" />
+        <span className={typeStyle({ role: 'status', tone: 'danger' })}>Changes could not be loaded</span>
+        <span className={cn('mt-1 max-w-full [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{error.message}</span>
       </div>
     )
   }
 
   if (!status?.length) {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-4 text-center text-sm text-app-text-muted">
+      <div className={cn('flex h-full flex-col items-center justify-center p-4 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
         <FileText className="mb-2 h-8 w-8 opacity-50" />
         No changed files.
       </div>
@@ -73,7 +94,7 @@ export function ChangeList({
   const tree = buildChangeTree(status)
 
   return (
-    <ul className="p-2 text-sm">
+    <ul className={cn('p-2', typeStyle({ role: 'body' }))}>
       {tree.map((node) => (
         <ChangeTreeNode
           key={node.path}
@@ -171,8 +192,8 @@ function ChangeTreeNode({
           title={node.path}
         >
           <FileText className="h-3.5 w-3.5 shrink-0 text-app-text-muted group-hover:text-app-text" />
-          <span className="min-w-0 flex-1 truncate text-sm text-app-text">{node.name}</span>
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-micro capitalize ${statusColor(node.file.status)}`}>
+          <span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'body' }))}>{node.name}</span>
+          <span className={cn('shrink-0 rounded px-1.5 py-0.5 capitalize', statusColor(node.file.status))}>
             {node.file.status}
           </span>
         </button>
@@ -193,11 +214,11 @@ function ChangeTreeNode({
       >
         <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
         <Folder className="h-3.5 w-3.5 shrink-0 text-app-accent/80" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-app-text">{node.name}</span>
-        <span className="rounded bg-app-surface-2 px-1.5 py-0.5 text-micro tabular-nums text-app-text-muted">
+        <span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'body' }))}>{node.name}</span>
+        <span className={cn('rounded bg-app-surface-2 px-1.5 py-0.5 tabular-nums', typeStyle({ role: 'micro', tone: 'secondary' }))}>
           {countChangedFiles(node)}
         </span>
-        <span className={`h-1.5 w-1.5 rounded-full ${statusColor(badgeStatus).split(' ')[1]}`} />
+        <span className={cn('h-1.5 w-1.5 rounded-full', statusDotColor(badgeStatus))} />
       </button>
       {expanded && node.children.length > 0 && (
         <ul>

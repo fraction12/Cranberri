@@ -12,9 +12,10 @@ import { createOpenTerminalLinkBrowserEvent } from './terminal-link-events'
 import { TERMINAL_WINDOW_COMMAND_EVENT, terminalWindowCommandFromEvent } from './terminal-window-command-events'
 import { terminalBufferChatContext } from './terminal-chat-context'
 import { terminalClipboardText } from './terminal-buffer'
-import { terminalTheme } from './terminal-theme'
+import { terminalTheme, terminalTypographyOptions } from './terminal-theme'
 import { useAppearance } from '../state/appearance-context'
 import { useSettings } from '../state/settings'
+import { typeStyle } from '../lib/typography'
 
 interface TerminalWindowProps {
   id: string
@@ -60,10 +61,10 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
     setTerminalStatus('starting')
     setTerminalError(null)
     const visuals = visualSettingsRef.current
+    const sharedMonoStack = getComputedStyle(document.documentElement).getPropertyValue('--app-font-mono')
     const t = new XTerm({
       cursorBlink: true,
-      fontFamily: 'SFMono-Regular, Menlo, Monaco, "Courier New", monospace',
-      fontSize: visuals.fontSize,
+      ...terminalTypographyOptions(visuals.fontSize, sharedMonoStack),
       allowProposedApi: true,
       scrollback: 10000,
       theme: terminalTheme(visuals.theme),
@@ -172,7 +173,12 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
     const term = termRef.current
     if (!term) return
     term.options.theme = terminalTheme(theme)
-    term.options.fontSize = settings.terminal.fontSize
+    const sharedMonoStack = getComputedStyle(document.documentElement).getPropertyValue('--app-font-mono')
+    const typography = terminalTypographyOptions(settings.terminal.fontSize, sharedMonoStack)
+    term.options.fontFamily = typography.fontFamily
+    term.options.fontSize = typography.fontSize
+    term.options.lineHeight = typography.lineHeight
+    term.options.minimumContrastRatio = typography.minimumContrastRatio
     const frame = requestAnimationFrame(() => {
       try {
         fitRef.current?.fit()
@@ -273,7 +279,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
 
   if (!repoPath) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-sm text-app-text-muted">
+      <div className={cn('flex h-full flex-col items-center justify-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
         <TerminalIcon className="mb-2 h-7 w-7 opacity-45" />
         Select a repo to use the terminal.
       </div>
@@ -282,8 +288,8 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="flex h-9 shrink-0 items-center justify-between bg-app-surface-2/45 px-3 text-xs text-app-text-muted shadow-sm">
-        <span className="truncate">{repoPath}</span>
+      <div className="flex h-9 shrink-0 items-center justify-between bg-app-surface-2/45 px-3 shadow-sm">
+        <span className={cn('truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={repoPath}>{repoPath}</span>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -303,11 +309,11 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
           >
             <Search className="h-3.5 w-3.5" />
           </button>
-          <span className="inline-flex items-center gap-1 text-caption" role="status">
-            {terminalStatus === 'starting' && <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting</>}
-            {terminalStatus === 'ready' && <><CheckCircle2 className="h-3.5 w-3.5 text-app-success" /> Ready</>}
-            {terminalStatus === 'exited' && <span className="text-app-warning">Exited</span>}
-            {terminalStatus === 'error' && <span className="text-app-danger">Failed</span>}
+          <span className="inline-flex items-center gap-1" role="status">
+            {terminalStatus === 'starting' && <span className={cn('inline-flex items-center gap-1', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting</span>}
+            {terminalStatus === 'ready' && <span className={cn('inline-flex items-center gap-1', typeStyle({ role: 'status', tone: 'success' }))}><CheckCircle2 className="h-3.5 w-3.5" /> Ready</span>}
+            {terminalStatus === 'exited' && <span className={typeStyle({ role: 'status', tone: 'warning' })}>Exited</span>}
+            {terminalStatus === 'error' && <span className={typeStyle({ role: 'status', tone: 'danger' })}>Failed</span>}
           </span>
         </div>
       </div>
@@ -329,6 +335,7 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
               }
             }}
             placeholder="Search terminal"
+            aria-label="Search terminal output"
             className={cn(compactFieldStyle, 'flex-1')}
           />
           <button
@@ -368,8 +375,8 @@ export function TerminalWindow({ id, repoPath, onSendToChat }: TerminalWindowPro
       <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-app-bg">
         <div ref={containerRef} className="absolute inset-0 w-full h-full p-2" />
         {terminalStatus === 'error' && terminalError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-app-bg/92 p-6 text-center text-sm text-app-text-muted" role="alert">
-            <span className="max-w-md text-app-danger">{terminalError}</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-app-bg/92 p-6 text-center" role="alert">
+            <span className={cn('max-w-md [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{terminalError}</span>
             <button
               type="button"
               onClick={() => setReloadKey((key) => key + 1)}

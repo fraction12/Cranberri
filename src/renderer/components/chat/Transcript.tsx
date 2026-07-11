@@ -3,17 +3,17 @@ import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
 import { createSendChatContextEvent } from './chat-context-events'
 import { assistantResponseChatContext, stripCodexAppDirectives } from './assistant-response-context'
-import { iconButton } from '../../lib/ui'
+import { cn, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import type { CodexMessage, CodexSkillInfo } from '@/shared/codex'
 
 type SkillRenderer = (text: string, skills: CodexSkillInfo[]) => ReactNode[]
 const MarkdownContent = lazy(() => import('./MarkdownContent').then((module) => ({ default: module.MarkdownContent })))
 const PING_DOT_CLASS = 'absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--app-text-muted)] opacity-40'
-const CHAT_MESSAGE_TYPOGRAPHY_CLASS = 'text-base leading-7'
-const USER_BUBBLE_CLASS = [
+const USER_BUBBLE_CLASS = cn(
+  typeStyle({ role: 'prose', tone: 'primary' }),
   'max-w-[78%] rounded-[14px] bg-app-surface-2/70 px-3 py-2',
-  `${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`,
-].join(' ')
+)
 
 function MessageActions({ text }: { text: string }) {
   const visibleText = stripCodexAppDirectives(text)
@@ -25,7 +25,7 @@ function MessageActions({ text }: { text: string }) {
   }
 
   return (
-    <div className="mt-3 flex items-center gap-1 text-app-text-muted opacity-75">
+    <div className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-3 flex items-center gap-1 opacity-75')}>
       <button
         type="button"
         onClick={() => navigator.clipboard.writeText(visibleText).catch((error) => console.error('Failed to copy response:', error))}
@@ -83,11 +83,14 @@ export function ReasoningGroup({
   const seconds = Math.max(1, Math.round(displayedDurationMs / 1000))
 
   return (
-    <div className="max-w-full text-[var(--app-text-muted)]">
+    <div className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'max-w-full')}>
       <button
         type="button"
         onClick={onToggle}
-        className="mb-1 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs hover:bg-app-surface-2/55 hover:text-app-text"
+        className={cn(
+          typeStyle({ role: 'status', tone: 'secondary' }),
+          'mb-1 flex h-7 items-center gap-2 rounded-md px-1.5 hover:bg-app-surface-2/55 hover:text-app-text',
+        )}
       >
         {isRunning ? (
           <span className="relative flex h-2.5 w-2.5">
@@ -122,7 +125,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
 }) {
   if (msg.role === 'system' && /^Error:/i.test(msg.content.trim())) {
     return (
-      <div role="alert" className="rounded-md bg-app-danger/8 px-3 py-2 text-sm leading-5 text-app-danger">
+      <div
+        role="alert"
+        className={cn(typeStyle({ role: 'body', tone: 'danger' }), 'rounded-md bg-app-danger/8 px-3 py-2')}
+      >
         <div className="whitespace-pre-wrap">{formatInlineCodexText(msg.content)}</div>
       </div>
     )
@@ -130,7 +136,12 @@ export const TranscriptMessage = memo(function TranscriptMessage({
 
   if (msg.role === 'system' || msg.role === 'reasoning') {
     return (
-      <div className="max-w-full text-sm leading-5 text-[var(--app-text-muted)]">
+      <div
+        className={cn(
+          typeStyle({ role: 'body', tone: msg.role === 'reasoning' ? 'secondary' : 'tertiary' }),
+          'max-w-full',
+        )}
+      >
         <div className="whitespace-pre-wrap">{formatInlineCodexText(msg.content)}</div>
       </div>
     )
@@ -149,7 +160,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const fallbackText = stripCodexAppDirectives(msg.content)
 
   return (
-    <article className={`group max-w-full ${CHAT_MESSAGE_TYPOGRAPHY_CLASS} text-[var(--app-text)]`}>
+    <article className={cn(typeStyle({ role: 'prose', tone: 'primary' }), 'group max-w-full')}>
       <div className="break-words">
         <Suspense fallback={<div className="whitespace-pre-wrap">{formatInlineCodexText(fallbackText)}</div>}>
           <MarkdownContent text={msg.content} hideAppDirectives streaming={msg.pending} />

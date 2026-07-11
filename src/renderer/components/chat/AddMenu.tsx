@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { FolderOpen, Gauge, Goal, Package, Plus } from 'lucide-react'
 import { cn, iconButton, menuSurface } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import type { CodexPluginInfo } from '@/shared/codex'
 
 const ITEM_CLASS = [
@@ -41,20 +42,25 @@ export function AddMenu({
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
+          data-add-menu="true"
           side="top"
           align="start"
           sideOffset={10}
           collisionPadding={12}
-          className={cn(menuSurface, 'z-[1200] max-h-[min(440px,calc(100vh-24px))] w-[min(380px,calc(100vw-24px))] overflow-y-auto text-xs text-app-text outline-none')}
+          className={cn(
+            menuSurface,
+            typeStyle({ role: 'body' }),
+            'z-[1200] max-h-[min(440px,calc(100vh-24px))] w-[min(380px,calc(100vw-24px))] overflow-y-auto outline-none',
+          )}
         >
-          <DropdownMenu.Label className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Add to chat</DropdownMenu.Label>
+          <DropdownMenu.Label className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'px-2 pb-1 pt-0.5')}>Add to chat</DropdownMenu.Label>
           <MenuItem icon={FolderOpen} label="Files and folders" description="Attach local context" onSelect={onAttachFiles} />
           <MenuItem icon={Goal} label="Goal" description="Keep Codex working toward an outcome" onSelect={onGoal} />
           <MenuItem icon={Gauge} label="Plan mode" description="Inspect and plan before editing" onSelect={onPlanMode} />
 
-          <DropdownMenu.Label className="mt-2 px-2 pb-1 pt-1 text-caption font-medium text-app-text-muted">Plugins</DropdownMenu.Label>
+          <DropdownMenu.Label className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'mt-2 px-2 pb-1 pt-1')}>Plugins</DropdownMenu.Label>
           {plugins.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-app-text-muted">No enabled plugins</div>
+            <div className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'px-2 py-2')}>No enabled plugins</div>
           ) : plugins.map((plugin) => (
             <DropdownMenu.Item
               key={plugin.id}
@@ -64,12 +70,18 @@ export function AddMenu({
             >
               <Package className="mt-0.5 h-4 w-4 shrink-0 text-app-text-muted" />
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm text-app-text">
+                <span className={cn(typeStyle({ role: 'control' }), 'flex items-center gap-2')}>
                   <span className="truncate">{plugin.displayName}</span>
-                  {plugin.toolCount > 0 && <span className="shrink-0 text-caption text-app-text-muted">{plugin.toolCount} tools</span>}
+                  {plugin.toolCount > 0 && (
+                    <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>
+                      {plugin.toolCount} tools
+                    </span>
+                  )}
                 </span>
                 {(plugin.description || plugin.prompt) && (
-                  <span className="mt-0.5 block truncate text-caption text-app-text-muted">{plugin.description || plugin.prompt}</span>
+                  <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-0.5 block truncate')}>
+                    {plugin.description || plugin.prompt}
+                  </span>
                 )}
               </span>
             </DropdownMenu.Item>
@@ -95,8 +107,8 @@ function MenuItem({
     <DropdownMenu.Item onSelect={onSelect} className={ITEM_CLASS}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-app-text-muted" />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm text-app-text">{label}</span>
-        <span className="mt-0.5 block text-caption text-app-text-muted">{description}</span>
+        <span className={cn(typeStyle({ role: 'control' }), 'block')}>{label}</span>
+        <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-0.5 block')}>{description}</span>
       </span>
     </DropdownMenu.Item>
   )

@@ -8,6 +8,8 @@ import { isValidElement, type ReactNode } from 'react'
 import { MermaidDiagram } from './MermaidDiagram'
 import { MarkdownMedia, markdownMediaSourceFromUrl } from './MarkdownMedia'
 import { stripCodexAppDirectives } from './assistant-response-context'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 function isExternalUrl(href?: string): href is string {
   return Boolean(href?.startsWith('http://') || href?.startsWith('https://'))
@@ -28,14 +30,32 @@ function codeElementFromPreChildren(children: ReactNode): React.ReactElement<{ c
   const candidates = Array.isArray(children) ? children : [children]
   for (const child of candidates) {
     if (!isValidElement<{ className?: string; children?: ReactNode }>(child)) continue
-    if (typeof child.props.className === 'string' && child.props.className.includes('language-')) return child
+    return child
   }
   return null
 }
 
 const MARKDOWN_COMPONENTS: Components = {
+  h1({ children }) {
+    return <h1 className={cn(typeStyle({ role: 'proseHeading1' }), 'mb-3 mt-6 first:mt-0 last:mb-0')}>{children}</h1>
+  },
+  h2({ children }) {
+    return <h2 className={cn(typeStyle({ role: 'proseHeading2' }), 'mb-2.5 mt-5 first:mt-0 last:mb-0')}>{children}</h2>
+  },
+  h3({ children }) {
+    return <h3 className={cn(typeStyle({ role: 'proseHeading3' }), 'mb-2 mt-5 first:mt-0 last:mb-0')}>{children}</h3>
+  },
+  h4({ children }) {
+    return <h4 className={cn(typeStyle({ role: 'proseHeading4' }), 'mb-2 mt-4 first:mt-0 last:mb-0')}>{children}</h4>
+  },
+  h5({ children }) {
+    return <h5 className={cn(typeStyle({ role: 'proseHeading5' }), 'mb-1.5 mt-4 first:mt-0 last:mb-0')}>{children}</h5>
+  },
+  h6({ children }) {
+    return <h6 className={cn(typeStyle({ role: 'proseHeading6', tone: 'secondary' }), 'mb-1.5 mt-4 first:mt-0 last:mb-0')}>{children}</h6>
+  },
   p({ children }) {
-    return <p className="my-3 first:mt-0 last:mb-0">{children}</p>
+    return <p className={cn(typeStyle({ role: 'prose' }), 'my-3 first:mt-0 last:mb-0')}>{children}</p>
   },
   a({ href, children }) {
     const mention = classifyMentionLink(childrenToText(children), href, { allowMissingPluginHref: true })
@@ -69,7 +89,7 @@ const MARKDOWN_COMPONENTS: Components = {
   img({ src, alt }) {
     const media = markdownMediaSourceFromUrl(src)
     if (media?.kind === 'image') return <MarkdownMedia source={media} label={alt} />
-    return <span className="text-app-mention">{alt || 'Image unavailable'}</span>
+    return <span className={typeStyle({ role: 'body', tone: 'mention' })}>{alt || 'Image unavailable'}</span>
   },
   code({ className, children }) {
     const isBlock = Boolean(className)
@@ -92,22 +112,29 @@ const MARKDOWN_COMPONENTS: Components = {
       )
     }
     return (
-      <pre className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3 text-sm leading-6">
+      <pre className={cn(
+        typeStyle({ role: 'code' }),
+        'my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3',
+      )}>
         {children}
       </pre>
     )
   },
   ul({ children }) {
-    return <ul className="my-3 list-disc space-y-2 pl-6 marker:text-[var(--app-text-muted)]">{children}</ul>
+    return <ul className={cn(typeStyle({ role: 'prose' }), 'my-3 list-disc space-y-2 pl-6 marker:text-app-text-secondary')}>{children}</ul>
   },
   ol({ children }) {
-    return <ol className="my-3 list-decimal space-y-2 pl-6 marker:text-[var(--app-text-muted)]">{children}</ol>
+    return <ol className={cn(typeStyle({ role: 'prose' }), 'my-3 list-decimal space-y-2 pl-6 marker:text-app-text-secondary')}>{children}</ol>
   },
   li({ children }) {
     return <li className="pl-1">{children}</li>
   },
   blockquote({ children }) {
-    return <blockquote className="my-4 border-l-2 border-[var(--app-border)] pl-4 text-[var(--app-text-muted)]">{children}</blockquote>
+    return (
+      <blockquote className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'my-4 border-l-2 border-[var(--app-border)] pl-4')}>
+        {children}
+      </blockquote>
+    )
   },
   hr() {
     return <hr className="my-5 border-[var(--app-border)]" />
@@ -115,12 +142,16 @@ const MARKDOWN_COMPONENTS: Components = {
   table({ children }) {
     return (
       <div className="my-4 overflow-x-auto rounded-lg border border-[var(--app-border)]">
-        <table className="w-full border-collapse text-left text-sm">{children}</table>
+        <table className={cn(typeStyle({ role: 'body' }), 'w-full border-collapse text-left')}>{children}</table>
       </div>
     )
   },
   th({ children }) {
-    return <th className="border-b border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 font-medium">{children}</th>
+    return (
+      <th className={cn(typeStyle({ role: 'label' }), 'border-b border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2')}>
+        {children}
+      </th>
+    )
   },
   td({ children }) {
     return <td className="border-t border-[var(--app-border)] px-3 py-2 align-top">{children}</td>
@@ -137,7 +168,7 @@ export function formatCodexText(text: string, options: FormatCodexTextOptions = 
   if (!markdown) return null
   if (options.streaming) {
     return (
-      <div data-streaming-markdown="true" className="whitespace-pre-wrap break-words">
+      <div data-streaming-markdown="true" className={cn(typeStyle({ role: 'prose' }), 'whitespace-pre-wrap break-words')}>
         {markdown}
       </div>
     )

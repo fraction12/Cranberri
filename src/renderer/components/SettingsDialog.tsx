@@ -4,6 +4,7 @@ import { Activity, Command, Download, FileText, Keyboard, Loader2, Palette, Plug
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { cn, dialogSurface, iconButton } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 import { CodexResourcesSection } from './CodexResourcesSection'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { AppearanceSettings } from './settings/AppearanceSettings'
@@ -60,7 +61,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
           aria-describedby={undefined}
         >
           <header className="flex h-12 shrink-0 items-center justify-between px-4">
-            <Dialog.Title className="text-sm font-semibold text-app-text">Settings</Dialog.Title>
+            <Dialog.Title className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>Settings</Dialog.Title>
             <Dialog.Close asChild>
               <button type="button" className={iconButton()} aria-label="Close settings" title="Close settings">
                 <X className="h-4 w-4" />
@@ -77,7 +78,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
 
             <main ref={contentRef} className="min-w-0 flex-1 overflow-y-auto px-7 py-6" aria-live="polite">
               {loading ? (
-                <div className="flex items-center gap-2 text-sm text-app-text-muted">
+                <div className={cn('flex items-center gap-2', typeStyle({ role: 'status', tone: 'secondary' }))}>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading settings
                 </div>
@@ -130,10 +131,11 @@ function SidebarButton({ active, value, icon: Icon, label, onClick }: {
       onClick={() => onClick(value)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'mb-0.5 flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors duration-fast ease-standard',
+        'mb-0.5 flex h-9 w-full items-center gap-2 rounded-md px-3 text-left transition-colors duration-fast ease-standard',
+        typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }),
         active
-          ? 'bg-app-surface-2/85 text-app-text shadow-sm'
-          : 'text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text',
+          ? 'bg-app-surface-2/85 shadow-sm'
+          : 'hover:bg-app-surface-2/50 hover:text-app-text',
       )}
     >
       <Icon className="h-4 w-4" />
@@ -161,7 +163,7 @@ function ShortcutRow({ label, keys }: { label: string; keys: string[] }) {
   return (
     <SettingsRow label={label}>
       <div className="flex items-center gap-1">
-        {keys.map((key) => <kbd key={key} className="min-w-6 rounded bg-app-bg px-1.5 py-0.5 text-center font-mono text-caption text-app-text-muted ring-1 ring-app-border/70">{key}</kbd>)}
+        {keys.map((key) => <kbd key={key} className={cn('min-w-6 rounded bg-app-bg px-1.5 py-0.5 text-center ring-1 ring-app-border/70', typeStyle({ role: 'metadata', tone: 'secondary', family: 'mono' }))}>{key}</kbd>)}
       </div>
     </SettingsRow>
   )
@@ -171,8 +173,8 @@ function AboutSettings({ version }: { version: string }) {
   return (
     <SettingsPage title="About" description="Cranberri is a private, chat-first workspace for local repo work.">
       <SettingsList>
-        <SettingsRow label="Version"><span className="text-sm text-app-text">{version}</span></SettingsRow>
-        <SettingsRow label="Data" description="Repos, settings, and task history stay on this Mac."><span className="text-xs text-app-text-muted">Local</span></SettingsRow>
+        <SettingsRow label="Version"><span className={typeStyle({ role: 'body', tone: 'primary' })}>{version}</span></SettingsRow>
+        <SettingsRow label="Data" description="Repos, settings, and task history stay on this Mac."><span className={typeStyle({ role: 'status', tone: 'secondary' })}>Local</span></SettingsRow>
       </SettingsList>
     </SettingsPage>
   )

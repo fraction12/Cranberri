@@ -3,6 +3,7 @@ import { Check, ExternalLink, ImagePlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { createSendChatContextEvent } from './chat-context-events'
 import { cn, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 
 export type MarkdownMediaKind = 'image' | 'video'
@@ -127,7 +128,10 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
       className="my-4 overflow-hidden rounded-lg bg-app-surface ring-1 ring-app-border/70"
       data-markdown-media={source.kind}
     >
-      <div className="flex min-h-8 items-center justify-between gap-3 bg-app-surface-2/70 px-3 py-1.5 text-caption text-app-text-muted">
+      <div className={cn(
+        typeStyle({ role: 'metadata', tone: 'secondary' }),
+        'flex min-h-8 items-center justify-between gap-3 bg-app-surface-2/70 px-3 py-1.5',
+      )}>
         <figcaption className="truncate" title={title}>{title}</figcaption>
         <span className="flex items-center gap-1">
           {canSendToChat && (

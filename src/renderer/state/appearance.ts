@@ -33,9 +33,9 @@ export function applyVisualSettings(
 ): void {
   root.dataset.theme = resolved.theme
   root.dataset.accent = resolved.accent
+  root.dataset.typePreset = settings.appearance.typePreset
   root.dataset.reducedMotion = resolved.reduceMotion ? 'reduce' : 'no-preference'
   root.style.colorScheme = resolved.theme
-  root.style.setProperty('--app-ui-font-size', `${settings.appearance.uiFontSize}px`)
   root.style.setProperty('--app-code-font-size', `${settings.editor.fontSize}px`)
   root.style.setProperty('--app-terminal-font-size', `${settings.terminal.fontSize}px`)
   root.classList.toggle('dark', resolved.theme === 'dark')

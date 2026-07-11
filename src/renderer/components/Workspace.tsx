@@ -21,6 +21,7 @@ import {
 } from './chat/chat-context-events'
 import { ConfirmDialog } from './ConfirmDialog'
 import { cn, iconButton } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
@@ -223,7 +224,8 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
                   key={win.id}
                   className={cn(
                     'group flex h-7 max-w-[176px] shrink-0 items-center rounded-md transition-colors duration-fast ease-standard',
-                    active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/60 hover:text-app-text',
+                    typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }),
+                    active ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/60 hover:text-app-text',
                   )}
                 >
                   <button
@@ -232,7 +234,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
                     aria-selected={active}
                     aria-label={`Switch to ${win.title}`}
                     onClick={() => setActiveWindow(win.id)}
-                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-2 pr-1 text-xs"
+                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-2 pr-1"
                   >
                     {win.type === 'chat' ? <MessageSquare className="h-3.5 w-3.5 shrink-0" /> : win.type === 'terminal' ? <Terminal className="h-3.5 w-3.5 shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}
                     <span className="truncate">{win.title}</span>
@@ -308,7 +310,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
 
       <div className="flex-1 min-h-0 relative">
         {windows.length === 0 && (
-          <div className="flex items-center justify-center h-full text-sm text-app-text-muted">
+          <div className={cn('flex h-full items-center justify-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
             Open a chat or terminal window.
           </div>
         )}
@@ -320,7 +322,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
             {win.type === 'chat' ? (
               <ChatWindow id={win.id} />
             ) : win.type === 'terminal' ? (
-              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-app-text-muted">Loading terminal...</div>}>
+              <Suspense fallback={<div className={cn('flex h-full items-center justify-center', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading terminal...</div>}>
                 <TerminalWindow id={win.id} repoPath={activeRepoPath} onSendToChat={sendContextToChat} />
               </Suspense>
             ) : (

@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Loader2, Sparkles, X } from 'lucide-react'
 import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 export interface CommitState {
   status: 'idle' | 'committing' | 'success' | 'error'
@@ -51,8 +52,8 @@ export function CommitDialog({
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-app-text">Commit changes</Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs text-app-text-muted">Stage and commit the current working tree.</Dialog.Description>
+              <Dialog.Title className={typeStyle({ role: 'overlayTitle' })}>Commit changes</Dialog.Title>
+              <Dialog.Description className={cn('mt-1', typeStyle({ role: 'body', tone: 'secondary' }))}>Stage and commit the current working tree.</Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button type="button" disabled={busy} className={iconButton()} title="Close" aria-label="Close commit dialog">
@@ -61,7 +62,7 @@ export function CommitDialog({
             </Dialog.Close>
           </div>
 
-          <label className="mt-5 block text-xs font-medium text-app-text">
+          <label className={cn('mt-5 block', typeStyle({ role: 'label' }))}>
             Title
             <input
               autoFocus
@@ -74,7 +75,7 @@ export function CommitDialog({
               placeholder="fix(git): describe the change"
             />
           </label>
-          <label className="mt-4 block text-xs font-medium text-app-text">
+          <label className={cn('mt-4 block', typeStyle({ role: 'label' }))}>
             Summary
             <textarea
               value={summary}
@@ -85,7 +86,7 @@ export function CommitDialog({
           </label>
 
           {(draftState.status === 'error' || commitState.status === 'error') && (
-            <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">
+            <div className={cn('mt-3 rounded-md bg-app-status-danger/8 px-3 py-2 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">
               {draftState.message ?? commitState.message}
             </div>
           )}

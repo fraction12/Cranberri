@@ -13,7 +13,8 @@ import {
 } from '../../state/tool-catalog-selectors'
 import { toolDiagnosticDraft } from '../../state/tool-diagnostic'
 import { useToolCatalog } from '../../state/tools'
-import { iconButton } from '../../lib/ui'
+import { cn, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import { createSendChatContextEvent } from '../chat/chat-context-events'
 import { ToolGroup } from './tool-group'
 import { ToolRow } from './tool-row'
@@ -65,10 +66,15 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
   const refreshFailure = catalog.data?.refresh.status === 'failed'
     ? `Tools unavailable${catalog.data.refresh.errorCode ? ` (${catalog.data.refresh.errorCode.slice(0, 80)})` : ''}.`
     : null
+  const statusTone = catalog.isLoading && !catalog.data
+    ? 'secondary'
+    : actionCount > 0
+      ? 'warning'
+      : 'success'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 px-2.5 text-caption text-app-text-muted">
+      <div className={cn('flex h-10 shrink-0 items-center gap-2 px-2.5', typeStyle({ role: 'status', tone: statusTone }))}>
         <Wrench className="h-3.5 w-3.5" />
         <span>{statusLabel}</span>
         <button type="button" className={`${iconButton()} ml-auto`} title="Manage tools" aria-label="Manage tools" onClick={onOpenSettings}>
@@ -86,13 +92,13 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
         </button>
       </div>
       {(refreshFailure || (catalog.isError && !catalog.data)) && (
-        <div className="mx-2 mb-1 shrink-0 rounded-md bg-app-danger/8 px-3 py-2 text-caption text-app-danger" role="alert">
+        <div className={cn('mx-2 mb-1 shrink-0 rounded-md bg-app-status-danger/8 px-3 py-2 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">
           {refreshFailure ?? 'Tools could not be loaded. Refresh or open Settings.'}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {catalog.isLoading && !catalog.data ? (
-          <div className="flex items-center gap-2 px-3 py-4 text-xs text-app-text-muted" role="status">
+          <div className={cn('flex items-center gap-2 px-3 py-4', typeStyle({ role: 'status', tone: 'secondary' }))} role="status">
             <Loader2 className="h-4 w-4 animate-spin" />
             Checking tools
           </div>
@@ -113,7 +119,7 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
             ))}
           </ToolGroup>
         )) : (
-          <div className="flex h-full min-h-40 flex-col items-center justify-center px-4 text-center text-xs text-app-text-muted">
+          <div className={cn('flex h-full min-h-40 flex-col items-center justify-center px-4 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
             <Wrench className="mb-2 h-6 w-6 opacity-45" />
             Choose tools in Settings.
           </div>

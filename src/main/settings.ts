@@ -14,9 +14,10 @@ import {
   APP_SETTINGS_VERSION,
   APP_TERMINAL_FONT_SIZE_RANGE,
   APP_THEME_VALUES,
-  APP_UI_FONT_SIZE_RANGE,
+  APP_TYPE_PRESET_VALUES,
   DEFAULT_APP_SETTINGS,
   type AppSettings,
+  type AppTypePreset,
 } from '../shared/settings'
 import { toolCatalogIdSchema, toolCatalogPreferencesSchema, type ToolCatalogId } from '../shared/tools'
 
@@ -25,6 +26,7 @@ const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
 const themeSchema = z.enum(APP_THEME_VALUES)
 const accentSchema = z.enum(APP_ACCENT_VALUES)
 const reducedMotionSchema = z.enum(APP_REDUCED_MOTION_VALUES)
+const typePresetSchema = z.enum(APP_TYPE_PRESET_VALUES)
 const updaterChannelSchema = z.enum(['stable', 'beta'])
 const toolCurationSettingsSchema = z.object({
   pinnedToolIds: toolCatalogPreferencesSchema.shape.pinnedToolIds.default([]),
@@ -54,7 +56,7 @@ const settingsSchema = z.object({
     appearance: z.object({
       theme: themeSchema,
       accent: accentSchema,
-      uiFontSize: z.number().int().min(APP_UI_FONT_SIZE_RANGE.min).max(APP_UI_FONT_SIZE_RANGE.max),
+      typePreset: typePresetSchema,
       reducedMotion: reducedMotionSchema,
     }),
     tools: toolCurationSettingsSchema.default(DEFAULT_APP_SETTINGS.tools),
@@ -70,6 +72,17 @@ type SettingsFile = z.infer<typeof settingsSchema>
 function boundedInteger(value: unknown, range: { min: number; max: number }, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(range.max, Math.max(range.min, Math.round(value)))
+}
+
+function migrateTypePreset(appearance: Record<string, unknown>): AppTypePreset {
+  const parsedPreset = typePresetSchema.safeParse(appearance.typePreset)
+  if (parsedPreset.success) return parsedPreset.data
+  if (typeof appearance.uiFontSize !== 'number' || !Number.isFinite(appearance.uiFontSize)) {
+    return DEFAULT_APP_SETTINGS.appearance.typePreset
+  }
+  if (appearance.uiFontSize <= 13) return 'compact'
+  if (appearance.uiFontSize >= 15) return 'large'
+  return 'standard'
 }
 
 function normalizeSettings(settings: AppSettings): AppSettings {
@@ -138,7 +151,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
     appearance: {
       theme: themeSchema.safeParse(appearance.theme).success ? (appearance.theme as AppSettings['appearance']['theme']) : DEFAULT_APP_SETTINGS.appearance.theme,
       accent: accentSchema.safeParse(appearance.accent).success ? (appearance.accent as AppSettings['appearance']['accent']) : DEFAULT_APP_SETTINGS.appearance.accent,
-      uiFontSize: boundedInteger(appearance.uiFontSize, APP_UI_FONT_SIZE_RANGE, DEFAULT_APP_SETTINGS.appearance.uiFontSize),
+      typePreset: migrateTypePreset(appearance),
       reducedMotion: reducedMotionSchema.safeParse(appearance.reducedMotion).success
         ? (appearance.reducedMotion as AppSettings['appearance']['reducedMotion'])
         : DEFAULT_APP_SETTINGS.appearance.reducedMotion,

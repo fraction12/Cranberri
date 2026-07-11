@@ -3,6 +3,8 @@ import { useGitRawContent } from '../../state/git'
 import { preloadCodePreview } from '../editor/CodePreview'
 import { CodeEditor } from '../editor/CodeEditor'
 import type { GitFileStatus } from '@/shared/git'
+import { cn } from '../../lib/ui'
+import { CODE_LINE_HEIGHT, typeStyle } from '../../lib/typography'
 
 export function preloadDiffRenderer() {
   preloadCodePreview()
@@ -24,7 +26,7 @@ export function DiffViewer({ filePath, status, wrapContent, focusLine, searchReq
   const { data: newContent, isLoading: newLoading } = useGitRawContent(filePath, 'WORKING')
 
   if (oldLoading || newLoading) {
-    return <div className="p-3 text-sm text-app-text-muted">Loading diff...</div>
+    return <div className={cn('p-3', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading diff...</div>
   }
 
   if (status === 'tracked') {
@@ -41,7 +43,7 @@ export function DiffViewer({ filePath, status, wrapContent, focusLine, searchReq
   }
 
   return (
-    <div className={`cranberri-diff-viewer h-full overflow-auto text-code ${wrapContent ? 'wrap-diff-content' : ''}`}>
+    <div className={cn('cranberri-diff-viewer h-full overflow-auto', typeStyle({ role: 'code' }), wrapContent && 'wrap-diff-content')}>
       <ReactDiffViewer
         oldValue={oldContent ?? ''}
         newValue={newContent ?? ''}
@@ -77,13 +79,16 @@ function getDiffStyles(wrapContent: boolean) {
     },
     diffContainer: {
       fontFamily: 'var(--app-font-mono)',
+      fontSize: 'var(--app-code-font-size)',
+      lineHeight: CODE_LINE_HEIGHT,
       borderRadius: 0,
       border: 'none',
       width: '100%',
       tableLayout: 'fixed',
     },
     line: {
-      minHeight: '20px',
+      minHeight: '1.5em',
+      lineHeight: CODE_LINE_HEIGHT,
     },
     marker: {
       width: '24px',

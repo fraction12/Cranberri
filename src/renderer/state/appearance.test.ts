@@ -49,7 +49,7 @@ describe('appearance resolution', () => {
         ...DEFAULT_APP_SETTINGS.appearance,
         theme: 'light' as const,
         accent: 'blue' as const,
-        uiFontSize: 15,
+        typePreset: 'large' as const,
       },
       editor: { ...DEFAULT_APP_SETTINGS.editor, fontSize: 16 },
       terminal: { ...DEFAULT_APP_SETTINGS.terminal, fontSize: 17 },
@@ -63,10 +63,10 @@ describe('appearance resolution', () => {
     expect(root.dataset).toEqual({
       theme: 'light',
       accent: 'blue',
+      typePreset: 'large',
       reducedMotion: 'reduce',
     })
     expect(properties).toEqual(new Map([
-      ['--app-ui-font-size', '15px'],
       ['--app-code-font-size', '16px'],
       ['--app-terminal-font-size', '17px'],
     ]))

@@ -3,6 +3,7 @@ import { Check, Copy } from 'lucide-react'
 import { boundedCodeText, displayLanguage, focusedCodePreview, languageFromFileName, type FocusedCodePreviewLine } from './code-utils'
 import { useAppearance } from '../../state/appearance-context'
 import { cn, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 const DEFAULT_MAX_LINES = 1200
 const MAX_HIGHLIGHT_CHARS = 40000
@@ -70,11 +71,14 @@ export function CodePreview({
 
   return (
     <figure
-      className={cn('my-4 overflow-hidden rounded-lg bg-app-surface text-code ring-1 ring-app-border/70', className)}
+      className={cn('my-4 overflow-hidden rounded-lg bg-app-surface ring-1 ring-app-border/70', className)}
       data-code-preview="true"
       data-language={resolvedLanguage}
     >
-      <figcaption className="flex h-8 items-center justify-between bg-app-surface-2/70 px-3 text-caption text-app-text-muted">
+      <figcaption className={cn(
+        typeStyle({ role: 'metadata', tone: 'secondary' }),
+        'flex h-8 items-center justify-between bg-app-surface-2/70 px-3',
+      )}>
         <span className="truncate">{filePath ?? resolvedLanguage}</span>
         <span className="flex items-center gap-2">
           <span>{focused.focusLine ? `line ${focused.focusLine}` : highlightFailed || !canHighlight ? 'plain' : resolvedLanguage}</span>
@@ -87,27 +91,30 @@ export function CodePreview({
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-          {copied && <span className="normal-case text-app-text-muted">Copied</span>}
+          {copied && <span className={cn(typeStyle({ role: 'status', tone: 'success' }), 'normal-case')}>Copied</span>}
         </span>
       </figcaption>
       {isFocusedPreview ? (
         <FocusedPlainPreview preview={focused} />
       ) : html ? (
         <div
-          className="max-h-[640px] overflow-auto [&_pre]:!m-0 [&_pre]:!rounded-none [&_pre]:!bg-app-surface [&_pre]:!p-3 [&_pre]:!text-code"
+          className={cn(
+            typeStyle({ role: 'code' }),
+            'max-h-[640px] overflow-auto [&_pre]:!m-0 [&_pre]:!rounded-none [&_pre]:!bg-app-surface [&_pre]:!p-3',
+          )}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <pre className="max-h-[640px] overflow-auto whitespace-pre bg-app-surface p-3 font-mono text-code text-app-text">
+        <pre className={cn(typeStyle({ role: 'code' }), 'max-h-[640px] overflow-auto whitespace-pre bg-app-surface p-3')}>
           <code>{bounded.text}</code>
         </pre>
       )}
       {isFocusedPreview && (focused.truncatedBefore || focused.truncatedAfter) ? (
-        <div className="bg-app-surface-2/70 px-3 py-1.5 text-micro text-app-text-muted">
+        <div className={cn(typeStyle({ role: 'micro', tone: 'secondary' }), 'bg-app-surface-2/70 px-3 py-1.5')}>
           Showing lines {focused.lines[0]?.number ?? 1}-{focused.lines.at(-1)?.number ?? focused.lineCount} of {focused.lineCount}.
         </div>
       ) : bounded.truncated && (
-        <div className="bg-app-surface-2/70 px-3 py-1.5 text-micro text-app-text-muted">
+        <div className={cn(typeStyle({ role: 'micro', tone: 'secondary' }), 'bg-app-surface-2/70 px-3 py-1.5')}>
           Showing {maxLines} of {bounded.lineCount} lines.
         </div>
       )}
@@ -117,7 +124,7 @@ export function CodePreview({
 
 function FocusedPlainPreview({ preview }: { preview: ReturnType<typeof focusedCodePreview> }) {
   return (
-    <pre className="max-h-[640px] overflow-auto bg-app-surface p-0 font-mono text-code text-app-text">
+    <pre className={cn(typeStyle({ role: 'code' }), 'max-h-[640px] overflow-auto bg-app-surface p-0')}>
       {preview.truncatedBefore && <CodeGap label="Earlier lines hidden" />}
       {preview.lines.map((line) => <CodeLine key={line.number} line={line} />)}
       {preview.truncatedAfter && <CodeGap label="Later lines hidden" />}
@@ -128,7 +135,7 @@ function FocusedPlainPreview({ preview }: { preview: ReturnType<typeof focusedCo
 function CodeLine({ line }: { line: FocusedCodePreviewLine }) {
   return (
     <span className={`block whitespace-pre ${line.focused ? 'bg-app-accent/15 text-app-text' : ''}`} data-focused-line={line.focused ? 'true' : undefined}>
-      <span className="inline-block w-12 select-none pr-2 text-right text-app-text-subtle">{line.number}</span>
+      <span className="inline-block w-12 select-none pr-2 text-right text-app-text-tertiary">{line.number}</span>
       <code className="pl-3">{line.text || ' '}</code>
       {'\n'}
     </span>
@@ -137,7 +144,7 @@ function CodeLine({ line }: { line: FocusedCodePreviewLine }) {
 
 function CodeGap({ label }: { label: string }) {
   return (
-    <span className="block bg-app-surface-2/70 px-3 py-1 text-caption text-app-text-muted">
+    <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'block bg-app-surface-2/70 px-3 py-1')}>
       {label}
       {'\n'}
     </span>

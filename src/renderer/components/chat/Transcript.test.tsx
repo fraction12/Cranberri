@@ -95,7 +95,45 @@ describe('Transcript markdown rendering', () => {
 
     expect(html).toContain('data-code-preview="true"')
     expect(html).toContain('data-language="typescript"')
+    expect(html).toContain('type-code')
     expect(html).toContain('const value = 1')
+  })
+
+  it('routes untagged fenced code through the shared code role', () => {
+    const html = renderToStaticMarkup(
+      <>
+        {formatCodexText(['```', 'plain text', '```'].join('\n'))}
+      </>,
+    )
+
+    expect(html).toContain('data-code-preview="true"')
+    expect(html).toContain('data-language="text"')
+    expect(html).toContain('type-code')
+    expect(html).toContain('plain text')
+  })
+
+  it('renders a complete semantic heading hierarchy', () => {
+    const html = renderToStaticMarkup(
+      <>
+        {formatCodexText([
+          '# Heading one',
+          '',
+          '## Heading two',
+          '',
+          '### Heading three',
+          '',
+          '#### Heading four',
+          '',
+          '##### Heading five',
+          '',
+          '###### Heading six',
+        ].join('\n'))}
+      </>,
+    )
+
+    for (const level of [1, 2, 3, 4, 5, 6]) {
+      expect(html).toMatch(new RegExp(`<h${level} class="[^"]*type-prose-heading-${level}[^"]*"`))
+    }
   })
 
   it('keeps streaming code blocks lightweight until the message completes', () => {
@@ -142,10 +180,38 @@ describe('Transcript markdown rendering', () => {
       />,
     )
 
-    expect(user).toContain('text-base leading-7')
-    expect(assistant).toContain('text-base leading-7')
-    expect(user).not.toContain('text-sm leading-5')
-    expect(assistant).not.toContain('text-sm leading-5')
+    expect(user).toContain('type-prose')
+    expect(assistant).toContain('type-prose')
+    expect(user).not.toContain('leading-7')
+    expect(assistant).not.toContain('leading-7')
+  })
+
+  it('distinguishes reasoning, tool output, and errors with supporting semantic roles', () => {
+    const reasoning = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'reasoning', role: 'reasoning', content: 'Inspecting the diff', timestamp: 1 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+    const toolOutput = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'system', role: 'system', content: 'Tool output arrived', timestamp: 2 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+    const error = renderToStaticMarkup(
+      <TranscriptMessage
+        msg={{ id: 'error', role: 'system', content: 'Error: model unavailable', timestamp: 3 }}
+        renderSkillText={(text) => [text]}
+      />,
+    )
+
+    expect(reasoning).toContain('type-body')
+    expect(reasoning).toContain('text-app-text-secondary')
+    expect(toolOutput).toContain('type-body')
+    expect(toolOutput).toContain('text-app-text-tertiary')
+    expect(error).toContain('type-body')
+    expect(error).toContain('text-app-status-danger')
   })
 
   it('renders Mermaid code blocks through the diagram surface', () => {

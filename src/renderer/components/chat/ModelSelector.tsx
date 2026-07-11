@@ -10,18 +10,24 @@ import {
   normalizeCodexSpeed,
 } from '@/shared/codex'
 import { cn, menuSurface } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 type ModelSelectorProps = {
   settings: CodexTurnSettings
   onChange: (settings: CodexTurnSettings) => void
 }
 
-const MENU_SHELL = cn(menuSurface, 'z-[1200] overscroll-contain overflow-y-auto text-xs text-app-text outline-none')
+const MENU_SHELL = cn(menuSurface, typeStyle({ role: 'body' }), 'z-[1200] scroll-pt-8 overscroll-contain overflow-y-auto outline-none')
 const MENU_MAX_HEIGHT = 'min(360px, calc(100vh - 72px))'
-const ITEM_CLASS = [
+const MENU_LABEL = cn(
+  typeStyle({ role: 'label', tone: 'secondary' }),
+  'sticky top-0 z-10 -mx-1 bg-app-elevated px-3 pb-1.5 pt-1',
+)
+const ITEM_CLASS = cn(
+  typeStyle({ role: 'control' }),
   'relative flex min-h-8 w-full select-none items-center justify-between rounded-md px-2 py-1.5',
   'text-left outline-none data-[highlighted]:bg-app-surface-2 data-[disabled]:opacity-40',
-].join(' ')
+)
 
 export function codexModelLabel(model: string): string {
   return CODEX_MODELS.find((option) => option.value === model)?.label ?? model
@@ -51,13 +57,16 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         <button
           type="button"
           aria-label="Configure model, reasoning, and speed"
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-app-text transition-colors duration-fast ease-standard hover:bg-app-surface-2"
+          className={cn(
+            typeStyle({ role: 'control' }),
+            'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 transition-colors duration-fast ease-standard hover:bg-app-surface-2',
+          )}
         >
           <span className="max-w-28 truncate" title={selectedModelLabel}>{selectedModelLabel.replace('GPT-', '')}</span>
           <span className="shrink-0">{selectedEffort.label}</span>
           {selectedSpeed.value === 'fast' ? (
             <>
-              <span className="shrink-0 text-app-text-muted">·</span>
+              <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>·</span>
               <span className="flex shrink-0 items-center gap-1">
                 <Zap className="h-3 w-3" />
                 {selectedSpeed.label}
@@ -65,7 +74,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
             </>
           ) : (
             <>
-              <span className="hidden shrink-0 text-app-text-muted xl:inline">·</span>
+              <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'hidden shrink-0 xl:inline')}>·</span>
               <span className="hidden shrink-0 xl:inline">{selectedSpeed.label}</span>
             </>
           )}
@@ -83,7 +92,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
           className={`w-52 ${MENU_SHELL}`}
           style={{ maxHeight: MENU_MAX_HEIGHT }}
         >
-          <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+          <DropdownMenu.Label className={MENU_LABEL}>
             Reasoning
           </DropdownMenu.Label>
           <DropdownMenu.RadioGroup
@@ -118,7 +127,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                 style={{ maxHeight: MENU_MAX_HEIGHT }}
                 onWheel={(event) => event.stopPropagation()}
               >
-                <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+                <DropdownMenu.Label className={MENU_LABEL}>
                   Model
                 </DropdownMenu.Label>
                 <DropdownMenu.RadioGroup value={settings.model} onValueChange={selectModel}>
@@ -126,7 +135,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                     <DropdownMenu.RadioItem key={option.value} value={option.value} className={ITEM_CLASS}>
                       <span className="flex min-w-0 flex-col">
                         <span>{option.label}</span>
-                        <span className="text-micro text-app-text-muted">{option.description}</span>
+                        <span className={typeStyle({ role: 'metadata', tone: 'secondary' })}>{option.description}</span>
                       </span>
                       <DropdownMenu.ItemIndicator>
                         <Check className="h-3.5 w-3.5 text-app-text" />
@@ -156,7 +165,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                 style={{ maxHeight: MENU_MAX_HEIGHT }}
                 onWheel={(event) => event.stopPropagation()}
               >
-                <DropdownMenu.Label className="px-2 pb-1.5 pt-1 text-xs text-app-text-muted">
+                <DropdownMenu.Label className={MENU_LABEL}>
                   Speed
                 </DropdownMenu.Label>
                 <DropdownMenu.RadioGroup
@@ -170,7 +179,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
                           {option.value === 'fast' && <Zap className="h-3.5 w-3.5" />}
                           {option.label}
                         </span>
-                        <span className="text-xs text-app-text-muted">{option.description}</span>
+                        <span className={typeStyle({ role: 'metadata', tone: 'secondary' })}>{option.description}</span>
                       </span>
                       <DropdownMenu.ItemIndicator>
                         <Check className="h-3.5 w-3.5 text-app-text" />

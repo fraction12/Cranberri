@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Hand, Settings2, ShieldCheck, ShieldQuestion } from 'lucide-react'
 import { cn, menuSurface } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 import type { CodexApprovalMode } from '@/shared/codex'
 import { CODEX_APPROVAL_MODES } from '@/shared/codex'
 
@@ -23,7 +24,10 @@ export function ApprovalSelector({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-app-text-muted transition-colors duration-fast ease-standard hover:bg-app-surface-2 hover:text-app-text"
+          className={cn(
+            typeStyle({ role: 'control', tone: 'secondary' }),
+            'flex h-7 items-center gap-1.5 rounded-md px-2 transition-colors duration-fast ease-standard hover:bg-app-surface-2 hover:text-app-text',
+          )}
           aria-label={`Approval policy: ${selected.label}`}
           title="Approval policy"
         >
@@ -39,9 +43,13 @@ export function ApprovalSelector({
           align="start"
           sideOffset={10}
           collisionPadding={12}
-          className={cn(menuSurface, 'z-[1200] w-[min(390px,calc(100vw-24px))] text-xs text-app-text outline-none')}
+          className={cn(
+            menuSurface,
+            typeStyle({ role: 'body' }),
+            'z-[1200] w-[min(390px,calc(100vw-24px))] outline-none',
+          )}
         >
-          <DropdownMenu.Label className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Approval policy</DropdownMenu.Label>
+          <DropdownMenu.Label className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'px-2 pb-1 pt-0.5')}>Approval policy</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={value} onValueChange={(nextValue) => onChange(nextValue as CodexApprovalMode)}>
             {CODEX_APPROVAL_MODES.map((option) => {
               const Icon = approvalIcon(option.value)
@@ -49,8 +57,8 @@ export function ApprovalSelector({
                 <DropdownMenu.RadioItem key={option.value} value={option.value} className={OPTION_CLASS}>
                   <Icon className="mt-0.5 h-4 w-4 shrink-0 text-app-text-muted" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-app-text">{option.label}</span>
-                    <span className="mt-0.5 block text-caption text-app-text-muted">{option.description}</span>
+                    <span className={cn(typeStyle({ role: 'control' }), 'block')}>{option.label}</span>
+                    <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-0.5 block')}>{option.description}</span>
                   </span>
                   <DropdownMenu.ItemIndicator className="mt-0.5 shrink-0">
                     <Check className="h-3.5 w-3.5 text-app-accent" />

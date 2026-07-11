@@ -9,6 +9,7 @@ import { ToolGroup } from '../right-rail/tool-group'
 import { CatalogToolRow } from './catalog-tool-row'
 import { ToolCatalogControls } from './tool-catalog-controls'
 import { ToolCatalogState } from './tool-catalog-state'
+import { typeStyle } from '../../lib/typography'
 import {
   selectToolCatalogSettingsGroups,
   type ToolCatalogFilter,
@@ -69,12 +70,12 @@ export function ToolCatalogSettings({
       />
       <ToolCatalogState loading={loading} refreshStatus={refreshStatus} hasEntries={hasEntries} errorCode={refreshErrorCode} />
       {unavailable && (
-        <div className="rounded-md bg-app-danger/5 px-3 py-5 text-center text-xs text-app-text-muted" role="alert" title={refreshErrorCode ?? undefined}>
+        <div className={`rounded-md bg-app-danger/5 px-3 py-5 text-center ${typeStyle({ role: 'status', tone: 'danger' })}`} role="alert" title={refreshErrorCode ?? undefined}>
           Tools could not be loaded. Try refreshing.
         </div>
       )}
       {empty && (
-        <div className="rounded-md bg-app-bg px-3 py-5 text-center text-xs text-app-text-muted">
+        <div className={`rounded-md bg-app-bg px-3 py-5 text-center ${typeStyle({ role: 'metadata', tone: 'secondary' })}`}>
           {hasEntries ? 'No tools match this view.' : 'No tools available.'}
         </div>
       )}

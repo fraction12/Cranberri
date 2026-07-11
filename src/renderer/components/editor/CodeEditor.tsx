@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import type { Extension } from '@codemirror/state'
 import { EditorView as CodeMirrorEditorView, type EditorView as EditorViewType } from '@codemirror/view'
+import { tags } from '@lezer/highlight'
 import { languageFromFileName } from './code-utils'
+import { useAppearance } from '../../state/appearance-context'
+import type { ResolvedAppTheme } from '../../state/appearance'
+import { cn } from '../../lib/ui'
+import { CODE_LINE_HEIGHT, typeStyle } from '../../lib/typography'
 
 interface CodeEditorProps {
   value: string
@@ -12,6 +18,73 @@ interface CodeEditorProps {
   lineWrap?: boolean
   focusLine?: number | null
   searchRequest?: number
+}
+
+export function codeEditorSyntaxPalette(theme: ResolvedAppTheme) {
+  return theme === 'dark'
+    ? { comment: '#a1a1aa', keyword: '#c4b5fd', name: '#93c5fd', string: '#6ee7b7', number: '#fde047', invalid: '#fca5a5' }
+    : { comment: '#6b7280', keyword: '#6d28d9', name: '#1d4ed8', string: '#047857', number: '#a16207', invalid: '#b91c1c' }
+}
+
+export function codeEditorThemeSpec(theme: ResolvedAppTheme) {
+  const searchMatch = theme === 'dark' ? '#713f12' : '#fde68a'
+  const selectedSearchMatch = theme === 'dark' ? '#a16207' : '#fbbf24'
+  const searchText = theme === 'dark' ? '#f4f4f5' : '#1f2023'
+  return {
+    '&': {
+      height: '100%',
+      backgroundColor: 'var(--app-bg)',
+      color: 'var(--app-text)',
+      fontSize: 'var(--app-code-font-size)',
+    },
+    '.cm-scroller': {
+      fontFamily: 'var(--app-font-mono)',
+      lineHeight: String(CODE_LINE_HEIGHT),
+    },
+    '.cm-content': { padding: '12px 0' },
+    '.cm-line': { paddingLeft: '12px', paddingRight: '12px' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--app-bg)',
+      borderRight: '1px solid var(--app-border)',
+      color: 'var(--app-text-secondary)',
+      fontFamily: 'var(--app-font-mono)',
+      fontSize: 'var(--app-code-font-size)',
+    },
+    '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'var(--app-active-line)' },
+    '.cranberri-cm-focused-line': {
+      backgroundColor: 'var(--app-accent-soft)',
+      boxShadow: 'inset 2px 0 0 var(--app-accent)',
+    },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--app-accent-selection)' },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-panels': {
+      backgroundColor: 'var(--app-surface-2)',
+      borderColor: 'var(--app-border)',
+      color: 'var(--app-text)',
+    },
+    '.cm-panel.cm-search': {
+      fontFamily: 'var(--app-font-ui)',
+      fontSize: 'var(--app-type-control-size)',
+      lineHeight: 'var(--app-type-control-line)',
+      padding: '6px 8px',
+    },
+    '.cm-panel input, .cm-panel button': {
+      backgroundColor: 'var(--app-surface)',
+      border: '1px solid var(--app-border)',
+      borderRadius: '4px',
+      color: 'var(--app-text)',
+      fontFamily: 'var(--app-font-ui)',
+      fontSize: 'var(--app-type-control-size)',
+      lineHeight: 'var(--app-type-control-line)',
+      outline: 'none',
+    },
+    '.cm-searchMatch': {
+      backgroundColor: searchMatch,
+      color: searchText,
+      outline: `1px solid ${selectedSearchMatch}`,
+    },
+    '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: selectedSearchMatch },
+  }
 }
 
 async function languageExtension(language?: string): Promise<Extension[]> {
@@ -50,6 +123,7 @@ export function CodeEditor({
   focusLine,
   searchRequest = 0,
 }: CodeEditorProps) {
+  const { theme } = useAppearance()
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorViewType | null>(null)
   const initialValueRef = useRef(value)
@@ -76,55 +150,18 @@ export function CodeEditor({
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChangeRef.current?.(update.state.doc.toString())
         }),
-        EditorView.theme({
-          '&': {
-            height: '100%',
-            backgroundColor: 'var(--app-bg)',
-            color: 'var(--app-text)',
-            fontSize: 'var(--app-code-font-size)',
-          },
-          '.cm-scroller': {
-            fontFamily: 'var(--app-font-mono)',
-            lineHeight: '1.55',
-          },
-          '.cm-content': {
-            padding: '12px 0',
-          },
-          '.cm-line': {
-            paddingLeft: '12px',
-            paddingRight: '12px',
-          },
-          '.cm-gutters': {
-            backgroundColor: 'var(--app-bg)',
-            borderRight: '1px solid var(--app-border)',
-            color: 'var(--app-text-muted)',
-          },
-          '.cm-activeLine, .cm-activeLineGutter': {
-            backgroundColor: 'var(--app-active-line)',
-          },
-          '.cranberri-cm-focused-line': {
-            backgroundColor: 'var(--app-accent-soft)',
-            boxShadow: 'inset 2px 0 0 var(--app-accent)',
-          },
-          '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-            backgroundColor: 'var(--app-accent-selection)',
-          },
-          '&.cm-focused': {
-            outline: 'none',
-          },
-          '.cm-panels': {
-            backgroundColor: 'var(--app-surface-2)',
-            borderColor: 'var(--app-border)',
-            color: 'var(--app-text)',
-          },
-          '.cm-panel input': {
-            backgroundColor: 'var(--app-surface)',
-            border: '1px solid var(--app-border)',
-            borderRadius: '4px',
-            color: 'var(--app-text)',
-            outline: 'none',
-          },
-        }),
+        EditorView.theme(codeEditorThemeSpec(theme), { dark: theme === 'dark' }),
+        syntaxHighlighting(HighlightStyle.define((() => {
+          const palette = codeEditorSyntaxPalette(theme)
+          return [
+            { tag: tags.comment, color: palette.comment, fontStyle: 'italic' },
+            { tag: [tags.keyword, tags.operatorKeyword], color: palette.keyword },
+            { tag: [tags.variableName, tags.propertyName, tags.typeName, tags.className], color: palette.name },
+            { tag: [tags.string, tags.regexp], color: palette.string },
+            { tag: [tags.number, tags.bool, tags.null], color: palette.number },
+            { tag: tags.invalid, color: palette.invalid, textDecoration: 'underline' },
+          ]
+        })())),
         ...extensions,
       ]
       if (lineWrap) editorExtensions.push(EditorView.lineWrapping)
@@ -149,7 +186,7 @@ export function CodeEditor({
       viewRef.current?.destroy()
       viewRef.current = null
     }
-  }, [filePath, focusLine, language, lineWrap, readOnly])
+  }, [filePath, focusLine, language, lineWrap, readOnly, theme])
 
   useEffect(() => {
     const view = viewRef.current
@@ -172,7 +209,7 @@ export function CodeEditor({
     })
   }, [searchRequest])
 
-  return <div ref={hostRef} className="h-full min-h-0 text-code" data-code-editor="true" data-focus-line={focusLine ?? undefined} />
+  return <div ref={hostRef} className={cn('h-full min-h-0', typeStyle({ role: 'code' }))} data-code-editor="true" data-focus-line={focusLine ?? undefined} />
 }
 
 function scrollToFocusLine(view: EditorViewType | null, focusLine?: number | null): void {

@@ -18,6 +18,7 @@ import {
 import { createCodexResourceContextCapturedEvent } from './codex-resource-context-events'
 import { SettingsPage, SettingsSection } from './settings/settings-page'
 import { buttonStyle, cn, fieldStyle, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 type ExtensionView = 'installed' | 'browse' | 'connections' | 'skills'
 
@@ -143,7 +144,7 @@ export function CodexResourcesSection() {
             type="button"
             aria-pressed={view === option.value}
             onClick={() => { setView(option.value); setSearch('') }}
-            className={cn(segmentedItem, 'h-8 px-2 text-caption font-medium', view === option.value && segmentedItemActive)}
+            className={cn(segmentedItem, 'h-8 px-2', view === option.value && segmentedItemActive)}
           >
             {option.label}
           </button>
@@ -163,13 +164,13 @@ export function CodexResourcesSection() {
       </label>
 
       {queryFailed && (
-        <div role="alert" className="flex items-center justify-between gap-3 rounded-md bg-app-danger/5 px-3 py-3 text-xs text-app-text-muted">
+        <div role="alert" className={cn('flex items-center justify-between gap-3 rounded-md bg-app-danger/5 px-3 py-3', typeStyle({ role: 'status', tone: 'danger' }))}>
           <span>Some extension data could not be loaded.</span>
-          <button type="button" onClick={() => void refreshResources()} className="text-app-text underline underline-offset-4">Retry</button>
+          <button type="button" onClick={() => void refreshResources()} className={cn('underline underline-offset-4', typeStyle({ role: 'control', tone: 'danger' }))}>Retry</button>
         </div>
       )}
       {connectionPartial && view === 'connections' && (
-        <div role="status" className="rounded-md bg-app-warning/8 px-3 py-3 text-xs text-app-text-muted">Some connections could not be verified in this runtime.</div>
+        <div role="status" className={cn('rounded-md bg-app-warning/8 px-3 py-3', typeStyle({ role: 'status', tone: 'warning' }))}>Some connections could not be verified in this runtime.</div>
       )}
       {initialLoading ? <LoadingRow /> : (
         <ExtensionViewContent
@@ -231,8 +232,8 @@ function ExtensionViewContent({
           {skills.slice(0, 40).map((skill) => (
             <div key={skill.id} className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-app-text">{skill.displayName}</div>
-                <div className="mt-0.5 truncate text-caption text-app-text-muted">{skill.description || skillSourceLabel(skill)}</div>
+                <div className={cn('truncate', typeStyle({ role: 'body', tone: 'primary' }))}>{skill.displayName}</div>
+                <div className={cn('mt-0.5 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{skill.description || skillSourceLabel(skill)}</div>
               </div>
               <button type="button" onClick={() => onSendSkill(skill)} className={iconButton()} aria-label={`Add ${skill.displayName} to chat`} title="Add to chat">
                 <MessageSquare className="h-3.5 w-3.5" />
@@ -241,7 +242,7 @@ function ExtensionViewContent({
           ))}
           {skills.length === 0 && <EmptyRow label="No skills match this search." />}
         </div>
-        {skills.length > 40 && <p className="text-caption text-app-text-muted">Showing 40 of {skills.length}. Search to narrow the list.</p>}
+        {skills.length > 40 && <p className={typeStyle({ role: 'metadata', tone: 'secondary' })}>Showing 40 of {skills.length}. Search to narrow the list.</p>}
       </SettingsSection>
     )
   }
@@ -263,21 +264,21 @@ function PluginList({ title, plugins, empty, onInstall, pendingId, footer }: {
           <div key={plugin.id} className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm text-app-text">{plugin.displayName}</span>
-                {plugin.version && <span className="shrink-0 text-micro text-app-text-muted">{plugin.version}</span>}
+                <span className={cn('truncate', typeStyle({ role: 'body', tone: 'primary' }))}>{plugin.displayName}</span>
+                {plugin.version && <span className={cn('shrink-0', typeStyle({ role: 'micro', tone: 'secondary' }))}>{plugin.version}</span>}
               </div>
-              <div className="mt-0.5 truncate text-caption text-app-text-muted">{plugin.description || plugin.prompt || 'Codex plugin'}</div>
+              <div className={cn('mt-0.5 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{plugin.description || plugin.prompt || 'Codex plugin'}</div>
             </div>
             {onInstall ? (
               <button type="button" onClick={() => onInstall(plugin)} disabled={pendingId === plugin.id} className={buttonStyle({ tone: 'secondary', size: 'small' })}>
                 {pendingId === plugin.id ? 'Installing...' : 'Install'}
               </button>
-            ) : <span className={`text-micro ${plugin.enabled ? 'text-app-success' : 'text-app-text-muted'}`}>{plugin.enabled ? 'Enabled' : 'Installed'}</span>}
+            ) : <span className={typeStyle({ role: 'status', tone: plugin.enabled ? 'success' : 'secondary' })}>{plugin.enabled ? 'Enabled' : 'Installed'}</span>}
           </div>
         ))}
         {plugins.length === 0 && <EmptyRow label={empty} />}
       </div>
-      {footer && <p className="text-caption text-app-text-muted">{footer}</p>}
+      {footer && <p className={typeStyle({ role: 'metadata', tone: 'secondary' })}>{footer}</p>}
     </SettingsSection>
   )
 }
@@ -315,10 +316,10 @@ function ConnectionsView({ registry, search, onSend }: {
 function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: string; ready: boolean; onSend: () => void }) {
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
-      <div className={`h-2 w-2 shrink-0 rounded-full ${ready ? 'bg-app-success' : 'bg-app-warning'}`} />
+      <div className={`h-2 w-2 shrink-0 rounded-full ${ready ? 'bg-app-status-success' : 'bg-app-status-warning'}`} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm text-app-text">{name}</div>
-        <div className="mt-0.5 truncate text-caption text-app-text-muted">{detail}</div>
+        <div className={cn('truncate', typeStyle({ role: 'body', tone: 'primary' }))}>{name}</div>
+        <div className={cn('mt-0.5 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{detail}</div>
       </div>
       <button type="button" onClick={onSend} className={iconButton()} aria-label={`Add ${name} to chat`} title="Add to chat">
         <MessageSquare className="h-3.5 w-3.5" />
@@ -328,9 +329,9 @@ function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: 
 }
 
 function LoadingRow() {
-  return <div className="flex items-center gap-2 px-2 py-4 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading extensions</div>
+  return <div className={cn('flex items-center gap-2 px-2 py-4', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-4 w-4 animate-spin" />Loading extensions</div>
 }
 
 function EmptyRow({ label }: { label: string }) {
-  return <div className="py-4 text-xs text-app-text-muted">{label}</div>
+  return <div className={cn('py-4', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{label}</div>
 }

@@ -6,6 +6,7 @@ import { SettingsDisclosure, SettingsPage, SettingsSection } from './settings/se
 import type { CranberriDiagnosticsReport, CranberriHealthLevel } from '@/shared/health'
 import type { NativeHelperSettingsTarget } from '@/shared/nativeHelpers'
 import { buttonStyle, cn, iconButton } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 export function DiagnosticsSection() {
   const [report, setReport] = useState<CranberriDiagnosticsReport | null>(null)
@@ -86,18 +87,18 @@ export function DiagnosticsSection() {
         </button>
       )}
     >
-      {loadError && <div role="alert" className="rounded-md bg-app-danger/5 px-3 py-3 text-xs text-app-danger">{loadError}</div>}
-      {!report && !loadError && <div className="text-sm text-app-text-muted">Reading diagnostics...</div>}
+      {loadError && <div role="alert" className={cn('break-words rounded-md bg-app-danger/5 px-3 py-3', typeStyle({ role: 'status', tone: 'danger' }))}>{loadError}</div>}
+      {!report && !loadError && <div className={typeStyle({ role: 'status', tone: 'secondary' })}>Reading diagnostics...</div>}
 
       {report && (
         <>
           <div className="flex items-start gap-3 rounded-md bg-app-bg px-3 py-3">
             {attentionCount > 0
-              ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-app-warning" />
-              : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-app-success" />}
+              ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-app-status-warning" />
+              : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-app-status-success" />}
             <div className="min-w-0">
-              <div className="text-sm font-medium text-app-text">{attentionCount > 0 ? `${attentionCount} item${attentionCount === 1 ? '' : 's'} need attention` : 'Everything looks good'}</div>
-              <div className="mt-0.5 text-caption text-app-text-muted">Cranberri {report.build.version} · {report.build.commit.slice(0, 7)} · {report.runtime.platform}/{report.runtime.arch}</div>
+              <div className={typeStyle({ role: 'status', tone: attentionCount > 0 ? 'warning' : 'success' })}>{attentionCount > 0 ? `${attentionCount} item${attentionCount === 1 ? '' : 's'} need attention` : 'Everything looks good'}</div>
+              <div className={cn('mt-0.5', typeStyle({ role: 'metadata', tone: 'secondary' }))}>Cranberri {report.build.version} · {report.build.commit.slice(0, 7)} · {report.runtime.platform}/{report.runtime.arch}</div>
             </div>
           </div>
 
@@ -143,13 +144,13 @@ export function DiagnosticsSection() {
                   </button>
                 </div>
                 <div className="max-h-52 space-y-1 overflow-auto">
-                  {report.recentEvents.length === 0 ? <div className="py-3 text-xs text-app-text-muted">No local events recorded.</div> : report.recentEvents.map((event) => (
+                  {report.recentEvents.length === 0 ? <div className={cn('py-3', typeStyle({ role: 'metadata', tone: 'secondary' }))}>No local events recorded.</div> : report.recentEvents.map((event) => (
                     <div key={event.id} className="rounded-md bg-app-bg px-2 py-2.5">
-                      <div className="flex items-center justify-between gap-3 text-xs">
-                        <span className="font-medium text-app-text">{event.source} / {event.type}</span>
-                        <span className="shrink-0 text-app-text-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className={typeStyle({ role: 'label', tone: 'primary' })}>{event.source} / {event.type}</span>
+                        <span className={cn('shrink-0', typeStyle({ role: 'micro', tone: 'secondary' }))}>{new Date(event.timestamp).toLocaleTimeString()}</span>
                       </div>
-                      <pre className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words font-mono text-micro text-app-text-muted">{JSON.stringify(event.payload, null, 2)}</pre>
+                      <pre className={cn('mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-words', typeStyle({ role: 'code', tone: 'secondary' }))}>{JSON.stringify(event.payload, null, 2)}</pre>
                     </div>
                   ))}
                 </div>
@@ -164,13 +165,13 @@ export function DiagnosticsSection() {
 
 function DiagnosticRow({ label, detail, status, action }: { label: string; detail: string; status: string; action?: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+    <div className="flex items-start gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
       <div className="min-w-0 flex-1">
-        <div className="text-sm text-app-text">{label}</div>
-        <div className="mt-0.5 truncate text-caption text-app-text-muted" title={detail}>{detail}</div>
+        <div className={typeStyle({ role: 'body', tone: 'primary' })}>{label}</div>
+        <div className={cn('mt-0.5 line-clamp-2 break-words', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{detail}</div>
       </div>
       {action}
-      <span className={`shrink-0 text-micro font-medium capitalize ${statusClass(status)}`}>{friendlyStatus(status)}</span>
+      <span className={cn('shrink-0 capitalize', typeStyle({ role: 'status', tone: statusTone(status) }))}>{friendlyStatus(status)}</span>
     </div>
   )
 }
@@ -178,8 +179,8 @@ function DiagnosticRow({ label, detail, status, action }: { label: string; detai
 function PathRow({ row, onAction }: { row: DiagnosticsPathRow; onAction: (action: 'copy' | 'open' | 'reveal') => void }) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-app-bg">
-      <div className="w-20 shrink-0 text-xs text-app-text-muted">{row.label}</div>
-      <div className="min-w-0 flex-1 truncate font-mono text-caption text-app-text" title={row.value}>{row.value}</div>
+      <div className={cn('w-20 shrink-0', typeStyle({ role: 'label', tone: 'secondary' }))}>{row.label}</div>
+      <div className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata', tone: 'primary', family: 'mono' }))} title={row.value}>{row.value}</div>
       <PathButton label={`Copy ${row.label}`} disabled={!row.actionable} onClick={() => onAction('copy')} icon={Copy} />
       <PathButton label={`Open ${row.label}`} disabled={!row.actionable} onClick={() => onAction('open')} icon={ExternalLink} />
       <PathButton label={`Reveal ${row.label}`} disabled={!row.actionable} onClick={() => onAction('reveal')} icon={FolderOpen} />
@@ -195,10 +196,10 @@ function PathButton({ label, disabled, onClick, icon: Icon }: { label: string; d
   )
 }
 
-function statusClass(status: string): string {
-  if (status === 'ok' || status === 'available') return 'text-app-success'
-  if (status === 'error') return 'text-app-danger'
-  return 'text-app-warning'
+function statusTone(status: string): 'success' | 'danger' | 'warning' {
+  if (status === 'ok' || status === 'available') return 'success'
+  if (status === 'error') return 'danger'
+  return 'warning'
 }
 
 function friendlyStatus(status: string): string {

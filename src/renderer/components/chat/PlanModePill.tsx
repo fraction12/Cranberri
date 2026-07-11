@@ -1,11 +1,16 @@
 import { Gauge, X } from 'lucide-react'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 export function PlanModePill({ onRemove }: { onRemove: () => void }) {
   return (
     <button
       type="button"
       onClick={onRemove}
-      className="group flex h-7 items-center gap-1.5 rounded-md bg-app-info/10 px-2 text-xs text-app-text hover:bg-app-info/15"
+      className={cn(
+        typeStyle({ role: 'status', tone: 'info' }),
+        'group flex h-7 items-center gap-1.5 rounded-md bg-app-info/10 px-2 hover:bg-app-info/15',
+      )}
       title="Turn off plan mode"
     >
       <Gauge className="h-3.5 w-3.5" />

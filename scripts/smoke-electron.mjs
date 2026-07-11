@@ -14,7 +14,39 @@ const appExecutable = process.platform === 'darwin'
 const SMOKE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lUzf1wAAAABJRU5ErkJggg=='
 const smokeScreenshotDir = process.env.CRANBERRI_SMOKE_SCREENSHOT_DIR
 const useRendererScreenshots = process.env.CRANBERRI_SMOKE_RENDERER_SCREENSHOTS === '1'
+const typographyUat = process.env.CRANBERRI_SMOKE_TYPOGRAPHY_UAT === '1'
+const capturedSmokeScreenshots = new Set()
 let screenshotElectronApp = null
+
+const REQUIRED_TYPOGRAPHY_UAT_CAPTURES = [
+  'workspace-chat-light-compact',
+  'workspace-chat-light-standard',
+  'workspace-chat-light-large',
+  'workspace-chat-dark-compact',
+  'workspace-chat-dark-standard',
+  'workspace-chat-dark-large',
+  'dropdown-add-context-light-standard',
+  'dropdown-approval-light-standard',
+  'dropdown-skills-light-standard',
+  'dropdown-skills-light-standard-scrolled',
+  'model-selector-regular',
+  'expandable-usage-light-standard',
+  'expandable-health-light-standard',
+  'dropdown-diff-options-light-standard',
+  'dropdown-repo-options-light-standard',
+  'dropdown-add-context-dark-large',
+  'dropdown-add-context-dark-large-scrolled',
+  'dropdown-approval-dark-large',
+  'dropdown-model-dark-large',
+  'dropdown-model-dark-large-scrolled',
+  'dropdown-session-options-dark-large',
+  'composer-long-message',
+  'workspace-narrow-long-composer-dark',
+]
+
+if (typographyUat && (!smokeScreenshotDir || !useRendererScreenshots)) {
+  throw new Error('Typography UAT requires CRANBERRI_SMOKE_SCREENSHOT_DIR and CRANBERRI_SMOKE_RENDERER_SCREENSHOTS=1.')
+}
 
 if (!fs.existsSync(appExecutable)) {
   throw new Error(`Packaged app not found at ${appExecutable}. Run npm run package:dir first.`)
@@ -78,10 +110,128 @@ async function captureSmokeScreenshot(page, name) {
   await page.waitForTimeout(50)
   if (screenshotElectronApp && !useRendererScreenshots) {
     await captureNativeSmokeScreenshot(screenshotElectronApp, name)
+    capturedSmokeScreenshots.add(name)
     return
   }
   fs.mkdirSync(smokeScreenshotDir, { recursive: true })
   await page.screenshot({ path: path.join(smokeScreenshotDir, `${name}.png`) })
+  capturedSmokeScreenshots.add(name)
+}
+
+async function assertRenderedTypography(page, preset) {
+  const expectedByPreset = {
+    compact: {
+      body: ['12px', '18px'],
+      prose: ['14px', '22px'],
+      control: ['12px', '16px'],
+      metadata: ['12px', '16px'],
+      panelTitle: ['12px', '16px'],
+    },
+    standard: {
+      body: ['13px', '20px'],
+      prose: ['15px', '24px'],
+      control: ['13px', '18px'],
+      metadata: ['12px', '16px'],
+      panelTitle: ['13px', '18px'],
+    },
+    large: {
+      body: ['14px', '22px'],
+      prose: ['16px', '26px'],
+      control: ['14px', '20px'],
+      metadata: ['13px', '18px'],
+      panelTitle: ['14px', '20px'],
+    },
+  }
+  const expected = expectedByPreset[preset]
+  if (!expected) throw new Error(`Unknown typography preset: ${preset}`)
+
+  await page.evaluate(({ expectedMetrics }) => {
+    const parseRgb = (value) => {
+      const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+      if (!channels || channels.length !== 3) throw new Error(`Could not parse color: ${value}`)
+      return channels
+    }
+    const luminance = (channels) => {
+      const linear = channels.map((channel) => {
+        const value = channel / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2])
+    }
+    const contrast = (foreground, background) => {
+      const foregroundLuminance = luminance(parseRgb(foreground))
+      const backgroundLuminance = luminance(parseRgb(background))
+      return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+        / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+    }
+
+    const host = document.createElement('div')
+    host.style.cssText = 'position:fixed;left:-10000px;top:0;display:block;'
+    document.body.append(host)
+    try {
+      for (const [role, [fontSize, lineHeight]] of Object.entries(expectedMetrics)) {
+        const probe = document.createElement('span')
+        probe.className = `type-${role.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`
+        probe.textContent = role
+        host.append(probe)
+        const computed = getComputedStyle(probe)
+        if (computed.fontSize !== fontSize || computed.lineHeight !== lineHeight) {
+          throw new Error(`${role} rendered ${computed.fontSize}/${computed.lineHeight}; expected ${fontSize}/${lineHeight}`)
+        }
+      }
+
+      const backgrounds = ['bg-app-bg', 'bg-app-surface', 'bg-app-surface-2', 'bg-app-elevated']
+      const tones = [
+        'text-app-text',
+        'text-app-text-secondary',
+        'text-app-text-tertiary',
+        'text-app-status-success',
+        'text-app-status-warning',
+        'text-app-status-info',
+        'text-app-status-danger',
+        'text-app-mention',
+      ]
+      for (const backgroundClass of backgrounds) {
+        const surface = document.createElement('div')
+        surface.className = backgroundClass
+        host.append(surface)
+        const background = getComputedStyle(surface).backgroundColor
+        for (const toneClass of tones) {
+          const probe = document.createElement('span')
+          probe.className = toneClass
+          probe.textContent = toneClass
+          surface.append(probe)
+          const ratio = contrast(getComputedStyle(probe).color, background)
+          if (ratio < 4.5) throw new Error(`${toneClass} on ${backgroundClass} rendered at ${ratio.toFixed(2)}:1`)
+        }
+      }
+    } finally {
+      host.remove()
+    }
+  }, { expectedMetrics: expected })
+}
+
+async function scrollOpenSurface(page, surface, name) {
+  await surface.waitFor({ state: 'visible', timeout: 10_000 })
+  const metrics = await surface.evaluate((element, surfaceName) => {
+    element.dataset.smokeScrollSurface = surfaceName
+    element.dataset.smokeScrollStart = String(element.scrollTop)
+    return {
+      initial: element.scrollTop,
+      maximum: element.scrollHeight - element.clientHeight,
+    }
+  }, name)
+  if (metrics.maximum <= 0) throw new Error(`${name} was expected to scroll but had no overflow.`)
+  const bounds = await surface.boundingBox()
+  if (!bounds) throw new Error(`${name} did not have visible bounds.`)
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+  await page.mouse.wheel(0, metrics.initial < metrics.maximum ? 320 : -320)
+  await page.waitForFunction((surfaceName) => {
+    const element = document.querySelector(`[data-smoke-scroll-surface="${surfaceName}"]`)
+    return element instanceof HTMLElement
+      && element.scrollTop !== Number(element.dataset.smokeScrollStart)
+  }, name, { timeout: 10_000 })
+  await surface.waitFor({ state: 'visible', timeout: 2_000 })
 }
 
 async function captureNativeSmokeScreenshot(electronApp, name) {
@@ -359,9 +509,9 @@ async function runFreshStartupSmoke() {
       if (nativeThemeSource !== 'light') throw new Error(`Native theme did not follow renderer setting: ${nativeThemeSource}`)
       await page.getByRole('group', { name: 'Accent color' }).getByRole('button', { name: 'Blue' }).click()
       await page.waitForFunction(() => document.documentElement.dataset.accent === 'blue')
-      await page.getByRole('button', { name: 'Increase Interface font size' }).click()
+      await page.getByRole('group', { name: 'Interface text size' }).getByRole('button', { name: 'Large' }).click()
       await page.waitForFunction(() => (
-        document.documentElement.style.getPropertyValue('--app-ui-font-size') === '15px'
+        document.documentElement.dataset.typePreset === 'large'
         && getComputedStyle(document.documentElement).fontSize === '16px'
       ))
       await page.waitForTimeout(200)
@@ -658,6 +808,14 @@ async function runRepoWorkspaceSmoke() {
       }, undefined, { timeout: 10_000 })
       await resizeMainWindow(electronApp, 1400, 900, 900, 600)
       await page.waitForFunction(() => window.innerHeight > 700)
+      await page.getByLabel('Add context').click()
+      await page.getByText('Add to chat', { exact: true }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-add-context-light-standard')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: /Approval policy:/ }).click()
+      await page.getByText('Approval policy', { exact: true }).last().waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-approval-light-standard')
+      await page.keyboard.press('Escape')
       await modelSelector.click()
       await page.getByRole('menuitemradio', { name: 'Ultra', exact: true }).click()
       await modelSelector.click()
@@ -680,6 +838,15 @@ async function runRepoWorkspaceSmoke() {
       }
       await page.keyboard.press('Escape')
       await page.keyboard.press('Escape')
+      const composer = page.getByRole('textbox', { name: 'Chat message' })
+      await composer.click()
+      await page.keyboard.type('/')
+      const skillsMenu = page.getByRole('listbox', { name: 'Commands and skills' })
+      await skillsMenu.waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-skills-light-standard')
+      await scrollOpenSurface(page, skillsMenu, 'skills-menu')
+      await captureSmokeScreenshot(page, 'dropdown-skills-light-standard-scrolled')
+      await composer.fill('')
       await page.getByLabel('Add context').click()
       await page.getByRole('menuitem', { name: /^Goal/ }).click()
       await page.getByTitle('Remove goal').waitFor({ timeout: 10_000 })
@@ -696,7 +863,12 @@ async function runRepoWorkspaceSmoke() {
         throw new Error('Goal mode did not replace Plan mode')
       }
       await page.getByTitle('Remove goal').click()
-      const composer = page.getByRole('textbox', { name: 'Chat message' })
+      await page.locator('[data-chat-transcript-scroll="true"]').evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+      })
+      const compactComposerHeight = await page.locator('[data-chat-composer="true"]').evaluate((element) => (
+        element.getBoundingClientRect().height
+      ))
       await composer.fill(Array.from({ length: 40 }, (_, index) => `Long composer line ${index + 1}`).join('\n'))
       if (await page.getByText('Ask Codex to inspect, edit, or explain this repo.', { exact: true }).count() !== 0) {
         throw new Error('New-chat empty state remained visible behind a composer draft')
@@ -720,8 +892,35 @@ async function runRepoWorkspaceSmoke() {
         return viewport.getBoundingClientRect().height <= 160
           && ghost.style.transform.includes(`${-textarea.scrollTop}px`)
       }, undefined, { timeout: 10_000 })
+      await page.waitForFunction((initialHeight) => {
+        const composerRoot = document.querySelector('[data-chat-composer="true"]')
+        const transcriptEnd = document.querySelector('[data-chat-transcript-end="true"]')
+        if (!(composerRoot instanceof HTMLElement) || !(transcriptEnd instanceof HTMLElement)) return false
+        return composerRoot.getBoundingClientRect().height >= initialHeight + 80
+          && transcriptEnd.getBoundingClientRect().bottom <= composerRoot.getBoundingClientRect().top
+      }, compactComposerHeight, { timeout: 10_000 })
       await captureSmokeScreenshot(page, 'composer-long-message')
       await composer.fill('')
+      await page.getByRole('button', { name: 'Usage remaining' }).click()
+      await page.getByText('Usage remaining', { exact: true }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'expandable-usage-light-standard')
+      await page.getByRole('button', { name: 'Usage remaining' }).click()
+      await page.getByRole('button', { name: 'Cranberri health' }).click()
+      await page.getByText('Cranberri health', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => {
+        const card = document.querySelector('[data-health-card="true"]')
+        if (!(card instanceof HTMLElement)) return false
+        const cardRect = card.getBoundingClientRect()
+        const buttons = [...card.querySelectorAll('button')].filter((button) => (
+          button.textContent?.trim() === 'Refresh' || button.textContent?.includes('Doctor')
+        ))
+        return buttons.length === 2 && buttons.every((button) => {
+          const rect = button.getBoundingClientRect()
+          return rect.top >= cardRect.top && rect.bottom <= cardRect.bottom && rect.bottom <= window.innerHeight
+        })
+      }, undefined, { timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'expandable-health-light-standard')
+      await page.getByRole('button', { name: 'Cranberri health' }).click()
       await page.getByTitle('README.md').click()
       await page.getByText('cranberri-diff-smoke-ready').waitFor({ timeout: 20_000 }).catch(async (error) => {
         const rightRailText = await page.locator('.bg-app-surface').last().textContent().catch(() => '')
@@ -1383,6 +1582,8 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
       await captureSmokeScreenshot(page, 'diff-reader-light')
       await page.getByLabel('File options').click()
+      await page.getByRole('menuitemcheckbox', { name: 'Wrap content' }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-diff-options-light-standard')
       await page.getByLabel('Copy selected file absolute path').click()
       await page.waitForFunction(async (expectedPath) => {
         return await navigator.clipboard.readText() === expectedPath
@@ -2166,6 +2367,8 @@ async function runRepoWorkspaceSmoke() {
 
       const repoOptionsLabel = `Options for ${path.basename(repoPath)}`
       await page.getByLabel(repoOptionsLabel).click()
+      await page.getByRole('menuitem', { name: 'Remove repository' }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-repo-options-light-standard')
       await page.getByRole('menuitem', { name: 'Remove repository' }).click()
       const removeRepoDialog = page.getByRole('dialog', { name: 'Remove repository' })
       await removeRepoDialog.waitFor({ timeout: 10_000 })
@@ -2471,13 +2674,63 @@ async function runRepoWorkspaceSmoke() {
       smokeStep('visual theme and window matrix')
       await waitForVisibleToastsToClear(page)
       await page.getByLabel('Switch to Smoke Codex Thread').click()
-      await page.getByLabel('Open settings').click()
-      await page.getByRole('button', { name: 'Appearance', exact: true }).click()
-      await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Dark' }).click()
-      await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
-      await page.getByLabel('Close settings').click()
-      await page.getByLabel('Close settings').waitFor({ state: 'detached', timeout: 10_000 })
-      await captureSmokeScreenshot(page, 'workspace-chat-dark')
+      if (typographyUat) {
+        const typographyComposer = page.getByRole('textbox', { name: 'Chat message' })
+        await typographyComposer.fill('Mermaid typography smoke:\n```mermaid\ngraph LR\n  A[Plan] --> B[Build]\n```')
+        await page.getByLabel('Send message').click()
+        await page.waitForFunction(() => (
+          [...document.querySelectorAll('[data-mermaid-diagram="true"]')]
+            .some((diagram) => diagram.getAttribute('data-mermaid-render-key') !== 'loading' && diagram.querySelector('svg'))
+        ), undefined, { timeout: 20_000 })
+      }
+      const captureAppearance = async (theme, preset) => {
+        await page.getByLabel('Open settings').click()
+        await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+        await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: theme }).click()
+        await page.getByRole('group', { name: 'Interface text size' }).getByRole('button', { name: preset }).click()
+        await page.waitForFunction(({ expectedTheme, expectedPreset }) => (
+          document.documentElement.dataset.theme === expectedTheme
+          && document.documentElement.dataset.typePreset === expectedPreset
+        ), { expectedTheme: theme.toLowerCase(), expectedPreset: preset.toLowerCase() })
+        await page.getByLabel('Close settings').click()
+        await page.getByLabel('Close settings').waitFor({ state: 'detached', timeout: 10_000 })
+        if (typographyUat) {
+          const expectedFontSize = { Compact: '12px', Standard: '13px', Large: '14px' }[preset]
+          const expectedRenderKey = `${theme.toLowerCase()}:${preset.toLowerCase()}:${expectedFontSize}`
+          await page.waitForFunction((renderKey) => {
+            const diagrams = [...document.querySelectorAll('[data-mermaid-diagram="true"]')]
+            return diagrams.length > 0 && diagrams.every((diagram) => (
+              diagram.getAttribute('data-mermaid-render-key') === renderKey && diagram.querySelector('svg')
+            ))
+          }, expectedRenderKey, { timeout: 20_000 })
+          await assertRenderedTypography(page, preset.toLowerCase())
+        }
+        await captureSmokeScreenshot(page, `workspace-chat-${theme.toLowerCase()}-${preset.toLowerCase()}`)
+      }
+      for (const theme of ['Light', 'Dark']) {
+        for (const preset of ['Compact', 'Standard', 'Large']) {
+          await captureAppearance(theme, preset)
+        }
+      }
+      await page.getByLabel('Add context').click()
+      await page.getByText('Add to chat', { exact: true }).waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-add-context-dark-large')
+      await scrollOpenSurface(page, page.locator('[data-add-menu="true"]'), 'add-menu-dark-large')
+      await captureSmokeScreenshot(page, 'dropdown-add-context-dark-large-scrolled')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: /Approval policy:/ }).click()
+      await page.getByText('Approval policy', { exact: true }).last().waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-approval-dark-large')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Configure model, reasoning, and speed' }).click()
+      await page.getByRole('menuitem', { name: /GPT-5\.4-Mini/ }).hover()
+      const darkLargeModelMenu = page.locator('[data-model-selector-submenu="model"]')
+      await darkLargeModelMenu.waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-model-dark-large')
+      await scrollOpenSurface(page, darkLargeModelMenu, 'model-menu-dark-large')
+      await captureSmokeScreenshot(page, 'dropdown-model-dark-large-scrolled')
+      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape')
       await openCommandPalette(page)
       await captureSmokeScreenshot(page, 'command-palette-dark')
       await page.keyboard.press('Escape')
@@ -2499,7 +2752,30 @@ async function runRepoWorkspaceSmoke() {
         [...document.querySelectorAll('button')]
           .some((button) => button.getAttribute('aria-label')?.startsWith('Scroll tabs ') && button.getClientRects().length > 0)
       ))
+      await page.locator('[data-chat-transcript-scroll="true"]').evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+      })
+      await page.waitForFunction(() => {
+        const composer = document.querySelector('[data-chat-composer="true"]')
+        const transcriptEnd = document.querySelector('[data-chat-transcript-end="true"]')
+        if (!composer || !transcriptEnd) return false
+        return transcriptEnd.getBoundingClientRect().bottom <= composer.getBoundingClientRect().top
+      })
       await captureSmokeScreenshot(page, 'workspace-narrow-dark')
+      const narrowComposer = page.getByRole('textbox', { name: 'Chat message' })
+      const narrowComposerInitialHeight = await page.locator('[data-chat-composer="true"]').evaluate((element) => (
+        element.getBoundingClientRect().height
+      ))
+      await narrowComposer.fill(Array.from({ length: 40 }, (_, index) => `Pinned transcript line ${index + 1}`).join('\n'))
+      await page.waitForFunction((initialHeight) => {
+        const composerRoot = document.querySelector('[data-chat-composer="true"]')
+        const transcriptEnd = document.querySelector('[data-chat-transcript-end="true"]')
+        if (!(composerRoot instanceof HTMLElement) || !(transcriptEnd instanceof HTMLElement)) return false
+        return composerRoot.getBoundingClientRect().height >= initialHeight + 80
+          && transcriptEnd.getBoundingClientRect().bottom <= composerRoot.getBoundingClientRect().top
+      }, narrowComposerInitialHeight, { timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'workspace-narrow-long-composer-dark')
+      await narrowComposer.fill('')
       const wideSize = await electronApp.evaluate(({ BrowserWindow, screen }) => {
         const window = BrowserWindow.getAllWindows()[0]
         if (!window) throw new Error('Main window not found')
@@ -2623,6 +2899,23 @@ async function runRepoWorkspaceSmoke() {
       await resetSessionChanges()
       const inactiveSessionOptionsLabel = 'Options for Inactive Repo Managed Session'
       await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
+      await page.getByRole('menuitem', { name: 'Delete' }).waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => {
+        const toasts = [...document.querySelectorAll('[data-sonner-toast][data-visible="true"]')]
+          .filter((toast) => getComputedStyle(toast).opacity !== '0')
+        if (toasts.length === 0) return false
+        const expectedTitleSize = getComputedStyle(document.documentElement).getPropertyValue('--app-type-control-size').trim()
+        const frontToasts = toasts.filter((toast) => toast.getAttribute('data-front') === 'true')
+        const titleMetricsMatch = frontToasts.every((toast) => {
+          const title = toast.querySelector('[data-title]')
+          return !title || getComputedStyle(title).fontSize === expectedTitleSize
+        })
+        const backgroundContentHidden = toasts
+          .filter((toast) => toast.getAttribute('data-front') !== 'true')
+          .every((toast) => [...toast.children].every((child) => getComputedStyle(child).opacity === '0'))
+        return frontToasts.length === 1 && titleMetricsMatch && backgroundContentHidden
+      }, undefined, { timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-session-options-dark-large')
       await page.getByRole('menuitem', { name: 'Delete' }).click()
       let inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
       await inactiveDeleteDialog.waitFor({ timeout: 10_000 })
@@ -2646,9 +2939,25 @@ async function runRepoWorkspaceSmoke() {
 }
 
 const smokeOnly = process.env.CRANBERRI_SMOKE_ONLY
+if (typographyUat && smokeOnly !== 'repo') {
+  throw new Error('Typography UAT must run with CRANBERRI_SMOKE_ONLY=repo.')
+}
 if (!smokeOnly || smokeOnly === 'fresh') await runFreshStartupSmoke()
 if (!smokeOnly || smokeOnly === 'fresh' || smokeOnly === 'idle') await runIdleToolCatalogSmoke()
 if (!smokeOnly || smokeOnly === 'repo') await runRepoWorkspaceSmoke()
 if (smokeOnly === 'real') await runRealCodexSmoke()
+
+if (typographyUat) {
+  const missing = REQUIRED_TYPOGRAPHY_UAT_CAPTURES.filter((name) => (
+    !capturedSmokeScreenshots.has(name)
+    || !fs.existsSync(path.join(smokeScreenshotDir, `${name}.png`))
+  ))
+  fs.writeFileSync(path.join(smokeScreenshotDir, 'typography-uat-manifest.json'), JSON.stringify({
+    expected: REQUIRED_TYPOGRAPHY_UAT_CAPTURES,
+    captured: [...capturedSmokeScreenshots].sort(),
+    missing,
+  }, null, 2))
+  if (missing.length > 0) throw new Error(`Typography UAT captures missing: ${missing.join(', ')}`)
+}
 
 console.log('Electron smoke passed')

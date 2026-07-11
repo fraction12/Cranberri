@@ -26,6 +26,7 @@ import {
 } from './right-rail/RailShell'
 import type { GitFileStatus } from '@/shared/git'
 import { buttonStyle, cn, compactFieldStyle, iconButton } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 const DiffViewer = lazy(() => import('./right-rail/DiffViewer').then((module) => ({ default: module.DiffViewer })))
 
@@ -321,7 +322,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         {activeTab === 'files' && (
           <div id="right-rail-files-panel" role="tabpanel" aria-labelledby="right-rail-files-tab" className="absolute inset-0 flex flex-col overflow-hidden">
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
-              <span className="text-xs font-semibold text-app-text">{filesMode === 'changes' ? 'Changes' : 'All files'}</span>
+              <span className={typeStyle({ role: 'panelTitle' })}>{filesMode === 'changes' ? 'Changes' : 'All files'}</span>
               <div className="flex items-center gap-1.5">
                 {filesMode === 'changes' && (
                   <button
@@ -374,7 +375,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                   <button type="button" onClick={handleBack} className={iconButton()} title="Back to files" aria-label="Back to files">
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-app-text" title={selectedFile.path}>{selectedFile.path}</span>
+                  <span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata' }))} title={selectedFile.path}>{selectedFile.path}</span>
                   <DiffStats filePath={selectedFile.path} />
                   {selectedFile.status === 'tracked' && (
                     <>
@@ -427,7 +428,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                     className="flex items-center gap-2 bg-app-surface-2/45 px-3 py-2 shadow-sm"
                     onSubmit={submitGoToLine}
                   >
-                    <label htmlFor="right-rail-go-to-line" className="text-caption font-medium text-app-text-muted">Line</label>
+                    <label htmlFor="right-rail-go-to-line" className={typeStyle({ role: 'label', tone: 'secondary' })}>Line</label>
                     <input
                       id="right-rail-go-to-line"
                       autoFocus
@@ -455,11 +456,11 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                     >
                       Cancel
                     </button>
-                    {lineError && <span className="min-w-0 text-caption text-app-danger">{lineError}</span>}
+                    {lineError && <span className={cn('min-w-0 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{lineError}</span>}
                   </form>
                 )}
                 <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">
-                  <Suspense fallback={<div className="p-3 text-sm text-app-text-muted">Loading diff...</div>}>
+                  <Suspense fallback={<div className={cn('p-3', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading diff...</div>}>
                     <DiffViewer
                       filePath={selectedFile.path}
                       status={selectedFile.status}
@@ -471,7 +472,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                 </div>
               </div>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+              <div className={cn('flex h-full flex-col items-center justify-center p-5 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
                 <FileDiff className="mb-2 h-7 w-7 opacity-45" />
                 Choose a file in Files to inspect it.
               </div>

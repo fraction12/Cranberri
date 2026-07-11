@@ -110,5 +110,17 @@ describe('TranscriptList', () => {
 
     expect(html).toContain('Compacting')
     expect(html).toContain('compacted')
+    expect(html.match(/type-status/g)).toHaveLength(2)
+    expect(html).toContain('text-app-text-secondary')
+  })
+
+  it('renders compaction failures as danger status alerts', () => {
+    const html = renderTranscript(
+      thread([message('compact-1', 'compact', 'Compaction failed: model unavailable')]),
+    )
+
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('type-status')
+    expect(html).toContain('text-app-status-danger')
   })
 })

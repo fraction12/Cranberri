@@ -42,9 +42,11 @@ import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { TranscriptList } from './chat/TranscriptList'
+import { composerBottomInset } from './chat/composer-layout'
 import { VoiceDictationButton } from './chat/VoiceDictationButton'
 import { PlanModePill } from './chat/PlanModePill'
 import { buttonStyle, cn, menuSurface } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 import {
   appendDictationTranscript,
   speechRecognitionConstructor,
@@ -54,7 +56,7 @@ import {
 } from './chat/voice-dictation'
 import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
-function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
+export function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
   const beforeCursor = input.slice(0, cursor)
   const match = beforeCursor.match(/(^|\s)([/$])([^\s]*)$/)
   if (!match || (match[2] !== '/' && match[2] !== '$')) return null
@@ -83,16 +85,19 @@ const COMPOSER_CARD_CLASS = [
 ].join(' ')
 const COMPOSER_MIN_HEIGHT = 44
 const COMPOSER_MAX_HEIGHT = 160
-const TEXTAREA_CLASS = [
-  'relative z-10 block min-h-[44px] max-h-[160px] w-full resize-none overflow-y-hidden bg-transparent px-0 text-sm leading-5',
+const TEXTAREA_CLASS = cn(
+  typeStyle({ role: 'body' }),
+  'relative z-10 block min-h-[44px] max-h-[160px] w-full resize-none overflow-y-hidden bg-transparent px-0',
   'text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]',
-].join(' ')
+)
 const SKILL_MENU_CLASS = cn(
   menuSurface,
   'absolute inset-x-0 bottom-full mb-2 max-h-[min(420px,calc(100vh-24px))] overflow-hidden p-2',
 )
-const COMPOSER_GHOST_VIEWPORT_CLASS =
-  'pointer-events-none absolute inset-0 overflow-hidden px-1 text-sm leading-5 text-app-text'
+const COMPOSER_GHOST_VIEWPORT_CLASS = cn(
+  typeStyle({ role: 'body' }),
+  'pointer-events-none absolute inset-0 overflow-hidden px-1',
+)
 const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-app-text text-app-bg',
   'transition-colors duration-fast ease-standard hover:bg-app-text/85 disabled:pointer-events-none disabled:opacity-35',
@@ -238,8 +243,8 @@ export function ChatWindow({ id }: { id: string }) {
   useEffect(() => {
     const composer = composerRef.current
     if (!composer || typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(([entry]) => {
-      setComposerInset(Math.ceil(entry.contentRect.height) + 72)
+    const observer = new ResizeObserver(() => {
+      setComposerInset(composerBottomInset(composer.getBoundingClientRect().height))
     })
     observer.observe(composer)
     return () => observer.disconnect()
@@ -309,11 +314,7 @@ export function ChatWindow({ id }: { id: string }) {
     const container = scrollContainerRef.current
     if (!container) return
     if (!shouldScrollToBottomRef.current) return
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-    const isNearBottom = distanceFromBottom <= 80
-    if (thread?.isRunning || isNearBottom) {
-      scrollTranscriptToBottom()
-    }
+    scrollTranscriptToBottom()
   }, [composerInset, thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
 
   const handleScroll = useCallback(() => {
@@ -634,12 +635,13 @@ export function ChatWindow({ id }: { id: string }) {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
+          data-chat-transcript-scroll="true"
           className="h-full overflow-y-auto px-5 pt-7 sm:px-6"
           style={{ paddingBottom: composerInset }}
         >
           <div className="mx-auto flex min-h-full w-full max-w-[780px] flex-col justify-end gap-5">
             {(!thread || thread.messages.length === 0) && !hasComposerContent && (
-              <div className="pt-16 text-center text-xs text-[var(--app-text-muted)]">
+              <div className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'pt-16 text-center')}>
                 {NEW_THREAD_EMPTY_STATE}
               </div>
             )}
@@ -652,10 +654,10 @@ export function ChatWindow({ id }: { id: string }) {
             {thread?.pendingApprovals.map((approval) => (
               <div
                 key={approval.id}
-                className="rounded-lg bg-app-surface px-3.5 py-3 text-xs text-app-text ring-1 ring-app-border/60"
+                className="rounded-lg bg-app-surface px-3.5 py-3 ring-1 ring-app-border/60"
               >
-                <div className="font-semibold">Approval needed</div>
-                <div className="mb-3 mt-1 text-app-text-muted">{approval.description}</div>
+                <div className={typeStyle({ role: 'status', tone: 'warning' })}>Approval needed</div>
+                <div className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'mb-3 mt-1')}>{approval.description}</div>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -676,7 +678,7 @@ export function ChatWindow({ id }: { id: string }) {
                 </div>
               </div>
             ))}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} data-chat-transcript-end="true" />
           </div>
         </div>
 
@@ -704,7 +706,7 @@ export function ChatWindow({ id }: { id: string }) {
             />
             {showSkills && (
               <div className={SKILL_MENU_CLASS}>
-                <div className="px-2 pb-1 pt-0.5 text-caption font-medium text-app-text-muted">Commands and skills</div>
+                <div className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'px-2 pb-1 pt-0.5')}>Commands and skills</div>
                 <div className="max-h-[350px] space-y-0.5 overflow-y-auto pr-1" role="listbox" aria-label="Commands and skills">
                   {compactCommand.map((command, index) => (
                     <button
@@ -719,11 +721,11 @@ export function ChatWindow({ id }: { id: string }) {
                       }`}
                     >
                       <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
-                      <span className="min-w-0 flex-1 truncate text-sm leading-5">
-                        <span className="text-[var(--app-text)]">{command.label}</span>
-                        <span className="ml-3 text-[var(--app-text-muted)]">{command.description}</span>
+                      <span className={cn(typeStyle({ role: 'control' }), 'min-w-0 flex-1 truncate')}>
+                        <span>{command.label}</span>
+                        <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'ml-3')}>{command.description}</span>
                       </span>
-                      <span className="shrink-0 text-sm text-[var(--app-text-muted)]">Command</span>
+                      <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>Command</span>
                     </button>
                   ))}
                   {matchingSkills.map((skill, index) => (
@@ -753,20 +755,20 @@ export function ChatWindow({ id }: { id: string }) {
                               selected ? 'text-app-mention' : 'text-[var(--app-text)] opacity-80'
                             }`}
                           />
-                          <span className="min-w-0 flex-1 truncate text-sm leading-5">
-                            <span className={selected ? 'text-app-mention' : 'text-[var(--app-text)]'}>
+                          <span className={cn(typeStyle({ role: 'control' }), 'min-w-0 flex-1 truncate')}>
+                            <span className={selected ? 'text-app-mention' : undefined}>
                               {skillToken(skill, skillTrigger?.char ?? '/')}
                             </span>
                             {skill.description && (
-                              <span className="ml-3 text-[var(--app-text-muted)]">{skill.description}</span>
+                              <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'ml-3')}>{skill.description}</span>
                             )}
                           </span>
                           {selected ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-sm text-app-mention">
+                            <span className={cn(typeStyle({ role: 'status', tone: 'mention' }), 'inline-flex shrink-0 items-center gap-1')}>
                               <Check className="h-3.5 w-3.5" /> Selected
                             </span>
                           ) : (
-                            <span className="shrink-0 text-sm text-[var(--app-text-muted)]">{sourceLabel}</span>
+                            <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>{sourceLabel}</span>
                           )}
                         </button>
                       )
@@ -775,7 +777,7 @@ export function ChatWindow({ id }: { id: string }) {
                 </div>
               </div>
             )}
-            <div data-composer-viewport="true" className="relative min-h-[44px] max-h-[160px] overflow-hidden px-1 text-sm leading-5">
+            <div data-composer-viewport="true" className="relative min-h-[44px] max-h-[160px] overflow-hidden px-1">
               <div className={COMPOSER_GHOST_VIEWPORT_CLASS} aria-hidden="true">
                 <div ref={composerGhostTextRef} data-composer-ghost="true" className="min-h-full whitespace-pre-wrap break-words will-change-transform">
                   {input ? renderComposerText(input, skills) : null}
@@ -786,6 +788,10 @@ export function ChatWindow({ id }: { id: string }) {
               aria-label="Chat message"
               value={input}
               onChange={(e) => {
+                selectionRef.current = {
+                  start: e.currentTarget.selectionStart,
+                  end: e.currentTarget.selectionEnd,
+                }
                 setInput(e.target.value)
                 requestAnimationFrame(rememberSelection)
               }}
@@ -928,7 +934,10 @@ function ContextInputChips({ attachments, onRemove }: { attachments: ContextInpu
             key={attachment.id}
             type="button"
             onClick={() => onRemove(attachment.id)}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-app-surface-2 px-1.5 py-1 text-caption text-app-text ring-1 ring-app-border/55 hover:bg-app-border/70"
+            className={cn(
+              typeStyle({ role: 'metadata' }),
+              'inline-flex max-w-full items-center gap-1.5 rounded-lg bg-app-surface-2 px-1.5 py-1 ring-1 ring-app-border/55 hover:bg-app-border/70',
+            )}
             title={`Remove ${attachment.label}`}
             aria-label={`Remove context attachment ${attachment.label}`}
           >
@@ -941,11 +950,11 @@ function ContextInputChips({ attachments, onRemove }: { attachments: ContextInpu
               />
             ) : (
               <span className="flex h-8 w-8 items-center justify-center rounded-md bg-app-surface">
-                <Image className="h-3.5 w-3.5 text-app-text-muted" />
+                <Image className="h-3.5 w-3.5 text-app-text-secondary" />
               </span>
             )}
             <span className="max-w-44 truncate">{attachment.label}</span>
-            <X className="h-3 w-3 shrink-0 text-[var(--app-text-muted)]" aria-hidden="true" />
+            <X className="h-3 w-3 shrink-0 text-app-text-secondary" aria-hidden="true" />
           </button>
         )
       })}

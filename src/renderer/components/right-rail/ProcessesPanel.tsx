@@ -10,13 +10,21 @@ import { canFocusProcessTerminal, processRowMetadata } from './process-row-model
 import { ConfirmDialog } from '../ConfirmDialog'
 import type { AgentProcessInfo } from '@/shared/processes'
 import { buttonStyle, cn, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface ProcessesPanelProps {
   repoPath: string | null
 }
 
 const processRowClassName =
-  'group flex w-full items-start gap-1 rounded-md px-2 py-2 text-xs transition-colors duration-fast ease-standard hover:bg-app-surface-2/55'
+  'group flex w-full items-start gap-1 rounded-md px-2 py-2 transition-colors duration-fast ease-standard hover:bg-app-surface-2/55'
+
+function processStatusTone(status: AgentProcessInfo['status']): 'success' | 'warning' | 'danger' | 'secondary' {
+  if (status === 'running') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'unknown') return 'warning'
+  return 'secondary'
+}
 
 export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
   const [processes, setProcesses] = useState<AgentProcessInfo[]>([])
@@ -95,10 +103,10 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
 
   if (error && processes.length === 0) {
     return (
-      <div role="alert" className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
-        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
-        <span>{error}</span>
-        <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-app-text hover:underline">
+      <div role="alert" className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-status-danger" />
+        <span className={cn('max-w-full [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{error}</span>
+        <button type="button" onClick={() => setReloadKey((key) => key + 1)} className={cn('mt-2 inline-flex items-center gap-1.5 hover:underline', typeStyle({ role: 'control' }))}>
           <RefreshCw className="h-3.5 w-3.5" /> Retry
         </button>
       </div>
@@ -108,8 +116,8 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
   return (
     <div className="h-full overflow-y-auto p-2">
       {error && processes.length > 0 && (
-        <div className="mb-2 flex items-center gap-2 rounded-md bg-app-warning/7 px-2.5 py-2 text-caption text-app-text-muted" role="status" title={error}>
-          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-app-warning" />
+        <div className={cn('mb-2 flex items-center gap-2 rounded-md bg-app-status-warning/7 px-2.5 py-2', typeStyle({ role: 'status', tone: 'warning' }))} role="status" title={error}>
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1">Process list may be out of date.</span>
           <button type="button" onClick={() => setReloadKey((key) => key + 1)} className={buttonStyle({ tone: 'ghost', size: 'compact' })}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
@@ -117,7 +125,7 @@ export function ProcessesPanel({ repoPath }: ProcessesPanelProps) {
         </div>
       )}
       {loading && processes.length === 0 && (
-        <div className="flex items-center gap-2 p-2 text-xs text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Scanning repo processes</div>
+        <div className={cn('flex items-center gap-2 p-2', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-4 w-4 animate-spin" />Scanning repo processes</div>
       )}
       {!loading && processes.length === 0 && (
         <ProcessEmpty label="No running processes." />
@@ -177,19 +185,21 @@ function ProcessRow({
   }
   const canFocusTerminal = canFocusProcessTerminal(processInfo)
   const metadata = processRowMetadata(processInfo)
+  const [, ...supportingMetadata] = metadata
 
   return (
     <div className={processRowClassName}>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-caption text-app-text" title={processInfo.command}>
+        <div className={cn('[overflow-wrap:anywhere]', typeStyle({ role: 'metadata' }))} title={processInfo.command}>
           {processInfo.command}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-micro text-app-text-muted">
-          <span className="capitalize">{processInfo.kind}</span>
-          {metadata.map((item) => <span key={item}>{item}</span>)}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className={cn('capitalize', typeStyle({ role: 'status', tone: processStatusTone(processInfo.status) }))}>{processInfo.status}</span>
+          <span className={cn('capitalize', typeStyle({ role: 'micro', tone: 'secondary' }))}>{processInfo.kind}</span>
+          {supportingMetadata.map((item) => <span key={item} className={typeStyle({ role: 'micro', tone: 'secondary' })}>{item}</span>)}
         </div>
         {processInfo.cwd && (
-          <div className="mt-1 truncate text-micro text-app-text-muted" title={processInfo.cwd}>
+          <div className={cn('mt-1 [overflow-wrap:anywhere]', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={processInfo.cwd}>
             {processInfo.cwd}
           </div>
         )}
@@ -241,7 +251,7 @@ function ProcessRow({
 
 function ProcessEmpty({ label }: { label: string }) {
   return (
-    <div className="flex h-full min-h-40 flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
+    <div className={cn('flex h-full min-h-40 flex-col items-center justify-center p-5 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
       <Activity className="mb-2 h-7 w-7 opacity-45" />
       {label}
     </div>

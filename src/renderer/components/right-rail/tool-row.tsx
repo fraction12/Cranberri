@@ -7,6 +7,7 @@ import {
   toolAvailabilityLabel,
 } from '../../state/tool-catalog-selectors'
 import { ToolDetails } from './tool-details'
+import { typeStyle } from '../../lib/typography'
 
 export interface ToolRowProps {
   entry: ToolCatalogEntry
@@ -51,19 +52,19 @@ export function ToolRow({
           onClick={toggleExpanded}
           className="min-w-0 rounded-md px-1 py-0.5 text-left"
         >
-          <span className="flex min-w-0 items-center gap-1.5 text-xs">
+          <span className="flex min-w-0 items-center gap-1.5">
             <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-app-text-muted transition-transform', expanded && 'rotate-90')} />
-            <span className="truncate font-medium text-app-text" title={entry.name}>{entry.name}</span>
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 text-caption text-app-text-muted" aria-live="polite">
+            <span className={cn('truncate', typeStyle({ role: 'label' }))} title={entry.name}>{entry.name}</span>
+            <span className={cn('ml-auto flex shrink-0 items-center gap-1.5', typeStyle({ role: 'status', tone: availability === 'available' ? 'success' : 'warning' }))} aria-live="polite">
               <span className={cn(
                 'h-1.5 w-1.5 rounded-full',
-                availability === 'available' ? 'bg-app-success' : 'bg-app-warning',
+                availability === 'available' ? 'bg-app-status-success' : 'bg-app-status-warning',
               )} />
               {toolAvailabilityLabel(entry)}
             </span>
           </span>
           {showDescription && entry.description && (
-            <span className="mt-0.5 block truncate pl-5 text-caption text-app-text-muted" title={entry.description}>
+            <span className={cn('mt-0.5 block truncate pl-5', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={entry.description}>
               {entry.description}
             </span>
           )}

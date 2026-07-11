@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { AlertCircle, ChevronRight, File, Folder, Loader2 } from 'lucide-react'
 import type { FileTreeNode } from '@/shared/git'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface FileTreeProps {
   nodes?: FileTreeNode[]
@@ -22,22 +24,22 @@ export function FileTree({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
   if (isLoading) {
-    return <div className="flex items-center gap-2 p-3 text-sm text-app-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading files</div>
+    return <div className={cn('flex items-center gap-2 p-3', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-4 w-4 animate-spin" /> Loading files</div>
   }
 
   if (error) {
     return (
-      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center text-sm text-app-text-muted">
-        <AlertCircle className="mb-2 h-7 w-7 text-app-danger" />
-        <span className="font-medium text-app-text">Files could not be loaded</span>
-        <span className="mt-1 text-caption">{error.message}</span>
+      <div role="alert" className="flex h-full flex-col items-center justify-center p-5 text-center">
+        <AlertCircle className="mb-2 h-7 w-7 text-app-status-danger" />
+        <span className={typeStyle({ role: 'status', tone: 'danger' })}>Files could not be loaded</span>
+        <span className={cn('mt-1 max-w-full [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{error.message}</span>
       </div>
     )
   }
 
   if (!nodes?.length) {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-4 text-center text-sm text-app-text-muted">
+      <div className={cn('flex h-full flex-col items-center justify-center p-4 text-center', typeStyle({ role: 'body', tone: 'secondary' }))}>
         <Folder className="mb-2 h-8 w-8 opacity-50" />
         No files found.
       </div>
@@ -59,7 +61,7 @@ export function FileTree({
   })
 
   return (
-    <ul className="py-1 text-sm" role={depth === 0 ? 'tree' : 'group'}>
+    <ul className={cn('py-1', typeStyle({ role: 'body' }))} role={depth === 0 ? 'tree' : 'group'}>
       {sorted.map((node) => {
         const name = node.path.split('/').pop() ?? node.path
         const isExpanded = expanded.has(node.path)

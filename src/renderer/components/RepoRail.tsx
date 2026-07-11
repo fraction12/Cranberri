@@ -12,6 +12,7 @@ import { UsageMeter } from './UsageMeter'
 import { ConfirmDialog } from './ConfirmDialog'
 import { mergeHydratedPinnedSessions, shouldAutoLoadRepoSessions } from './repo-sessions-state'
 import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton, menuSurface } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
 
@@ -34,7 +35,10 @@ function openSession(session: CodexSessionSummary, repoPath: string, archived = 
   window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', { detail: { session, repoPath, archived } }))
 }
 
-const RAIL_MENU_ITEM = 'flex min-h-8 select-none items-center gap-2 rounded-md px-2 text-xs text-app-text outline-none data-[highlighted]:bg-app-surface-2'
+const RAIL_MENU_ITEM = cn(
+  'flex min-h-8 select-none items-center gap-2 rounded-md px-2 outline-none data-[highlighted]:bg-app-surface-2',
+  typeStyle({ role: 'control', tone: 'primary' }),
+)
 
 function afterMenuCloses(action: () => void): void {
   requestAnimationFrame(action)
@@ -68,7 +72,7 @@ function SessionRow({
   return (
     <div
       data-session-id={session.id}
-      className={cn('group/session flex w-full items-center rounded-md', active ? 'bg-app-surface-2 text-app-text' : 'hover:bg-app-surface-2/60')}
+      className={cn('group/session flex w-full items-center rounded-md', active ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/60')}
     >
       <button
         type="button"
@@ -79,9 +83,9 @@ function SessionRow({
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
-            <span className="truncate text-xs text-app-text">{sessionTitle(session)}</span>
+            <span className={cn('truncate', typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }))}>{sessionTitle(session)}</span>
           </span>
-          <span className="shrink-0 text-micro text-app-text-muted">{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
+          <span className={cn('shrink-0', typeStyle({ role: 'micro', tone: 'secondary' }))}>{relativeTime(session.recencyAt ?? session.updatedAt ?? session.createdAt)}</span>
         </div>
       </button>
       <DropdownMenu.Root>
@@ -109,7 +113,7 @@ function SessionRow({
             ) : (
               <DropdownMenu.Item className={RAIL_MENU_ITEM} onSelect={() => onArchive(session)}><Archive className="h-3.5 w-3.5 text-app-text-muted" />Archive</DropdownMenu.Item>
             )}
-            <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, 'text-app-danger data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenu.Item>
+            <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -324,7 +328,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
           <button
             type="button"
             onClick={() => refresh().catch((error) => console.error('Failed to load Codex sessions:', error))}
-            className="w-full rounded px-2 py-1 text-left text-caption text-app-text-muted hover:bg-app-surface-2/50 hover:text-app-text"
+            className={cn('w-full rounded px-2 py-1 text-left hover:bg-app-surface-2/50 hover:text-app-text', typeStyle({ role: 'control', tone: 'secondary' }))}
           >
             Load sessions
           </button>
@@ -333,21 +337,21 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
           <button
             type="button"
             onClick={() => refresh().catch((error) => console.error('Failed to load Codex sessions:', error))}
-            className="w-full rounded px-2 py-1 text-left text-caption text-app-danger hover:bg-app-danger hover:text-white"
+            className={cn('w-full rounded px-2 py-1 text-left hover:bg-app-danger hover:text-app-on-danger', typeStyle({ role: 'status', tone: 'danger' }))}
             title={loadError}
           >
             Session load failed. Retry
           </button>
         )}
-        {loaded && recent.length === 0 && archived.length === 0 && !loading && <div className="px-2 py-1 text-caption text-app-text-muted">No Codex sessions</div>}
+        {loaded && recent.length === 0 && archived.length === 0 && !loading && <div className={cn('px-2 py-1', typeStyle({ role: 'metadata', tone: 'secondary' }))}>No Codex sessions</div>}
         {pinnedSessions.length > 0 && (
-          <div className="px-2 pt-1 text-caption font-medium text-app-text-muted">Pinned</div>
+          <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Pinned</div>
         )}
         {pinnedSessions.map((session) => (
           <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {pinnedSessions.length > 0 && recentSessions.length > 0 && (
-          <div className="px-2 pt-1 text-caption font-medium text-app-text-muted">Recent</div>
+          <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Recent</div>
         )}
         {recentSessions.map((session) => (
           <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
@@ -357,7 +361,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
             <button
               type="button"
               onClick={() => setShowArchived((value) => !value)}
-              className="w-full rounded px-2 py-1 text-left text-caption text-app-text-muted hover:bg-app-surface-2/50"
+              className={cn('w-full rounded px-2 py-1 text-left hover:bg-app-surface-2/50', typeStyle({ role: 'control', tone: 'secondary' }))}
             >
               {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
@@ -366,7 +370,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
             ))}
           </>
         )}
-        {loading && <div className="flex items-center gap-2 px-2 py-2 text-caption text-app-text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading sessions</div>}
+        {loading && <div className={cn('flex items-center gap-2 px-2 py-2', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading sessions</div>}
       </div>
       {renameTarget && (
         <Dialog.Root open onOpenChange={(open) => {
@@ -385,8 +389,8 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
                   void submitRename()
                 }}
               >
-                <Dialog.Title className="text-sm font-semibold text-app-text">Rename session</Dialog.Title>
-                <Dialog.Description className="mt-1 text-xs text-app-text-muted">Update the Codex task name.</Dialog.Description>
+                <Dialog.Title className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>Rename session</Dialog.Title>
+                <Dialog.Description className={cn('mt-1', typeStyle({ role: 'body', tone: 'secondary' }))}>Update the Codex task name.</Dialog.Description>
                 <input
                   autoFocus
                   aria-label="Session name"
@@ -395,7 +399,7 @@ function RepoSessions({ repoPath, isActiveRepo }: { repoPath: string; isActiveRe
                   className={cn(fieldStyle, 'mt-4 w-full')}
                   placeholder="Session name"
                 />
-                {renameError && <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">{renameError}</div>}
+                {renameError && <div className={cn('mt-3 break-words rounded-md bg-app-danger/8 px-3 py-2', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">{renameError}</div>}
                 <div className="mt-5 flex justify-end gap-2">
                   <Dialog.Close asChild><button type="button" disabled={renaming} className={buttonStyle({ tone: 'ghost', size: 'small' })}>Cancel</button></Dialog.Close>
                   <button type="submit" disabled={renaming || !renameValue.trim()} className={buttonStyle({ tone: 'primary', size: 'small' })}>
@@ -439,11 +443,18 @@ function healthLevelLabel(report: CranberriHealthReport | null): string {
   return 'Broken'
 }
 
-function healthLevelClass(level: CranberriHealthReport['level'] | 'unknown'): string {
-  if (level === 'ok') return 'text-app-success'
-  if (level === 'warning') return 'text-app-warning'
-  if (level === 'error') return 'text-app-danger'
-  return 'text-app-text-muted'
+function healthTone(level: CranberriHealthReport['level'] | 'unknown'): 'success' | 'warning' | 'danger' | 'secondary' {
+  if (level === 'ok') return 'success'
+  if (level === 'warning') return 'warning'
+  if (level === 'error') return 'danger'
+  return 'secondary'
+}
+
+function healthIconClass(level: CranberriHealthReport['level'] | 'unknown'): string {
+  if (level === 'ok') return 'text-app-status-success'
+  if (level === 'warning') return 'text-app-status-warning'
+  if (level === 'error') return 'text-app-status-danger'
+  return 'text-app-text-secondary'
 }
 
 function HealthCard() {
@@ -481,28 +492,28 @@ function HealthCard() {
   }
 
   return (
-    <div className="mt-2 rounded-md bg-app-bg/70 p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-app-text">
-        <Activity className={`h-3.5 w-3.5 ${healthLevelClass(report?.level ?? 'unknown')}`} />
+    <div data-health-card="true" className="mt-2 flex max-h-[min(68vh,36rem)] flex-col rounded-md bg-app-bg/70 p-3">
+      <div className={cn('mb-2 flex items-center gap-1.5', typeStyle({ role: 'panelTitle', tone: 'primary' }))}>
+        <Activity className={`h-3.5 w-3.5 ${healthIconClass(report?.level ?? 'unknown')}`} />
         <span>Cranberri health</span>
         {(loading || doctorRunning) && <Loader2 className="ml-auto h-3 w-3 animate-spin text-app-text-muted" />}
       </div>
-      <div className={`text-xs font-medium ${healthLevelClass(report?.level ?? 'unknown')}`}>{healthLevelLabel(report)}</div>
-      {error && <div className="mt-1 text-caption text-app-danger">{error}</div>}
+      <div className={typeStyle({ role: 'status', tone: healthTone(report?.level ?? 'unknown') })}>{healthLevelLabel(report)}</div>
+      {error && <div className={cn('mt-1 break-words', typeStyle({ role: 'status', tone: 'danger' }))}>{error}</div>}
       {report && (
-        <div className="mt-2 space-y-1">
+        <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {report.checks.map((check) => (
             <div key={check.id} className="rounded-md px-1 py-1.5 hover:bg-app-surface-2/45">
-              <div className="flex items-center justify-between gap-2 text-caption">
-                <span className="truncate text-app-text">{check.label}</span>
-                <span className={`shrink-0 capitalize ${healthLevelClass(check.level)}`}>{check.level}</span>
+              <div className="flex items-start justify-between gap-2">
+                <span className={cn('line-clamp-2 break-words', typeStyle({ role: 'metadata', tone: 'primary' }))}>{check.label}</span>
+                <span className={cn('shrink-0 capitalize', typeStyle({ role: 'status', tone: healthTone(check.level) }))}>{check.level}</span>
               </div>
-              <div className="mt-0.5 truncate text-micro text-app-text-muted" title={check.detail}>{check.detail}</div>
+              <div className={cn('mt-0.5 line-clamp-2 break-words', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{check.detail}</div>
             </div>
           ))}
         </div>
       )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-2 grid shrink-0 grid-cols-2 gap-2 bg-app-bg/95 pt-1">
         <button
           type="button"
           onClick={() => void refresh()}
@@ -605,7 +616,7 @@ export function RepoRail() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-surface px-2.5 py-2">
       <div className="mb-2 flex h-7 shrink-0 items-center justify-between px-1">
-        <span className="text-xs font-semibold text-app-text">Repos</span>
+        <span className={typeStyle({ role: 'panelTitle', tone: 'primary' })}>Repos</span>
         <button
           ref={addRepoButtonRef}
           onClick={addRepo}
@@ -621,7 +632,7 @@ export function RepoRail() {
         {repos.length === 0 && (
           <div className="flex min-h-32 flex-col items-center justify-center gap-3 px-3 text-center">
             <FolderGit2 className="h-5 w-5 text-app-text-subtle" />
-            <div className="text-xs text-app-text-muted">No repositories</div>
+            <div className={typeStyle({ role: 'body', tone: 'secondary' })}>No repositories</div>
             <button type="button" onClick={addRepo} className={buttonStyle({ tone: 'secondary', size: 'compact' })}>
               <Plus className="h-3.5 w-3.5" />
               Add repository
@@ -633,7 +644,8 @@ export function RepoRail() {
             <div
               className={cn(
                 'group flex h-8 items-center rounded-md transition-colors duration-fast ease-standard',
-                activeRepoId === repo.id ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted hover:bg-app-surface-2/60 hover:text-app-text',
+                typeStyle({ role: 'control', tone: activeRepoId === repo.id ? 'primary' : 'secondary' }),
+                activeRepoId === repo.id ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/60 hover:text-app-text',
               )}
               title={repo.path}
             >
@@ -644,7 +656,7 @@ export function RepoRail() {
                 aria-label={`Open ${repo.name}`}
               >
                 <FolderGit2 className="h-4 w-4 shrink-0 opacity-75" />
-                <span className="min-w-0 flex-1 truncate text-sm">{repo.name}</span>
+                <span className="min-w-0 flex-1 truncate">{repo.name}</span>
               </button>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
@@ -661,7 +673,7 @@ export function RepoRail() {
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className={cn(menuSurface, 'z-[1400] w-44')}>
-                    <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, 'text-app-danger data-[highlighted]:bg-app-danger/10')} onSelect={() => {
+                    <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => {
                       afterMenuCloses(() => {
                         setRemoveRepoTarget({ id: repo.id, name: repo.name })
                         setRemoveRepoError(null)

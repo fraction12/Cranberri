@@ -1,15 +1,18 @@
 import { Package, Plug } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { cn } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
-const CODE_INLINE_CLASS = [
-  'rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 font-mono text-[0.92em]',
-  'text-[var(--app-text)] shadow-[inset_0_0_0_1px_var(--app-inset)]',
-].join(' ')
-const MENTION_PILL_CLASS = [
+const CODE_INLINE_CLASS = cn(
+  typeStyle({ role: 'code', tone: 'primary' }),
+  'rounded-md bg-[var(--app-surface-2)] px-1.5 py-0.5 shadow-[inset_0_0_0_1px_var(--app-inset)]',
+)
+const MENTION_PILL_CLASS = cn(
+  typeStyle({ role: 'body', tone: 'mention', weight: 'medium' }),
   'inline-flex max-w-full items-center gap-1 rounded-full bg-app-mention/10 px-2 py-0.5',
-  'align-baseline text-[0.92em] font-medium text-app-mention',
+  'align-baseline',
   'shadow-[inset_0_0_0_1px_var(--app-mention-ring)]',
-].join(' ')
+)
 const INLINE_TOKEN_PATTERN = /(`[^`]+`|\[[^\]\n]+\]\([^)\n]+\))/g
 const MARKDOWN_LINK_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/
 

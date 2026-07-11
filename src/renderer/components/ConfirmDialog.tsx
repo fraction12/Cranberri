@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import type { ReactNode } from 'react'
 import { buttonStyle, cn, dialogSurface } from '../lib/ui'
+import { typeStyle } from '../lib/typography'
 
 interface ConfirmDialogProps {
   title: string
@@ -37,10 +38,10 @@ export function ConfirmDialog({
           onPointerDownOutside={(event) => { if (busy) event.preventDefault() }}
         >
           <ConfirmDialogBody
-            title={<Dialog.Title className="text-sm font-semibold text-app-text">{title}</Dialog.Title>}
+            title={<Dialog.Title className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>{title}</Dialog.Title>}
             description={(
               <Dialog.Description asChild>
-                <div className="mt-2 text-xs leading-5 text-app-text-muted">{description}</div>
+                <div className={cn('mt-2 break-words', typeStyle({ role: 'body', tone: 'secondary' }))}>{description}</div>
               </Dialog.Description>
             )}
             confirmLabel={confirmLabel}
@@ -79,7 +80,7 @@ function ConfirmDialogBody({
     <>
       {title}
       {description}
-      {error && <div className="mt-3 rounded-md bg-app-danger/8 px-3 py-2 text-xs text-app-danger" role="alert">{error}</div>}
+      {error && <div className={cn('mt-3 break-words rounded-md bg-app-danger/8 px-3 py-2', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">{error}</div>}
       <div className="mt-5 flex justify-end gap-2">
         <button type="button" disabled={busy} className={buttonStyle({ tone: 'ghost', size: 'small' })} onClick={onCancel}>
           {cancelLabel}
@@ -102,8 +103,8 @@ export function ConfirmDialogContent(props: ConfirmDialogProps) {
     >
       <ConfirmDialogBody
         {...props}
-        title={<h2 className="text-sm font-semibold text-app-text">{props.title}</h2>}
-        description={<div className="mt-2 text-xs leading-5 text-app-text-muted">{props.description}</div>}
+        title={<h2 className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>{props.title}</h2>}
+        description={<div className={cn('mt-2 break-words', typeStyle({ role: 'body', tone: 'secondary' }))}>{props.description}</div>}
       />
     </div>
   )

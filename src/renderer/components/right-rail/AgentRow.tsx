@@ -4,6 +4,7 @@ import type { CodexWorker } from '@/shared/codex'
 import { codexWorkerIsActive } from '@/shared/codex-workers'
 import { AgentStatusIcon, agentDisplayName, agentStatusLabel } from './agent-presentation'
 import { buttonStyle, cn, compactFieldStyle, iconButton } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 interface AgentRowProps {
   agent: CodexWorker
@@ -39,6 +40,15 @@ export function AgentRow({
   const name = agentDisplayName(agent)
   const active = codexWorkerIsActive(agent.status)
   const summary = agent.message || [agent.model, agent.reasoningEffort].filter(Boolean).join(' · ') || agent.role || 'No recent activity'
+  const statusTone = stopping
+    ? 'warning'
+    : agent.status === 'completed'
+      ? 'success'
+      : agent.status === 'errored' || agent.status === 'notFound'
+        ? 'danger'
+        : active
+          ? 'info'
+          : 'secondary'
 
   return (
     <article className={cn('rounded-md transition-colors duration-fast ease-standard', selected ? 'bg-app-surface-2/65' : 'hover:bg-app-bg/70')}>
@@ -54,12 +64,12 @@ export function AgentRow({
         <AgentStatusIcon status={agent.status} stopping={stopping} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-xs font-medium text-app-text">{name}</span>
-            {agent.role && <span className="truncate text-micro text-app-text-muted">{agent.role}</span>}
+            <span className={cn('truncate', typeStyle({ role: 'label' }))}>{name}</span>
+            {agent.role && <span className={cn('truncate', typeStyle({ role: 'micro', tone: 'secondary' }))}>{agent.role}</span>}
           </span>
-          <span className="mt-0.5 block truncate text-caption text-app-text-muted" title={summary}>{summary}</span>
+          <span className={cn('mt-0.5 block truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={summary}>{summary}</span>
         </span>
-        <span className="shrink-0 text-micro text-app-text-muted">{stopping ? 'Stopping' : agentStatusLabel(agent.status)}</span>
+        <span className={cn('shrink-0', typeStyle({ role: 'status', tone: statusTone }))}>{stopping ? 'Stopping' : agentStatusLabel(agent.status)}</span>
       </button>
 
       {selected && (
@@ -120,7 +130,7 @@ export function AgentRow({
               </button>
             </form>
           )}
-          {error && <div className="text-xs text-app-danger">{error}</div>}
+          {error && <div className={cn('[overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{error}</div>}
         </div>
       )}
     </article>

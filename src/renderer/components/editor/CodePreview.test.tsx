@@ -9,6 +9,7 @@ describe('CodePreview', () => {
     expect(html).toContain('data-code-preview="true"')
     expect(html).toContain('data-language="typescript"')
     expect(html).toContain('aria-label="Copy code"')
+    expect(html).toContain('type-code')
     expect(html).toContain('const value = 1')
   })
 

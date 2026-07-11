@@ -37,6 +37,9 @@ describe('AgentList', () => {
     expect(html).toContain('Euclid')
     expect(html).toContain('aria-label="View Euclid"')
     expect(html).not.toContain('data-worker-shelf')
+    expect(html).toContain('type-panel-title')
+    expect(html).toContain('type-status')
+    expect(html).toContain('text-app-status-info')
   })
 
   it('keeps parent navigation visible on an opened agent task', () => {

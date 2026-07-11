@@ -10,7 +10,9 @@ export type AppAccent = (typeof APP_ACCENT_VALUES)[number]
 export const APP_REDUCED_MOTION_VALUES = ['system', 'on', 'off'] as const
 export type AppReducedMotion = (typeof APP_REDUCED_MOTION_VALUES)[number]
 
-export const APP_UI_FONT_SIZE_RANGE = { min: 11, max: 16 } as const
+export const APP_TYPE_PRESET_VALUES = ['compact', 'standard', 'large'] as const
+export type AppTypePreset = (typeof APP_TYPE_PRESET_VALUES)[number]
+
 export const APP_CODE_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 export const APP_TERMINAL_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 
@@ -35,7 +37,7 @@ export interface AppSettings {
   appearance: {
     theme: AppTheme
     accent: AppAccent
-    uiFontSize: number
+    typePreset: AppTypePreset
     reducedMotion: AppReducedMotion
   }
   tools: ToolCurationSettings
@@ -45,7 +47,7 @@ export interface AppSettings {
   }
 }
 
-export const APP_SETTINGS_VERSION = 3
+export const APP_SETTINGS_VERSION = 4
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   codex: {
@@ -64,7 +66,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   appearance: {
     theme: 'system',
     accent: 'green',
-    uiFontSize: 14,
+    typePreset: 'standard',
     reducedMotion: 'system',
   },
   tools: {

@@ -1,5 +1,6 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { cn, menuSurface } from '../../lib/ui'
+import { typeStyle } from '../../lib/typography'
 
 export function ContextWindowIndicator({
   usedTokens,
@@ -34,10 +35,10 @@ export function ContextWindowIndicator({
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
-          <Tooltip.Content side="top" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1500] w-44 px-3 py-2 text-center text-xs text-app-text')}>
-            <div className="text-app-text-muted">Context window</div>
-            <div className="mt-1">{percentUsed}% used · {percentLeft}% left</div>
-            <div className="mt-0.5 text-caption text-app-text-muted">{compactUsed} / {compactTotal} tokens</div>
+          <Tooltip.Content side="top" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1500] w-44 px-3 py-2 text-center')}>
+            <div className={typeStyle({ role: 'label', tone: 'secondary' })}>Context window</div>
+            <div className={cn(typeStyle({ role: 'status' }), 'mt-1')}>{percentUsed}% used · {percentLeft}% left</div>
+            <div className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-0.5')}>{compactUsed} / {compactTotal} tokens</div>
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
