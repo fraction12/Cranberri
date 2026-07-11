@@ -1,8 +1,10 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronLeft, Copy, ExternalLink, FileDiff, FolderOpen, Hash, Loader2, Menu, MessageSquare, Search } from 'lucide-react'
 import { useGitStatus, useGitFiles } from '../state/git'
+import { useCodexThreads } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChangeList } from './right-rail/ChangeList'
+import { AgentsPanel } from './right-rail/AgentsPanel'
 import { CommitDialog, type CommitDraftState, type CommitState } from './right-rail/CommitDialog'
 import { DiffOptionsMenu } from './right-rail/DiffOptionsMenu'
 import { DiffStats } from './right-rail/DiffStats'
@@ -69,6 +71,8 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
   const { data: allFiles, isLoading: filesLoading } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
+  const { activeThread } = useCodexThreads()
+  const agentCount = activeThread?.workers?.length ?? 0
 
   useEffect(() => {
     setSelectedFile(null)
@@ -372,11 +376,11 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
           onCommit={() => void handleCommit()}
         />
       )}
-      <RightRailTabs activeTab={activeTab} onSelectTab={setActiveTab} />
+      <RightRailTabs activeTab={activeTab} agentCount={agentCount} onSelectTab={setActiveTab} />
 
       <div className={`${bottomPanel ? 'basis-1/2' : 'flex-1'} min-h-0 overflow-hidden relative`}>
         {activeTab === 'files' && (
-          <div className="absolute inset-0 flex flex-col overflow-hidden">
+          <div id="right-rail-files-panel" role="tabpanel" aria-labelledby="right-rail-files-tab" className="absolute inset-0 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-app-border shrink-0">
               <span className="text-xs font-medium text-app-text-muted uppercase">{filesMode === 'changes' ? 'Changes' : 'All Files'}</span>
               <div className="flex items-center gap-1.5">
@@ -426,7 +430,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         )}
 
         {activeTab === 'diff' && (
-          <div className="absolute inset-0 flex flex-col overflow-hidden">
+          <div id="right-rail-diff-panel" role="tabpanel" aria-labelledby="right-rail-diff-tab" className="absolute inset-0 flex flex-col overflow-hidden">
             {selectedFile ? (
               <div className="flex flex-col h-full">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface-2 shrink-0">
@@ -595,6 +599,12 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                 Select a file from the Files tab to view its diff.
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'agents' && (
+          <div id="right-rail-agents-panel" role="tabpanel" aria-labelledby="right-rail-agents-tab" className="absolute inset-0 overflow-hidden">
+            <AgentsPanel thread={activeThread} />
           </div>
         )}
 

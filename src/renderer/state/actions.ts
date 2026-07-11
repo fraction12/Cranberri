@@ -1681,6 +1681,16 @@ export function buildAppActions({
         run: () => openRightRail({ tab: 'diff' }),
       },
       {
+        id: 'rail:agents',
+        group: 'rail',
+        icon: 'chat',
+        label: 'Show agents',
+        description: 'Open the right rail Agents tab for the active task',
+        keywords: ['rail', 'right rail', 'agents', 'workers', 'subagents', 'tasks'],
+        disabledReason: activeThread ? undefined : 'Open a chat first',
+        run: () => openRightRail({ tab: 'agents' }),
+      },
+      {
         id: 'rail:commit',
         group: 'rail',
         icon: 'diff',

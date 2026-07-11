@@ -1,13 +1,14 @@
-import { Activity, FileDiff, FileText, Github, PlugZap, Ticket } from 'lucide-react'
+import { Activity, Bot, FileDiff, FileText, Github, PlugZap, Ticket } from 'lucide-react'
 import { GitHubPanel } from './GitHubPanel'
 import { ProcessesPanel } from './ProcessesPanel'
 import { ToolsPanel } from './ToolsPanel'
 
-export type RightRailTab = 'files' | 'diff'
+export type RightRailTab = 'files' | 'diff' | 'agents'
 export type BottomPanelKind = 'issue' | 'processes' | 'github' | 'tools'
 
 interface RightRailTabsProps {
   activeTab: RightRailTab
+  agentCount: number
   onSelectTab: (tab: RightRailTab) => void
 }
 
@@ -22,20 +23,30 @@ interface BottomPanelNavProps {
   onTogglePanel: (panel: BottomPanelKind) => void
 }
 
-export function RightRailTabs({ activeTab, onSelectTab }: RightRailTabsProps) {
+export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailTabsProps) {
   return (
-    <div className="flex h-9 shrink-0 border-b border-app-border">
+    <div className="flex h-9 shrink-0 border-b border-app-border" role="tablist" aria-label="Right rail">
       <TabButton
         active={activeTab === 'files'}
         onClick={() => onSelectTab('files')}
         icon={<FileText className="h-4 w-4" />}
         label="Files"
+        tab="files"
       />
       <TabButton
         active={activeTab === 'diff'}
         onClick={() => onSelectTab('diff')}
         icon={<FileDiff className="h-4 w-4" />}
         label="Diff"
+        tab="diff"
+      />
+      <TabButton
+        active={activeTab === 'agents'}
+        onClick={() => onSelectTab('agents')}
+        icon={<Bot className="h-4 w-4" />}
+        label="Agents"
+        tab="agents"
+        count={agentCount}
       />
     </div>
   )
@@ -104,22 +115,31 @@ function TabButton({
   onClick,
   icon,
   label,
+  tab,
+  count,
 }: {
   active: boolean
   onClick: () => void
   icon: React.ReactNode
   label: string
+  tab: RightRailTab
+  count?: number
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      role="tab"
+      id={`right-rail-${tab}-tab`}
+      aria-controls={`right-rail-${tab}-panel`}
+      aria-selected={active}
       className={`flex flex-1 items-center justify-center gap-1.5 text-xs hover:text-app-text ${
         active ? 'bg-app-surface-2 text-app-text' : 'text-app-text-muted'
       }`}
     >
       {icon}
       {label}
+      {Boolean(count) && <span className="text-micro text-app-text-muted">{count}</span>}
     </button>
   )
 }

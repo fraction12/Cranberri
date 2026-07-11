@@ -772,6 +772,7 @@ describe('app actions', () => {
       'rail:files:changes',
       'rail:files:all',
       'rail:diff',
+      'rail:agents',
       'rail:commit',
       'rail:commit:draft',
       'rail:processes',
@@ -800,12 +801,14 @@ describe('app actions', () => {
     })
 
     actions.find((action) => action.id === 'rail:files:all')?.run()
+    actions.find((action) => action.id === 'rail:agents')?.run()
     actions.find((action) => action.id === 'rail:commit')?.run()
     actions.find((action) => action.id === 'rail:commit:draft')?.run()
     actions.find((action) => action.id === 'rail:processes')?.run()
     actions.find((action) => action.id === 'rail:close-bottom')?.run()
 
     expect(openRightRail).toHaveBeenCalledWith({ tab: 'files', filesMode: 'all' })
+    expect(openRightRail).toHaveBeenCalledWith({ tab: 'agents' })
     expect(openRightRail).toHaveBeenCalledWith({ action: 'open-commit' })
     expect(openRightRail).toHaveBeenCalledWith({ action: 'open-commit-draft' })
     expect(openRightRail).toHaveBeenCalledWith({ bottomPanel: 'processes' })

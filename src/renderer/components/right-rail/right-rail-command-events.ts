@@ -1,6 +1,6 @@
 export const OPEN_RIGHT_RAIL_COMMAND_EVENT = 'cranberri:open-right-rail-command'
 
-export type RightRailCommandTab = 'files' | 'diff'
+export type RightRailCommandTab = 'files' | 'diff' | 'agents'
 export type RightRailCommandBottomPanel = 'issue' | 'processes' | 'github' | 'tools'
 export type RightRailCommandFilesMode = 'changes' | 'all'
 export type RightRailSelectedFileCommand = 'search' | 'go-to-line' | 'send-context' | 'copy-path' | 'copy-content'
@@ -23,7 +23,7 @@ export function rightRailCommandFromEvent(event: Event): RightRailCommand | null
   const detail = (event as CustomEvent<Partial<RightRailCommand>>).detail
   if (!detail || typeof detail !== 'object') return null
   const command: RightRailCommand = {}
-  if (detail.tab === 'files' || detail.tab === 'diff') command.tab = detail.tab
+  if (detail.tab === 'files' || detail.tab === 'diff' || detail.tab === 'agents') command.tab = detail.tab
   if (detail.filesMode === 'changes' || detail.filesMode === 'all') command.filesMode = detail.filesMode
   if (
     detail.selectedFileCommand === 'search' ||

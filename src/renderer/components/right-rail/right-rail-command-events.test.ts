@@ -22,6 +22,9 @@ describe('right rail command events', () => {
   })
 
   it('round-trips selected file commands', () => {
+    expect(rightRailCommandFromEvent(createOpenRightRailCommandEvent({ tab: 'agents' }))).toEqual({
+      tab: 'agents',
+    })
     expect(rightRailCommandFromEvent(createOpenRightRailCommandEvent({ selectedFileCommand: 'go-to-line', selectedFileLine: 42 }))).toEqual({
       selectedFileCommand: 'go-to-line',
       selectedFileLine: 42,

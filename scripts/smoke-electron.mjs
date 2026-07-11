@@ -494,7 +494,7 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo file context:').waitFor({ timeout: 10_000 })
-      await page.getByRole('button', { name: 'Files' }).click()
+      await page.getByRole('tab', { name: 'Files' }).click()
 
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-model-settings-smoke')
       await page.getByLabel('Send message').click()
@@ -987,6 +987,11 @@ async function runRepoWorkspaceSmoke() {
       smokeStep('first-class subagent workers')
       await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-worker-smoke')
       await page.getByLabel('Send message').click()
+      if (await page.locator('[data-worker-shelf="true"]').count() !== 0) {
+        throw new Error('Agents should not render above the chat transcript')
+      }
+      await page.getByRole('tab', { name: /Agents/ }).click()
+      await page.locator('[data-agents-panel="true"]').waitFor({ timeout: 10_000 })
       const workerRow = page.locator('[data-worker-id^="fake-worker-"]').first()
       await workerRow.waitFor({ timeout: 10_000 })
       await workerRow.getByText('Euclid', { exact: true }).waitFor({ timeout: 10_000 })
@@ -996,9 +1001,9 @@ async function runRepoWorkspaceSmoke() {
       }, undefined, { timeout: 10_000 })
       await page.getByLabel('View Euclid').click()
       await page.getByLabel('Steer Euclid').click()
-      await page.getByPlaceholder('Steer this worker...').fill('Focus on the renderer worker shelf.')
-      await page.getByLabel('Send worker instruction').click()
-      await page.locator('[data-worker-detail]').getByText(/Direction sent through parent|Steered:/).waitFor({ timeout: 10_000 })
+      await page.getByPlaceholder('Steer this agent...').fill('Focus on the renderer Agents rail.')
+      await page.getByLabel('Send agent instruction').click()
+      await workerRow.getByText(/Direction sent through parent|Steered:/).waitFor({ timeout: 10_000 })
 
       await page.getByLabel('Open Euclid').click()
       await page.getByLabel('Open parent task').waitFor({ timeout: 10_000 })
@@ -1019,7 +1024,7 @@ async function runRepoWorkspaceSmoke() {
       }, undefined, { timeout: 10_000 })
       await page.locator('button[aria-label="Resume Euclid"]:visible').click()
       await page.locator('input[placeholder="Resume with a new instruction..."]:visible').fill('Recheck the fixture after interruption.')
-      await page.locator('button[aria-label="Send worker instruction"]:visible').click()
+      await page.locator('button[aria-label="Send agent instruction"]:visible').click()
       await page.waitForFunction(() => {
         const worker = document.querySelector('[data-worker-id^="fake-worker-"]')
         return worker?.getAttribute('data-worker-status') === 'completed'

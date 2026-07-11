@@ -9,7 +9,6 @@ import {
   X,
 } from 'lucide-react'
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
-import { useRepos } from '../state/repos'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import { AddMenu } from './chat/AddMenu'
@@ -44,7 +43,6 @@ import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
 import { TranscriptList } from './chat/TranscriptList'
 import { VoiceDictationButton } from './chat/VoiceDictationButton'
-import { WorkerShelf, workerDisplayName } from './chat/WorkerShelf'
 import {
   appendDictationTranscript,
   speechRecognitionConstructor,
@@ -52,7 +50,7 @@ import {
   voiceDictationErrorMessage,
   type SpeechRecognitionLike,
 } from './chat/voice-dictation'
-import type { CodexPluginInfo, CodexSessionSummary, CodexSkillInfo, CodexTurnSettings, CodexUserInput, CodexWorker } from '@/shared/codex'
+import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
   const beforeCursor = input.slice(0, cursor)
@@ -137,18 +135,15 @@ export function ChatWindow({ id }: { id: string }) {
     approve,
     abort,
     messageWorker,
-    stopWorker,
     restoreSessionWindow,
     switchThread,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
-  const { repos, activeRepo } = useRepos()
   const { activeWindowId, renameWindow } = useWorkspace()
   const threadId = getThreadForWindow(id)
   const thread = threadId ? getThread(threadId) : undefined
-  const threadRepo = repos.find((repo) => repo.id === thread?.repoId) ?? activeRepo
 
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
@@ -607,59 +602,8 @@ export function ChatWindow({ id }: { id: string }) {
     })
   }, [])
 
-  const openCodexThread = useCallback((session: CodexSessionSummary) => {
-    if (!threadRepo) {
-      toast.error('This task\'s repository is no longer available.')
-      return
-    }
-    window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', {
-      detail: { session, repoPath: threadRepo.path, archived: false },
-    }))
-  }, [threadRepo])
-
-  const openWorker = useCallback((worker: CodexWorker) => {
-    openCodexThread({
-      id: worker.threadId,
-      sessionId: worker.sessionId,
-      parentThreadId: worker.parentThreadId,
-      agentNickname: worker.nickname,
-      agentRole: worker.role,
-      title: worker.title || workerDisplayName(worker),
-      preview: worker.prompt || worker.lastInstruction || '',
-      cwd: worker.cwd ?? threadRepo?.path,
-      createdAt: worker.createdAt ?? worker.updatedAt,
-      updatedAt: worker.updatedAt,
-      archived: false,
-      status: worker.status,
-      turnCount: 0,
-    })
-  }, [openCodexThread, threadRepo?.path])
-
-  const openParent = useCallback((parentThreadId: string) => {
-    const parent = getThread(parentThreadId)
-    openCodexThread({
-      id: parentThreadId,
-      title: parent?.title ?? 'Parent task',
-      preview: '',
-      cwd: threadRepo?.path,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      archived: false,
-      turnCount: 0,
-    })
-  }, [getThread, openCodexThread, threadRepo?.path])
-
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
-      {thread && (
-        <WorkerShelf
-          thread={thread}
-          onOpenWorker={openWorker}
-          onOpenParent={openParent}
-          onMessageWorker={(worker, content) => messageWorker(thread.id, worker.threadId, content)}
-          onStopWorker={(worker) => stopWorker(thread.id, worker.threadId)}
-        />
-      )}
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollContainerRef}
