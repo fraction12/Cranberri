@@ -221,7 +221,7 @@ describe('Tool curation settings persistence', () => {
       data: preToolsSettings,
     }))
 
-    expect(readSettings()).toEqual({
+    expect(readSettings()).toMatchObject({
       ...preToolsSettings,
       appearance: {
         theme: 'dark',
@@ -232,6 +232,11 @@ describe('Tool curation settings persistence', () => {
       tools: {
         pinnedToolIds: [],
         dismissedDefaultToolIds: [],
+      },
+      worktrees: {
+        root: path.join(os.homedir(), '.cranberri', 'worktrees'),
+        retentionDays: 7,
+        cap: 15,
       },
     })
   })
@@ -249,7 +254,7 @@ describe('Tool curation settings persistence', () => {
 
     expect(readSettings().tools).toEqual(tools)
     const persisted = JSON.parse(fs.readFileSync(path.join(electron.userDataPath, 'settings.json'), 'utf8'))
-    expect(persisted).toMatchObject({ version: 4, data: { tools } })
+    expect(persisted).toMatchObject({ version: 5, data: { tools } })
   })
 
   it('drops malformed tool IDs without discarding valid persisted choices', () => {
@@ -268,5 +273,23 @@ describe('Tool curation settings persistence', () => {
       pinnedToolIds: ['cli:rg', 'mcp:github:search'],
       dismissedDefaultToolIds: ['codex:apply_patch'],
     })
+  })
+})
+
+describe('Worktree settings persistence', () => {
+  it('defaults the root from CRANBERRI_HOME with seven-day retention and cap fifteen', () => {
+    const previous = process.env.CRANBERRI_HOME
+    process.env.CRANBERRI_HOME = path.join(electron.userDataPath, 'home')
+    try {
+      expect(readSettings().worktrees).toEqual({ root: path.join(electron.userDataPath, 'home', 'worktrees'), retentionDays: 7, cap: 15 })
+    } finally {
+      if (previous === undefined) delete process.env.CRANBERRI_HOME
+      else process.env.CRANBERRI_HOME = previous
+    }
+  })
+
+  it('bounds migrated retention and cap values', () => {
+    fs.writeFileSync(path.join(electron.userDataPath, 'settings.json'), JSON.stringify({ version: 4, data: { ...DEFAULT_APP_SETTINGS, worktrees: { root: '/future/root', retentionDays: 999, cap: 0 } } }))
+    expect(readSettings().worktrees).toEqual({ root: '/future/root', retentionDays: 90, cap: 1 })
   })
 })

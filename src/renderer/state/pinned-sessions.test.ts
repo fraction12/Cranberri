@@ -5,11 +5,14 @@ import { pinnedSessionIds, pinnedSessionRecords, removePinnedSessions, togglePin
 
 function appState(overrides: Partial<CranberriAppState> = {}): CranberriAppState {
   return {
-    version: 1,
+    version: 2,
     expandedRepoIds: {},
     workspacesByRepoId: {},
+    expandedProjectIds: {},
+    workspacesByProjectId: {},
     pinnedCodexSessionIdsByRepoPath: {},
     pinnedCodexSessionsByRepoPath: {},
+    pinnedCodexSessionsByProjectId: {},
     ...overrides,
   }
 }

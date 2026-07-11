@@ -42,3 +42,10 @@ describe('codexThreadIdForActiveWindow', () => {
     expect(codexThreadIdForActiveWindow(windows, null, 'thread-1')).toBeNull()
   })
 })
+
+describe('workspace execution identity', () => {
+  it('permits a nullable task binding while preserving project and checkout identity', () => {
+    const window: WorkspaceWindowState = { id: 'draft', type: 'chat', title: 'Draft', projectId: 'project', taskId: null, checkoutId: 'local' }
+    expect(window).toMatchObject({ projectId: 'project', taskId: null, checkoutId: 'local' })
+  })
+})

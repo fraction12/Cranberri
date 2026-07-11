@@ -16,6 +16,9 @@ import {
   APP_THEME_VALUES,
   APP_TYPE_PRESET_VALUES,
   DEFAULT_APP_SETTINGS,
+  MANAGED_WORKTREE_CAP_RANGE,
+  WORKTREE_RETENTION_DAYS_RANGE,
+  defaultWorktreeRoot,
   type AppSettings,
   type AppTypePreset,
 } from '../shared/settings'
@@ -63,6 +66,11 @@ const settingsSchema = z.object({
     updater: z.object({
       channel: updaterChannelSchema,
       sourceRepoPath: z.string().optional(),
+    }),
+    worktrees: z.object({
+      root: z.string().min(1),
+      retentionDays: z.number().int().min(WORKTREE_RETENTION_DAYS_RANGE.min).max(WORKTREE_RETENTION_DAYS_RANGE.max),
+      cap: z.number().int().min(MANAGED_WORKTREE_CAP_RANGE.min).max(MANAGED_WORKTREE_CAP_RANGE.max),
     }),
   }),
 })
@@ -131,6 +139,7 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
   const appearance = getSection(incoming, 'appearance')
   const tools = getSection(incoming, 'tools')
   const updater = getSection(incoming, 'updater')
+  const worktrees = getSection(incoming, 'worktrees')
 
   const data: AppSettings = {
     codex: {
@@ -164,6 +173,11 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
       channel: updaterChannelSchema.safeParse(updater.channel).success ? (updater.channel as AppSettings['updater']['channel']) : DEFAULT_APP_SETTINGS.updater.channel,
       sourceRepoPath: typeof updater.sourceRepoPath === 'string' && updater.sourceRepoPath ? updater.sourceRepoPath : DEFAULT_APP_SETTINGS.updater.sourceRepoPath,
     },
+    worktrees: {
+      root: typeof worktrees.root === 'string' && worktrees.root ? worktrees.root : defaultWorktreeRoot(),
+      retentionDays: boundedInteger(worktrees.retentionDays, WORKTREE_RETENTION_DAYS_RANGE, 7),
+      cap: boundedInteger(worktrees.cap, MANAGED_WORKTREE_CAP_RANGE, 15),
+    },
   }
 
   void version
@@ -177,7 +191,7 @@ export function readSettings(): AppSettings {
     if (parsed.success) return normalizeSettings(parsed.data.data)
     return migrateSettings(raw)
   } catch {
-    return DEFAULT_APP_SETTINGS
+    return { ...DEFAULT_APP_SETTINGS, worktrees: { ...DEFAULT_APP_SETTINGS.worktrees, root: defaultWorktreeRoot() } }
   }
 }
 

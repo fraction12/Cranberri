@@ -15,6 +15,13 @@ export type AppTypePreset = (typeof APP_TYPE_PRESET_VALUES)[number]
 
 export const APP_CODE_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
 export const APP_TERMINAL_FONT_SIZE_RANGE = { min: 8, max: 24 } as const
+export const WORKTREE_RETENTION_DAYS_RANGE = { min: 1, max: 90 } as const
+export const MANAGED_WORKTREE_CAP_RANGE = { min: 1, max: 15 } as const
+
+export function defaultWorktreeRoot(): string {
+  const home = process.env.CRANBERRI_HOME?.trim()
+  return home ? `${home}/worktrees` : `${process.env.HOME ?? '~'}/.cranberri/worktrees`
+}
 
 export type ToolCurationSettings = ToolCatalogPreferences
 
@@ -45,9 +52,10 @@ export interface AppSettings {
     channel: 'stable' | 'beta'
     sourceRepoPath?: string
   }
+  worktrees: { root: string; retentionDays: number; cap: number }
 }
 
-export const APP_SETTINGS_VERSION = 4
+export const APP_SETTINGS_VERSION = 5
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   codex: {
@@ -76,4 +84,5 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   updater: {
     channel: 'stable',
   },
+  worktrees: { root: defaultWorktreeRoot(), retentionDays: 7, cap: 15 },
 }
