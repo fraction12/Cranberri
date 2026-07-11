@@ -7,6 +7,8 @@ export const managedWorktreeSchema = z.object({
   taskId: z.string().min(1).nullable(),
   path: z.string().min(1),
   recordedRoot: z.string().min(1),
+  gitCommonDir: z.string().min(1),
+  manifestPath: z.string().min(1),
   baseRef: z.string().nullable(),
   baseSha: z.string().min(1),
   branch: z.string().nullable(),

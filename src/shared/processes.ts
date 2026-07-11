@@ -10,6 +10,10 @@ export interface AgentProcessInfo {
   cwd?: string
   terminalWindowId?: string
   repoPath: string
+  projectId?: string
+  taskId?: string
+  checkoutId?: string
+  worktreeId?: string
   kind: AgentProcessKind
   source: AgentProcessSource
   status: AgentProcessStatus

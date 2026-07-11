@@ -182,3 +182,14 @@ export async function listProcessesForRepo(repoPath: string): Promise<AgentProce
       return b.startedAt - a.startedAt
     })
 }
+
+export async function hasRunningProcessesForPath(checkoutPath: string): Promise<boolean> {
+  const candidate = fs.existsSync(checkoutPath) ? fs.realpathSync(checkoutPath) : path.resolve(checkoutPath)
+  const state = readRegistry()
+  return state.processes.map(reconcileRunningState).some((processInfo) => {
+    if (processInfo.status !== 'running') return false
+    const rawProcessPath = processInfo.cwd ?? processInfo.repoPath
+    const processPath = fs.existsSync(rawProcessPath) ? fs.realpathSync(rawProcessPath) : path.resolve(rawProcessPath)
+    return processPath === candidate || processPath.startsWith(`${candidate}${path.sep}`)
+  })
+}
