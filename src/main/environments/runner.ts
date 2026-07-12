@@ -392,11 +392,23 @@ export class EnvironmentRunner {
   private updateExecutionState(task: Task, worktree: ManagedWorktree, state: 'setup' | 'active' | 'failed'): Promise<void> {
     return this.dependencies.taskStore.update((store) => ({
       ...store,
-      tasks: store.tasks.map((candidate) => candidate.id === task.id ? { ...candidate, state, updatedAt: Date.now() } : candidate),
+      tasks: store.tasks.map((candidate) => this.ownsEnvironmentRun(candidate, task, worktree)
+        ? { ...candidate, state, updatedAt: Date.now() }
+        : candidate),
       managedWorktrees: store.managedWorktrees.map((candidate) => candidate.id === worktree.id
+        && store.tasks.some((current) => this.ownsEnvironmentRun(current, task, worktree))
         ? { ...candidate, lifecycle: state === 'failed' ? 'failed' : state, updatedAt: Date.now() }
         : candidate),
     })).then(() => undefined)
+  }
+
+  private ownsEnvironmentRun(candidate: Task, startedTask: Task, worktree: ManagedWorktree): boolean {
+    return candidate.id === startedTask.id
+      && candidate.location === 'worktree'
+      && candidate.worktreeId === worktree.id
+      && candidate.environmentId === startedTask.environmentId
+      && candidate.environmentRevision === startedTask.environmentRevision
+      && candidate.state !== 'archived'
   }
 
   private async finishTask(task: Task, worktree: ManagedWorktree, job: EnvironmentJob): Promise<void> {

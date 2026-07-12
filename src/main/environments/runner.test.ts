@@ -129,6 +129,26 @@ describe('EnvironmentRunner', () => {
     expect((await setup.runner.wait(started.id)).status).toBe('cancelled')
   })
 
+  it('does not revive a task archived while environment setup is finishing', async () => {
+    const setup = await fixture('printf ready; read answer; test "$answer" = done')
+    const started = await setup.runner.startSetup({ taskId: 'task' })
+    await vi.waitFor(() => expect(setup.runner.snapshot(started.id).output).toContain('ready'))
+    await setup.taskStore.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => task.id === 'task'
+        ? { ...task, state: 'archived' as const, archivedAt: Date.now() }
+        : task),
+      managedWorktrees: state.managedWorktrees.map((worktree) => worktree.id === setup.worktree.id
+        ? { ...worktree, lifecycle: 'archived' as const, archivedAt: Date.now() }
+        : worktree),
+    }))
+
+    setup.runner.write(started.id, 'done\n')
+    expect((await setup.runner.wait(started.id)).status).toBe('succeeded')
+    expect(setup.taskStore.read().tasks[0].state).toBe('archived')
+    expect(setup.taskStore.read().managedWorktrees[0].lifecycle).toBe('archived')
+  })
+
   it('provisions a temporary managed worktree for tests and removes it only when clean', async () => {
     const setup = await fixture('true')
     const started = await setup.runner.testEnvironment({

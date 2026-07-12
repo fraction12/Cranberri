@@ -231,4 +231,27 @@ describe('TaskCoordinator', () => {
     expect(deleteThread).toHaveBeenCalledWith('thread')
     expect(store.read().tasks).toEqual([])
   })
+
+  it('retains the Local lease until a handed-off task returns to its worktree', async () => {
+    const { store, coordinator } = fixture()
+    const task = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Handoff', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+    await store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((candidate) => candidate.id === task.id
+        ? { ...candidate, worktreeId: 'worktree' }
+        : candidate),
+      localLeaseByProjectId: { ...state.localLeaseByProjectId, project: task.id },
+    }))
+    const before = store.read()
+    const deleteThread = vi.fn(async () => undefined)
+
+    await expect(coordinator.archive(task.id)).rejects.toThrow(/return.*worktree/i)
+    await expect(coordinator.delete(task.id, deleteThread)).rejects.toThrow(/return.*worktree/i)
+
+    expect(store.read()).toEqual(before)
+    expect(deleteThread).not.toHaveBeenCalled()
+  })
 })

@@ -1375,6 +1375,10 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tasks:archive', async (_, raw: unknown) => {
     const { taskId } = taskIdRequestSchema.parse(raw)
     const task = taskCoordinator.get(taskId)
+    const environmentJob = environmentRunner.latestForTask(taskId)
+    if (environmentJob?.status === 'running') {
+      throw new Error('Wait for environment setup to finish before archiving this session')
+    }
     if (task.threadId) {
       const c = await getCodexClient()
       await c.archiveThread(task.threadId)
@@ -1386,6 +1390,10 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tasks:delete', async (_, raw: unknown) => {
     const { taskId } = taskIdRequestSchema.parse(raw)
     const task = taskCoordinator.get(taskId)
+    const environmentJob = environmentRunner.latestForTask(taskId)
+    if (environmentJob?.status === 'running') {
+      throw new Error('Wait for environment setup to finish before deleting this session')
+    }
     const c = await getCodexClient()
     if (task.threadId && (c.isThreadRunning(task.threadId) || c.hasActiveWorkers(task.threadId))) {
       throw new Error('Wait for Codex and its workers to finish before deleting this session')

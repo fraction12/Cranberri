@@ -380,6 +380,7 @@ export class TaskCoordinator {
 
   async archive(taskId: string): Promise<Task> {
     const task = this.requireTask(taskId)
+    this.assertHandoffComplete(task)
     if (task.threadId && this.codex) await this.codex.archiveThread(task.threadId)
     if (task.worktreeId && this.worktrees) await this.worktrees.archive(task.worktreeId)
     await this.releaseLocalLease(task.projectId, task.id)
@@ -407,6 +408,7 @@ export class TaskCoordinator {
 
   async delete(taskId: string, deleteThread: (threadId: string) => Promise<void>): Promise<void> {
     const task = this.requireTask(taskId)
+    this.assertHandoffComplete(task)
     if (task.worktreeId) {
       if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')
       await this.worktrees.remove(task.worktreeId)
@@ -425,6 +427,12 @@ export class TaskCoordinator {
     const task = this.store.read().tasks.find((candidate) => candidate.id === taskId)
     if (!task) throw new Error('Task not found')
     return task
+  }
+
+  private assertHandoffComplete(task: Task): void {
+    if (task.location === 'local' && task.worktreeId) {
+      throw new Error('Return this session to its worktree before archiving or deleting it')
+    }
   }
 
   private requireTransition(taskId: string): NonNullable<Task['worktreeTransition']> {
