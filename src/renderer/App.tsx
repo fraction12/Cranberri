@@ -12,6 +12,7 @@ import { RecoveryProvider, recoveryAllowsUpdateHealth, useRecovery } from './sta
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
 import { TooltipProvider } from './components/ui/Tooltip'
 import type { PersistenceFlushAcknowledgement, PersistenceFlushRequest } from '@/shared/appState'
+import { toast } from 'sonner'
 
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((module) => ({ default: module.CommandPalette })))
@@ -119,6 +120,20 @@ function AppShell() {
       (writes) => window.dispatchEvent(new CustomEvent('cranberri:flush-persistence', { detail: { writes } })),
       window.cranberri.lifecycle.acknowledgePersistenceFlush,
     ).catch((error) => console.error('Failed to acknowledge persistence flush:', error))
+  }), [])
+
+  useEffect(() => window.cranberri.lifecycle.onPersistenceFlushFailure((failure) => {
+    toast.error('Workspace could not be saved', {
+      id: `persistence-flush-failed:${failure.reason}`,
+      description: 'Try again, or close without saving the latest workspace state.',
+      duration: Infinity,
+      action: {
+        label: failure.reason === 'app-quit' ? 'Quit anyway' : 'Close anyway',
+        onClick: () => {
+          void window.cranberri.lifecycle.forceClose(failure.reason)
+        },
+      },
+    })
   }), [])
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null)

@@ -80,16 +80,7 @@ export function useComposerDraftController(ownerKey: string | null, legacyOwnerK
     window.cranberri.composerDrafts.read(ownerKey)
       .then(async (draft) => {
         if (draft || !legacyOwnerKey) return draft
-        const legacy = await window.cranberri.composerDrafts.read(legacyOwnerKey)
-        if (!legacy) return null
-        const migrated = { ...legacy, ownerKey }
-        try {
-          await window.cranberri.composerDrafts.write(migrated)
-          await window.cranberri.composerDrafts.delete(legacyOwnerKey)
-        } catch (error) {
-          console.error('Failed to migrate legacy composer draft:', error)
-        }
-        return migrated
+        return window.cranberri.composerDrafts.migrate(legacyOwnerKey, ownerKey)
       })
       .then((draft) => {
         if (!cancelled && ownerRef.current === ownerKey) setRestoredDraft(draft)

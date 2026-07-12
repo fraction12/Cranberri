@@ -114,11 +114,11 @@ describe('ChatWindow composer rendering', () => {
         ownership: location === 'local' ? 'user' : 'cranberri',
         available: true,
       }],
-      bindWindowToTask: (_windowId, context) => order.push(`bind:${context.checkoutPath}`),
+      bindWindowToTask: (_windowId, context) => order.push(`bind:${context.checkoutPath}:${context.sessionTarget}`),
       closeDialog: () => order.push('close'),
     })
 
-    expect(order).toEqual([`bind:${path}`, 'close'])
+    expect(order).toEqual([`bind:${path}:${location}`, 'close'])
   })
 
 })

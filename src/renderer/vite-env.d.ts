@@ -47,11 +47,14 @@ declare global {
       lifecycle: {
         acknowledgePersistenceFlush: (acknowledgement: import('@/shared/appState').PersistenceFlushAcknowledgement) => Promise<{ ok: boolean }>
         onPersistenceFlushRequest: (cb: (request: import('@/shared/appState').PersistenceFlushRequest) => void) => (() => void)
+        onPersistenceFlushFailure: (cb: (failure: import('@/shared/appState').PersistenceFlushFailure) => void) => (() => void)
+        forceClose: (reason: import('@/shared/appState').PersistenceFlushRequest['reason']) => Promise<{ ok: true }>
       }
       composerDrafts: {
         read: (ownerKey: string) => Promise<import('@/shared/composer-drafts').ComposerDraft | null>
         write: (draft: import('@/shared/composer-drafts').ComposerDraft) => Promise<import('@/shared/composer-drafts').ComposerDraft>
         delete: (ownerKey: string) => Promise<{ ok: true }>
+        migrate: (legacyOwnerKey: string, ownerKey: string) => Promise<import('@/shared/composer-drafts').ComposerDraft | null>
       }
       recovery: {
         read: () => Promise<import('@/shared/recovery').StartupRecoveryReport | null>

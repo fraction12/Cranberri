@@ -151,6 +151,12 @@ describe('TaskCoordinator', () => {
     expect(coordinator.get(task.id).pendingFirstTurn).toEqual({
       delivery: 'pending', payload: { input: [{ type: 'text', text: 'Edited' }] },
     })
+    await coordinator.bindThread(task.id, 'missing-thread')
+    await coordinator.markPendingTurnSending(task.id)
+    await coordinator.resetMissingPendingThread(task.id)
+    expect(coordinator.get(task.id)).toMatchObject({
+      threadId: null, pendingFirstTurn: { delivery: 'pending' },
+    })
     await coordinator.acknowledgePendingTurn(task.id)
     expect(coordinator.get(task.id).pendingFirstTurn).toBeNull()
   })

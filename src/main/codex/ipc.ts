@@ -54,6 +54,7 @@ import {
   taskProvisionRequestSchema,
   firstTurnIdempotencyKey,
   firstTurnRecoveryAction,
+  persistedFirstTurnState,
   taskFirstTurnIdempotencyKey,
   withoutFirstTurnIdempotencyKey,
   type Task,
@@ -412,9 +413,18 @@ async function acknowledgeFirstTurn(taskId: string, idempotencyKey: string): Pro
   return task
 }
 
-async function persistedTurnCount(candidate: CodexClientLike, threadId: string | null): Promise<number> {
-  if (!threadId) return 0
-  return (await candidate.readThread(threadId)).turns.length
+async function readPersistedFirstTurn(
+  candidate: CodexClientLike,
+  threadId: string | null,
+  expectedInput: readonly Record<string, unknown>[],
+): Promise<ReturnType<typeof persistedFirstTurnState> | 'missing'> {
+  if (!threadId) return 'empty'
+  try {
+    return persistedFirstTurnState((await candidate.readThread(threadId)).turns, expectedInput)
+  } catch (error) {
+    if (isThreadNotFoundError(error)) return 'missing'
+    throw error
+  }
 }
 
 function pendingFirstTurnThreadName(idempotencyKey: string): string {
@@ -1480,25 +1490,36 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
         && pendingIdempotencyKey
         && requestIdempotencyKey !== pendingIdempotencyKey
       ) {
-        const persistedTurns = task.pendingFirstTurn?.delivery === 'sending'
-          ? await persistedTurnCount(c, task.threadId)
-          : 0
-        if (persistedTurns > 0) {
+        const persisted = task.pendingFirstTurn?.delivery === 'sending'
+          ? await readPersistedFirstTurn(c, task.threadId, task.pendingFirstTurn.payload.input)
+          : 'empty'
+        if (persisted === 'matching') {
           if (task.threadId && task.pendingFirstTurn) {
             await finalizeFirstTurnThreadName(c, task.threadId, task.pendingFirstTurn.payload.input).catch(() => undefined)
           }
           task = await acknowledgeFirstTurn(task.id, pendingIdempotencyKey)
+        } else if (persisted === 'conflicting') {
+          throw new Error('The prepared thread contains a different first turn and needs attention')
         } else {
+          if (persisted === 'missing') task = await taskCoordinator.resetMissingPendingThread(task.id)
           task = await taskCoordinator.replacePendingTurn(task.id, request.input)
         }
+      }
+      let persisted = task.pendingFirstTurn?.delivery === 'sending'
+        ? await readPersistedFirstTurn(c, task.threadId, task.pendingFirstTurn.payload.input)
+        : 'empty' as const
+      if (persisted === 'missing') {
+        task = await taskCoordinator.resetMissingPendingThread(task.id)
+        persisted = 'empty'
       }
       const recoveryAction = firstTurnRecoveryAction(
         task,
         request.input,
-        task.pendingFirstTurn?.delivery === 'sending'
-          ? await persistedTurnCount(c, task.threadId)
-          : 0,
+        persisted,
       )
+      if (recoveryAction === 'needsAttention') {
+        throw new Error('The prepared thread contains a different first turn and needs attention')
+      }
       if (recoveryAction === 'alreadyAcknowledged') return { ok: true, task }
       if (recoveryAction === 'acknowledge') {
         const idempotencyKey = firstTurnIdempotencyKey(request.input)
@@ -1545,7 +1566,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       const idempotencyKey = pending ? firstTurnIdempotencyKey(pending) : null
       if (pending && idempotencyKey && task.threadId) {
         try {
-          if (await persistedTurnCount(c, task.threadId) > 0) {
+          if (await readPersistedFirstTurn(c, task.threadId, pending) === 'matching') {
             await finalizeFirstTurnThreadName(c, task.threadId, pending).catch(() => undefined)
             task = await acknowledgeFirstTurn(task.id, idempotencyKey)
             return { ok: true, task }

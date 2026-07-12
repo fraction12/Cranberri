@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CodexSdkTurn } from './codex'
 
 const firstTurnIdempotencyKeySchema = z.string().min(1).max(512)
 const FIRST_TURN_IDEMPOTENCY_PROPERTY = '__cranberriFirstTurnIdempotencyKey'
@@ -100,21 +101,45 @@ export function taskFirstTurnIdempotencyKey(task: Task): string | null {
     : null
 }
 
-export type FirstTurnRecoveryAction = 'send' | 'acknowledge' | 'alreadyAcknowledged' | 'notFirstTurn'
+export type PersistedFirstTurnState = 'empty' | 'matching' | 'conflicting'
+export type FirstTurnRecoveryAction = 'send' | 'acknowledge' | 'alreadyAcknowledged' | 'notFirstTurn' | 'needsAttention'
+
+export function persistedFirstTurnState(
+  turns: readonly CodexSdkTurn[],
+  expectedInput: readonly Record<string, unknown>[],
+): PersistedFirstTurnState {
+  if (turns.length === 0) return 'empty'
+  if (turns.length !== 1) return 'conflicting'
+  const expectedText = withoutFirstTurnIdempotencyKey(expectedInput)
+    .filter((item) => item.type === 'text' && typeof item.text === 'string')
+    .map((item) => item.text as string)
+  if (expectedText.length === 0) return 'conflicting'
+  const actualText = (turns[0]?.items ?? []).flatMap((item) => {
+    if (item.type !== 'userMessage' || !Array.isArray(item.content)) return []
+    return item.content.flatMap((content) => (
+      typeof content === 'string'
+        ? [content]
+        : content.type === 'text' && typeof content.text === 'string'
+          ? [content.text]
+          : []
+    ))
+  })
+  return JSON.stringify(actualText) === JSON.stringify(expectedText) ? 'matching' : 'conflicting'
+}
 
 export function firstTurnRecoveryAction(
   task: Task,
   requestInput: readonly Record<string, unknown>[],
-  persistedTurnCount: number,
+  persistedState: PersistedFirstTurnState,
 ): FirstTurnRecoveryAction {
   const requestKey = firstTurnIdempotencyKey(requestInput)
   if (!requestKey) return 'notFirstTurn'
   if (task.firstTurnIdempotencyKey === requestKey) return 'alreadyAcknowledged'
   if (taskFirstTurnIdempotencyKey(task) !== requestKey) return 'notFirstTurn'
   if (task.pendingFirstTurn?.delivery === 'acknowledged') return 'alreadyAcknowledged'
-  return task.pendingFirstTurn?.delivery === 'sending' && persistedTurnCount > 0
-    ? 'acknowledge'
-    : 'send'
+  if (task.pendingFirstTurn?.delivery !== 'sending') return 'send'
+  if (persistedState === 'matching') return 'acknowledge'
+  return persistedState === 'empty' ? 'send' : 'needsAttention'
 }
 
 export const taskIdRequestSchema = z.object({ taskId: z.string().min(1) }).strict()

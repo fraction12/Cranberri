@@ -27,6 +27,12 @@ const timestampSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEG
 const boundedPathSchema = z.string().min(1).max(COMPOSER_DRAFT_LIMITS.path)
 
 export const composerDraftOwnerKeySchema = boundedIdentifierSchema
+export const composerDraftMigrationSchema = z.object({
+  legacyOwnerKey: composerDraftOwnerKeySchema,
+  ownerKey: composerDraftOwnerKeySchema,
+}).strict().refine(({ legacyOwnerKey, ownerKey }) => legacyOwnerKey !== ownerKey, {
+  message: 'Composer draft migration keys must differ',
+})
 
 export const composerMentionSchema = z.object({
   kind: z.enum(['skill', 'plugin']),

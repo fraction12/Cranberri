@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   composerDraftOwnerKeySchema,
+  composerDraftMigrationSchema,
   composerDraftSchema,
   composerDraftsStoreSchema,
   type ComposerDraft,
@@ -124,6 +125,30 @@ export function deleteComposerDraft(
   return { ok: true }
 }
 
+export function migrateComposerDraft(
+  legacyOwnerKey: string,
+  ownerKey: string,
+  target = targetPath(),
+): ComposerDraft | null {
+  const request = composerDraftMigrationSchema.parse({ legacyOwnerKey, ownerKey })
+  const current = readComposerDraftsFile(target).store
+  const existing = current.drafts[request.ownerKey]
+  const legacy = current.drafts[request.legacyOwnerKey]
+  if (existing) {
+    if (!legacy) return existing
+    const drafts = { ...current.drafts }
+    delete drafts[request.legacyOwnerKey]
+    writeComposerDraftsFile(target, { ...current, drafts })
+    return existing
+  }
+  if (!legacy) return null
+  const migrated = composerDraftSchema.parse({ ...legacy, ownerKey: request.ownerKey })
+  const drafts = { ...current.drafts, [request.ownerKey]: migrated }
+  delete drafts[request.legacyOwnerKey]
+  writeComposerDraftsFile(target, { ...current, drafts })
+  return migrated
+}
+
 export function initComposerDraftsIpc(): void {
   ipcMain.handle('composer-drafts:read', (_, ownerKey: unknown) => (
     readComposerDraft(composerDraftOwnerKeySchema.parse(ownerKey))
@@ -134,4 +159,8 @@ export function initComposerDraftsIpc(): void {
   ipcMain.handle('composer-drafts:delete', (_, ownerKey: unknown) => (
     deleteComposerDraft(composerDraftOwnerKeySchema.parse(ownerKey))
   ))
+  ipcMain.handle('composer-drafts:migrate', (_, raw: unknown) => {
+    const request = composerDraftMigrationSchema.parse(raw)
+    return migrateComposerDraft(request.legacyOwnerKey, request.ownerKey)
+  })
 }

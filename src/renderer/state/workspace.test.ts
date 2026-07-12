@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { bindWorkspaceWindowThread, chatWindowForExecutionContext, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { bindWorkspaceWindowThread, chatWindowForExecutionContext, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, rebindWorkspaceWindowExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -102,6 +102,18 @@ describe('workspace execution identity', () => {
     expect(rebound).toMatchObject({ threadId: 'thread-2', bindingRevision: 2 })
   })
 
+  it('updates the durable session target when a task changes execution location', () => {
+    const rebound = rebindWorkspaceWindowExecutionContext(
+      { id: 'chat', type: 'chat', title: 'Chat', sessionTarget: 'worktree', bindingRevision: 2 },
+      {
+        projectId: 'project', taskId: 'task', checkoutId: 'local', worktreeId: 'worktree',
+        checkoutPath: '/repo', sessionTarget: 'local',
+      },
+    )
+
+    expect(rebound).toMatchObject({ checkoutId: 'local', sessionTarget: 'local', bindingRevision: 3 })
+  })
+
   it('creates an unbound local context for a new session', () => {
     expect(localProjectExecutionContext({ id: 'project', path: '/repo', localCheckoutId: 'local' })).toEqual({
       projectId: 'project',
@@ -109,6 +121,7 @@ describe('workspace execution identity', () => {
       checkoutId: 'local',
       worktreeId: null,
       checkoutPath: '/repo',
+      sessionTarget: 'local',
     })
   })
 

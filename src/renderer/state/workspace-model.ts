@@ -34,6 +34,7 @@ export function createBoundWorkspaceWindow(
     projectId: context.projectId,
     taskId: context.taskId,
     checkoutId: context.checkoutId,
+    ...(context.sessionTarget ? { sessionTarget: context.sessionTarget } : {}),
     bindingRevision: 0,
   }
 }
@@ -58,6 +59,7 @@ export function rebindWorkspaceWindowExecutionContext(
     projectId: context.projectId,
     taskId: context.taskId,
     checkoutId: context.checkoutId,
+    ...(context.sessionTarget ? { sessionTarget: context.sessionTarget } : {}),
     bindingRevision: nextBindingRevision(window),
   }
 }
@@ -69,6 +71,7 @@ export function localProjectExecutionContext(project: { id: string; path: string
     checkoutId: project.localCheckoutId ?? `local:${project.id}`,
     worktreeId: null,
     checkoutPath: project.path,
+    sessionTarget: 'local',
   }
 }
 

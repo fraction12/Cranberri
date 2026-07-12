@@ -28,11 +28,22 @@ const api = {
       ipcRenderer.on('app:persistence-flush-request', handler)
       return () => ipcRenderer.off('app:persistence-flush-request', handler)
     },
+    onPersistenceFlushFailure: (cb: (failure: import('@/shared/appState').PersistenceFlushFailure) => void) => {
+      const handler = (_: unknown, failure: import('@/shared/appState').PersistenceFlushFailure) => cb(failure)
+      ipcRenderer.on('app:persistence-flush-failed', handler)
+      return () => ipcRenderer.off('app:persistence-flush-failed', handler)
+    },
+    forceClose: (reason: import('@/shared/appState').PersistenceFlushRequest['reason']): Promise<{ ok: true }> => (
+      ipcRenderer.invoke('app:persistence-force-close', reason)
+    ),
   },
   composerDrafts: {
     read: (ownerKey: string): Promise<import('@/shared/composer-drafts').ComposerDraft | null> => ipcRenderer.invoke('composer-drafts:read', ownerKey),
     write: (draft: import('@/shared/composer-drafts').ComposerDraft): Promise<import('@/shared/composer-drafts').ComposerDraft> => ipcRenderer.invoke('composer-drafts:write', draft),
     delete: (ownerKey: string): Promise<{ ok: true }> => ipcRenderer.invoke('composer-drafts:delete', ownerKey),
+    migrate: (legacyOwnerKey: string, ownerKey: string): Promise<import('@/shared/composer-drafts').ComposerDraft | null> => (
+      ipcRenderer.invoke('composer-drafts:migrate', { legacyOwnerKey, ownerKey })
+    ),
   },
   recovery: {
     read: () => ipcRenderer.invoke('recovery:read') as Promise<import('@/shared/recovery').StartupRecoveryReport | null>,

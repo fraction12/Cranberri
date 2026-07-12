@@ -1,6 +1,7 @@
 import type { Checkout, Project } from '@/shared/projects'
 import type { Task } from '@/shared/tasks'
 import type { WorkspaceWindowState } from '@/shared/appState'
+import type { SessionExecutionTarget } from '@/shared/appState'
 
 export interface TaskExecutionContext {
   projectId: string
@@ -8,6 +9,7 @@ export interface TaskExecutionContext {
   checkoutId: string
   worktreeId: string | null
   checkoutPath: string
+  sessionTarget?: SessionExecutionTarget
 }
 
 export interface UnavailableExecutionContext {
@@ -62,6 +64,7 @@ export function resolveTaskExecutionContext(
       checkoutId: checkout.id,
       worktreeId: task?.worktreeId ?? null,
       checkoutPath: checkout.canonicalPath,
+      sessionTarget: task?.location ?? 'local',
     },
   }
 }
@@ -75,5 +78,6 @@ export function bindWindowExecutionContext(
     projectId: context.projectId,
     taskId: context.taskId,
     checkoutId: context.checkoutId,
+    ...(context.sessionTarget ? { sessionTarget: context.sessionTarget } : {}),
   }
 }

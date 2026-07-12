@@ -28,6 +28,7 @@ import {
   composerDraftsBackupPath,
   deleteComposerDraft,
   initComposerDraftsIpc,
+  migrateComposerDraft,
   readComposerDraft,
   readComposerDraftsFile,
   writeComposerDraft,
@@ -188,6 +189,24 @@ describe('composer draft persistence', () => {
     expect(readComposerDraft(first.ownerKey, target)).toBeNull()
     expect(readComposerDraft(other.ownerKey, target)).toEqual(other)
     expect(fs.existsSync(target)).toBe(true)
+  })
+
+  it('atomically moves a legacy thread draft to its window owner', () => {
+    const target = draftsPath()
+    const legacy = draft({ ownerKey: 'project-1/thread%3Athread-1' })
+    const ownerKey = 'project-1/window%3Awindow-1'
+    writeComposerDraft(legacy, target)
+
+    const migrated = migrateComposerDraft(legacy.ownerKey, ownerKey, target)
+
+    expect(migrated).toEqual({ ...legacy, ownerKey })
+    expect(readComposerDraft(legacy.ownerKey, target)).toBeNull()
+    expect(readComposerDraft(ownerKey, target)).toEqual(migrated)
+    expect(migrateComposerDraft(legacy.ownerKey, ownerKey, target)).toEqual(migrated)
+
+    writeComposerDraft(legacy, target)
+    expect(migrateComposerDraft(legacy.ownerKey, ownerKey, target)).toEqual(migrated)
+    expect(readComposerDraft(legacy.ownerKey, target)).toBeNull()
   })
 
   it('bounds persisted text, metadata, arrays, context inputs, and pending-send identifiers', () => {

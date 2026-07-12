@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   firstTurnIdempotencyKey,
   firstTurnRecoveryAction,
+  persistedFirstTurnState,
   taskFirstTurnIdempotencyKey,
   withFirstTurnIdempotencyKey,
   withoutFirstTurnIdempotencyKey,
@@ -50,11 +51,25 @@ describe('first-turn idempotency', () => {
     const tagged = withFirstTurnIdempotencyKey([{ type: 'text', text: 'Ship it' }], 'send-1')
     const sending = task({ pendingFirstTurn: { payload: { input: tagged }, delivery: 'sending' } })
 
-    expect(firstTurnRecoveryAction(sending, tagged, 0)).toBe('send')
-    expect(firstTurnRecoveryAction(sending, tagged, 1)).toBe('acknowledge')
+    expect(firstTurnRecoveryAction(sending, tagged, 'empty')).toBe('send')
+    expect(firstTurnRecoveryAction(sending, tagged, 'matching')).toBe('acknowledge')
+    expect(firstTurnRecoveryAction(sending, tagged, 'conflicting')).toBe('needsAttention')
     expect(firstTurnRecoveryAction(task({
       pendingFirstTurn: { payload: { input: tagged }, delivery: 'acknowledged' },
-    }), tagged, 1)).toBe('alreadyAcknowledged')
-    expect(firstTurnRecoveryAction(task({ firstTurnIdempotencyKey: 'send-1' }), tagged, 1)).toBe('alreadyAcknowledged')
+    }), tagged, 'matching')).toBe('alreadyAcknowledged')
+    expect(firstTurnRecoveryAction(task({ firstTurnIdempotencyKey: 'send-1' }), tagged, 'matching')).toBe('alreadyAcknowledged')
+  })
+
+  it('acknowledges only a single persisted turn with the expected user payload', () => {
+    const tagged = withFirstTurnIdempotencyKey([{ type: 'text', text: 'Ship it' }], 'send-1')
+    const turn = (text: string) => ({
+      id: 'turn-1',
+      items: [{ id: 'user-1', type: 'userMessage', content: [{ type: 'text', text }] }],
+    })
+
+    expect(persistedFirstTurnState([], tagged)).toBe('empty')
+    expect(persistedFirstTurnState([turn('Ship it')], tagged)).toBe('matching')
+    expect(persistedFirstTurnState([turn('Something else')], tagged)).toBe('conflicting')
+    expect(persistedFirstTurnState([turn('Ship it'), turn('Follow-up')], tagged)).toBe('conflicting')
   })
 })

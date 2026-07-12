@@ -50,9 +50,11 @@ export const DEFAULT_APP_STATE: CranberriAppState = {
   pinnedCodexSessionsByProjectId: {},
 }
 
+export const persistenceFlushReasonSchema = z.enum(['window-close', 'app-quit'])
+
 export const persistenceFlushRequestSchema = z.object({
   requestId: z.string().min(1).max(512),
-  reason: z.enum(['window-close', 'app-quit']),
+  reason: persistenceFlushReasonSchema,
 }).strict()
 
 export const persistenceFlushAcknowledgementSchema = z.object({
@@ -60,5 +62,11 @@ export const persistenceFlushAcknowledgementSchema = z.object({
   errorMessage: z.string().max(10_000).nullable(),
 }).strict()
 
+export const persistenceFlushFailureSchema = z.object({
+  reason: persistenceFlushReasonSchema,
+  message: z.string().min(1).max(10_000),
+}).strict()
+
 export type PersistenceFlushRequest = z.infer<typeof persistenceFlushRequestSchema>
 export type PersistenceFlushAcknowledgement = z.infer<typeof persistenceFlushAcknowledgementSchema>
+export type PersistenceFlushFailure = z.infer<typeof persistenceFlushFailureSchema>

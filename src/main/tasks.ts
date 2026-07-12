@@ -370,6 +370,15 @@ export class TaskCoordinator {
     })
   }
 
+  async resetMissingPendingThread(taskId: string): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (!task.pendingFirstTurn) throw new Error('Task has no pending first turn')
+    return this.patchTask(taskId, {
+      threadId: null,
+      pendingFirstTurn: { ...task.pendingFirstTurn, delivery: 'pending' },
+    })
+  }
+
   async acknowledgePendingTurn(taskId: string): Promise<Task> {
     const task = this.requireTask(taskId)
     if (!task.pendingFirstTurn) return task

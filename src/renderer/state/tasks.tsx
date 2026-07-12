@@ -153,7 +153,14 @@ export function reduceTaskCatalogSnapshot(
 export function taskExecutionContext(task: Task, checkouts: Checkout[]): TaskExecutionContext | null {
   const checkout = checkouts.find((candidate) => candidate.id === task.checkoutId && candidate.projectId === task.projectId)
   if (!checkout?.available) return null
-  return { projectId: task.projectId, taskId: task.id, checkoutId: checkout.id, worktreeId: task.worktreeId, checkoutPath: checkout.canonicalPath }
+  return {
+    projectId: task.projectId,
+    taskId: task.id,
+    checkoutId: checkout.id,
+    worktreeId: task.worktreeId,
+    checkoutPath: checkout.canonicalPath,
+    sessionTarget: task.location,
+  }
 }
 
 function waitForEnvironmentJob(job: EnvironmentJob, onUpdate: (job: EnvironmentJob) => void): Promise<EnvironmentJob> {

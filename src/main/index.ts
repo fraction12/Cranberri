@@ -22,6 +22,8 @@ import { initEnvironmentIpc } from './environments/ipc'
 import { initStartupRecoveryIpc } from './startup-recovery'
 import {
   persistenceFlushAcknowledgementSchema,
+  persistenceFlushFailureSchema,
+  persistenceFlushReasonSchema,
   persistenceFlushRequestSchema,
   type PersistenceFlushRequest,
 } from '../shared/appState'
@@ -86,6 +88,18 @@ export class RendererPersistenceFlushCoordinator {
 }
 
 const persistenceFlushCoordinator = new RendererPersistenceFlushCoordinator()
+
+function reportPersistenceFlushFailure(
+  win: BrowserWindow,
+  reason: PersistenceFlushRequest['reason'],
+  error: unknown,
+): void {
+  const failure = persistenceFlushFailureSchema.parse({
+    reason,
+    message: error instanceof Error ? error.message : 'Workspace persistence failed',
+  })
+  if (!win.webContents.isDestroyed()) win.webContents.send('app:persistence-flush-failed', failure)
+}
 
 if (process.env.CRANBERRI_USER_DATA_DIR) {
   app.setPath('userData', process.env.CRANBERRI_USER_DATA_DIR)
@@ -220,7 +234,10 @@ function createWindow(): void {
         allowWindowClose = true
         win.close()
       })
-      .catch((error) => console.error('[persistence] window close blocked:', error))
+      .catch((error) => {
+        console.error('[persistence] window close blocked:', error)
+        reportPersistenceFlushFailure(win, 'window-close', error)
+      })
       .finally(() => { windowCloseInFlight = false })
   })
 
@@ -264,6 +281,20 @@ if (ownsApplicationInstance) app.whenReady().then(async () => {
     if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized persistence flush acknowledgement')
     return persistenceFlushCoordinator.acknowledge(raw)
   })
+  ipcMain.handle('app:persistence-force-close', (event, raw: unknown) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized persistence close request')
+    const reason = persistenceFlushReasonSchema.parse(raw)
+    if (reason === 'app-quit') {
+      allowAppQuit = true
+      allowWindowClose = true
+      stopCodexClient()
+      app.quit()
+    } else if (mainWindow) {
+      allowWindowClose = true
+      mainWindow.close()
+    }
+    return { ok: true }
+  })
   initTelemetryIpc()
   initUpdaterIpc()
   createWindow()
@@ -299,6 +330,9 @@ app.on('before-quit', (event) => {
       stopCodexClient()
       app.quit()
     })
-    .catch((error) => console.error('[persistence] app quit blocked:', error))
+    .catch((error) => {
+      console.error('[persistence] app quit blocked:', error)
+      reportPersistenceFlushFailure(win, 'app-quit', error)
+    })
     .finally(() => { appQuitInFlight = false })
 })

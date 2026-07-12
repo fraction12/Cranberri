@@ -65,6 +65,7 @@ describe('task execution context', () => {
         checkoutId: checkout.id,
         worktreeId: task.worktreeId,
         checkoutPath: checkout.canonicalPath,
+        sessionTarget: 'worktree',
       },
     })
   })
@@ -99,6 +100,7 @@ describe('task execution context', () => {
         checkoutId: localCheckout.id,
         worktreeId: null,
         checkoutPath: localCheckout.canonicalPath,
+        sessionTarget: 'local',
       },
     })
   })
