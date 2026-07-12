@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { StartupRecoveryReport, WindowRecoveryOutcome } from '@/shared/recovery'
 import { StartupRecoveryNotice } from '../components/chat/StartupRecoveryNotice'
-import { startupRecoverySummary, visibleWindowRecoveryOutcome, windowRecoveryNotice } from './recovery'
+import {
+  recoveryAllowsUpdateHealth,
+  startupRecoverySummary,
+  visibleWindowRecoveryOutcome,
+  windowRecoveryNotice,
+} from './recovery'
 
 const BASE_WINDOW: WindowRecoveryOutcome = {
   windowId: 'chat-1',
@@ -110,5 +115,22 @@ describe('startup recovery window mapping', () => {
       reason: 'threadUnchecked',
       threadStatus: 'unchecked',
     }))).toBeNull()
+  })
+
+  it('allows updater health only after safe recovery outcomes', () => {
+    expect(recoveryAllowsUpdateHealth(null)).toBe(false)
+    expect(recoveryAllowsUpdateHealth(reportWith({ ...BASE_WINDOW, status: 'ready', reason: 'none' }))).toBe(true)
+    expect(recoveryAllowsUpdateHealth(reportWith({
+      ...BASE_WINDOW,
+      status: 'retryable',
+      reason: 'threadUnchecked',
+      threadStatus: 'unchecked',
+    }))).toBe(true)
+    expect(recoveryAllowsUpdateHealth(reportWith({
+      ...BASE_WINDOW,
+      status: 'retryable',
+      reason: 'interruptedOperation',
+    }))).toBe(false)
+    expect(recoveryAllowsUpdateHealth(reportWith(BASE_WINDOW))).toBe(false)
   })
 })

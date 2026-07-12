@@ -123,6 +123,16 @@ export function startupRecoverySummary(report: StartupRecoveryReport | null): St
   }
 }
 
+export function recoveryAllowsUpdateHealth(report: StartupRecoveryReport | null): boolean {
+  if (!report) return false
+  const settled = (status: WindowRecoveryOutcome['status']) => status === 'ready' || status === 'repaired'
+  if (!settled(report.appState.status) || !settled(report.taskStore.status)) return false
+  return report.windows.every((outcome) => (
+    settled(outcome.status)
+    || (outcome.status === 'retryable' && isQuietThreadVerification(outcome))
+  ))
+}
+
 const RecoveryContext = createContext<RecoveryApi | null>(null)
 
 export function RecoveryProvider({ children }: { children: React.ReactNode }) {

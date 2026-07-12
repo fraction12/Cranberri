@@ -92,6 +92,7 @@ function rollback(manifest, cause) {
       if (fs.existsSync(manifest.currentAppPath)) preserveResidual(manifest.currentAppPath, manifest.installId)
       fs.renameSync(manifest.backupAppPath, manifest.currentAppPath)
     }
+    if (fs.existsSync(manifest.candidateAppPath)) preserveResidual(manifest.candidateAppPath, manifest.installId)
     journal(manifest, 'rolledBack', cause.message)
   } catch (error) {
     rollbackError = error instanceof Error ? error.message : String(error)

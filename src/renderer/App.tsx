@@ -8,7 +8,7 @@ import type { SettingsTabValue } from './components/SettingsDialog'
 import { AppToaster } from './components/AppToaster'
 import { UpdateResultToast } from './components/UpdateResultToast'
 import { useRepoWatchInvalidation } from './state/search'
-import { RecoveryProvider, useRecovery } from './state/recovery'
+import { RecoveryProvider, recoveryAllowsUpdateHealth, useRecovery } from './state/recovery'
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
 import { TooltipProvider } from './components/ui/Tooltip'
 
@@ -81,11 +81,11 @@ function AppShell() {
   const rightRailWidthRef = useRef(rightRailWidth)
 
   useEffect(() => {
-    if (!recovery.loaded) return
+    if (!recovery.loaded || !recoveryAllowsUpdateHealth(recovery.report)) return
     void window.cranberri.update.acknowledgeHealth().catch((error) => {
       console.error('Failed to acknowledge updater health:', error)
     })
-  }, [recovery.loaded])
+  }, [recovery.loaded, recovery.report])
 
   useEffect(() => window.cranberri.update.onFlushRequest(({ requestId }) => {
     const writes: Promise<unknown>[] = []

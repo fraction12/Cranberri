@@ -500,9 +500,9 @@ function requestRendererFlush(timeoutMs = 5_000): Promise<void> {
   })
 }
 
-async function acknowledgeInstalledCandidate(): Promise<void> {
+async function acknowledgeInstalledCandidate(): Promise<boolean> {
   const journalPath = getUserData('updater-journal.json')
-  if (!fs.existsSync(journalPath)) return
+  if (!fs.existsSync(journalPath)) return false
   try {
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
       phase?: unknown
@@ -513,8 +513,8 @@ async function acknowledgeInstalledCandidate(): Promise<void> {
     if (journal.phase !== 'relaunching'
       || typeof journal.backupAppPath !== 'string'
       || typeof journal.currentAppPath !== 'string'
-      || typeof journal.installId !== 'string') return
-    if (path.resolve(journal.currentAppPath) !== path.resolve(getCurrentAppPath())) return
+      || typeof journal.installId !== 'string') return false
+    if (path.resolve(journal.currentAppPath) !== path.resolve(getCurrentAppPath())) return false
     const acknowledged = {
       ...journal,
       phase: 'healthAcknowledged',
@@ -523,9 +523,17 @@ async function acknowledgeInstalledCandidate(): Promise<void> {
     const temporary = `${journalPath}.${process.pid}.tmp`
     fs.writeFileSync(temporary, JSON.stringify(acknowledged, null, 2), { mode: 0o600 })
     fs.renameSync(temporary, journalPath)
-    if (fs.existsSync(journal.backupAppPath)) await shell.trashItem(journal.backupAppPath)
+    if (fs.existsSync(journal.backupAppPath)) {
+      try {
+        await shell.trashItem(journal.backupAppPath)
+      } catch (error) {
+        console.error('Failed to remove acknowledged updater backup:', error)
+      }
+    }
+    return true
   } catch (error) {
     console.error('Failed to acknowledge updater health:', error)
+    return false
   }
 }
 
@@ -786,9 +794,11 @@ export function initUpdaterIpc(): void {
   })
 
   ipcMain.handle('updater:ack-health', async () => {
-    await acknowledgeInstalledCandidate()
-    setStatus({ status: 'upToDate', phase: null, phaseMessage: null, failedPhase: null, failureMessage: null })
-    return { ok: true }
+    const acknowledged = await acknowledgeInstalledCandidate()
+    if (acknowledged) {
+      setStatus({ status: 'upToDate', phase: null, phaseMessage: null, failedPhase: null, failureMessage: null })
+    }
+    return { ok: acknowledged }
   })
 
   ipcMain.handle('updater:clear-result', async () => {

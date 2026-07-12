@@ -49,6 +49,7 @@ describe('atomic updater helper', () => {
       await expect(installFromManifest(manifest, { relaunch: false })).rejects.toThrow(/Injected updater failure/)
       expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('old')
       expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('rolledBack')
+      expect(fs.existsSync(manifest.candidateAppPath)).toBe(false)
     })
   }
 })
