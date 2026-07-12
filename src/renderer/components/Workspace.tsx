@@ -22,6 +22,7 @@ import type { CodexUserInput } from '@/shared/codex'
 import { useOptionalTasks } from '../state/tasks'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, codexThreadIdForActiveWindow } from '../state/workspace-model'
 import { registerChatContextWorkspace, sendChatContextSafely } from '../state/chat-context-command'
+import { handleTabListKeyDown } from '../lib/tab-navigation'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -254,6 +255,17 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
     setTerminalCloseTarget(null)
   }, [closeWindow, terminalCloseTarget])
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'w' || !activeWindowId) return
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="dialog"][aria-modal="true"]')) return
+      event.preventDefault()
+      closeWorkspaceWindow(activeWindowId)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activeWindowId, closeWorkspaceWindow])
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div className="relative z-10 flex h-9 shrink-0 items-center gap-1 bg-app-surface px-1.5 shadow-sm">
@@ -264,6 +276,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
             role="tablist"
             aria-label="Workspace tabs"
             onScroll={syncTabOverflow}
+            onKeyDown={handleTabListKeyDown}
           >
             {windows.map((win) => {
               const active = activeWindowId === win.id
@@ -280,6 +293,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
                     type="button"
                     role="tab"
                     aria-selected={active}
+                    tabIndex={active ? 0 : -1}
                     aria-label={`Switch to ${win.title}`}
                     onClick={() => setActiveWindow(win.id)}
                     className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-2 pr-1"
@@ -290,6 +304,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
                   <button
                     type="button"
                     aria-label={`Close ${win.title}`}
+                    tabIndex={-1}
                     onClick={() => closeWorkspaceWindow(win.id)}
                     className={cn(
                       'mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-app-text-subtle transition-opacity hover:bg-app-border/70 hover:text-app-text',

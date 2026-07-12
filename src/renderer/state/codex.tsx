@@ -23,6 +23,7 @@ import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
 import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
 import type { Task } from '@/shared/tasks'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT } from './workspace-model'
+import { invalidateSessions } from './session-invalidation'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
@@ -243,9 +244,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
           const repoPath = e.worker.cwd
             ?? (parent ? reposRef.current.find((repo) => repo.id === parent.repoId)?.path : undefined)
           if (repoPath) {
-            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
-              detail: { repoPath, threadId: e.threadId },
-            }))
+            invalidateSessions({ repoPath, threadId: e.threadId })
           }
         }
         return
@@ -467,7 +466,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setThreads((prev) => [...prev, thread])
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
     publishWindowThreadBinding(windowId, threadId, activeRepo.id)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
+    invalidateSessions({ projectId: activeRepo.id, repoPath: activeRepo.path, threadId })
     if (initialContent) {
       try {
         await window.cranberri.codex.sendMessage(activeRepo.path, threadId, initialInput ?? [{ type: 'text', text: initialContent }], settings)
@@ -798,7 +797,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (task) await window.cranberri.tasks.archive(task.id)
     else await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
@@ -810,7 +809,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
     if (task) await window.cranberri.tasks.unarchive(task.id)
     else await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    invalidateSessions({ repoPath: targetRepoPath, threadId })
   }, [activeRepo])
 
   const deleteSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
@@ -821,7 +820,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (task) await window.cranberri.tasks.delete(task.id)
     else await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWorkersByParent((current) => {
       const { [threadId]: removed, ...rest } = current
@@ -835,7 +834,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
     await window.cranberri.codex.renameThread(targetRepoPath, threadId, name)
-    window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.map((thread) => thread.id === threadId ? { ...thread, title: name } : thread))
   }, [activeRepo])
 

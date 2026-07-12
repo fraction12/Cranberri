@@ -10,7 +10,7 @@ import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/code
 import { useAppState } from '../state/appState'
 import { refreshToolCatalogQueries, useRecentToolEvents } from '../state/tools'
 import { pinnedSessionIds as pinnedIdsFromState, pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
-import { actionSearchText, buildActiveThreadMessageActions, buildAppActions, buildFileSearchActions, buildGitHubItemActions, filterAppActions, type AppAction, type AppActionGroup, type AppActionIcon, type LatestRepoChangesContext, type LatestRepoFileContext, type LatestTerminalContext } from '../state/actions'
+import { actionSearchText, actionSuccessMessage, buildActiveThreadMessageActions, buildAppActions, buildFileSearchActions, buildGitHubItemActions, filterAppActions, type AppAction, type AppActionGroup, type AppActionIcon, type LatestRepoChangesContext, type LatestRepoFileContext, type LatestTerminalContext } from '../state/actions'
 import { createOpenRightRailFileEvent } from './right-rail/right-rail-file-events'
 import { createOpenRightRailCommandEvent } from './right-rail/right-rail-command-events'
 import { RIGHT_RAIL_ACTIVE_FILE_EVENT, rightRailActiveFileFromEvent } from './right-rail/right-rail-active-file-events'
@@ -1486,7 +1486,8 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     actionQueueRef.current = actionQueueRef.current
       .then(async () => {
         const result = await action.run()
-        if (result !== false) toast.success(action.label)
+        const successMessage = actionSuccessMessage(action, result)
+        if (successMessage) toast.success(successMessage)
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : `Failed to run ${action.label}`)

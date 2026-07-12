@@ -16,6 +16,7 @@ import { useRepos } from '../state/repos'
 import { useRecovery } from '../state/recovery'
 import { composerDraftOwnerKey, useComposerDraftController } from '../state/composer-drafts'
 import { registerChatContextTarget, type ChatContextPayload } from '../state/chat-context-command'
+import { invalidateSessions } from '../state/session-invalidation'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
@@ -54,6 +55,7 @@ import { DraftSessionHeader } from './chat/DraftSessionHeader'
 import { TaskHeader } from './chat/TaskHeader'
 import { TaskSetupStatus } from './chat/TaskSetupStatus'
 import { StartupRecoveryNotice } from './chat/StartupRecoveryNotice'
+import { PromptDialog } from './PromptDialog'
 import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import {
@@ -202,6 +204,9 @@ export function ChatWindow({ id }: { id: string }) {
   const [composerInset, setComposerInset] = useState(188)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
+  const [handoffPrompt, setHandoffPrompt] = useState<{ taskId: string; location: 'local' | 'worktree'; branch: string } | null>(null)
+  const [handoffBusy, setHandoffBusy] = useState(false)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const composerEditorRef = useRef<ComposerEditorHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
@@ -633,7 +638,7 @@ export function ChatWindow({ id }: { id: string }) {
               renameWindow(id, hydrated.title)
             })
           }
-          window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: taskProject.id } }))
+          invalidateSessions({ projectId: taskProject.id })
         } else {
           await createThread(id, message.displayText, turnSettings, message.input)
         }
@@ -906,10 +911,12 @@ export function ChatWindow({ id }: { id: string }) {
             }
             return
           }
-          const branch = window.prompt('Branch for Local testing', activeTask.baseRef?.replace(/^refs\/(heads|remotes)\//, '') ?? `codex/task-${activeTask.id.slice(0, 8)}`)
-          if (!branch || !tasks) return
-          if (activeTask.location === 'worktree') await tasks.handoffToLocal({ taskId: activeTask.id, branch, createBranch: true })
-          else await tasks.handoffToWorktree({ taskId: activeTask.id, branch })
+          setHandoffError(null)
+          setHandoffPrompt({
+            taskId: activeTask.id,
+            location: activeTask.location,
+            branch: activeTask.baseRef?.replace(/^refs\/(heads|remotes)\//, '') ?? `codex/task-${activeTask.id.slice(0, 8)}`,
+          })
         }}
         onRetrySetup={activeTask.state === 'failed' && activeTask.environmentRevision ? async () => {
           try { await tasks?.retrySetup(activeTask.id); toast.success('Environment ready') } catch (error) { toast.error(errorMessage(error)) }
@@ -917,14 +924,14 @@ export function ChatWindow({ id }: { id: string }) {
         onArchive={isRunning ? undefined : async () => {
           try {
             await tasks?.archive(activeTask.id)
-            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: activeTask.projectId } }))
+            invalidateSessions({ projectId: activeTask.projectId })
             toast.success('Session archived')
           } catch (error) { toast.error(errorMessage(error)) }
         }}
         onUnarchive={async () => {
           try {
             await tasks?.unarchive(activeTask.id)
-            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: activeTask.projectId } }))
+            invalidateSessions({ projectId: activeTask.projectId })
             toast.success('Session restored')
           } catch (error) { toast.error(errorMessage(error)) }
         }}
@@ -943,6 +950,33 @@ export function ChatWindow({ id }: { id: string }) {
         onIncludeLocalChanges={setIncludeLocalChanges}
         onRetry={() => { void loadTaskTargets(true) }}
       /> : null}
+      {handoffPrompt && <PromptDialog
+        title={handoffPrompt.location === 'worktree' ? 'Test branch in Local?' : 'Move branch to a worktree?'}
+        description={handoffPrompt.location === 'worktree'
+          ? 'Cranberri will check out this branch in the pinned Local workspace.'
+          : 'Cranberri will continue this branch in its managed worktree.'}
+        label="Branch"
+        initialValue={handoffPrompt.branch}
+        confirmLabel="Continue"
+        busy={handoffBusy}
+        error={handoffError}
+        onCancel={() => { setHandoffPrompt(null); setHandoffError(null) }}
+        onConfirm={(branch) => {
+          if (!tasks || handoffBusy) return
+          setHandoffBusy(true)
+          setHandoffError(null)
+          const operation = handoffPrompt.location === 'worktree'
+            ? tasks.handoffToLocal({ taskId: handoffPrompt.taskId, branch, createBranch: true })
+            : tasks.handoffToWorktree({ taskId: handoffPrompt.taskId, branch })
+          void operation
+            .then(() => setHandoffPrompt(null))
+            .catch((error) => {
+              console.error('Task handoff failed:', error)
+              setHandoffError('The branch could not be moved. Review the checkout and try again.')
+            })
+            .finally(() => setHandoffBusy(false))
+        }}
+      />}
       {recoveryNotice && <StartupRecoveryNotice notice={recoveryNotice} />}
       <div className="relative flex-1 overflow-hidden">
         <div

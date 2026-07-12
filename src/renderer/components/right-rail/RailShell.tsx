@@ -4,6 +4,7 @@ import { ProcessesPanel } from './ProcessesPanel'
 import { ToolsPanel } from './ToolsPanel'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { handleTabListKeyDown } from '../../lib/tab-navigation'
 
 export type RightRailTab = 'files' | 'diff' | 'agents'
 export type BottomPanelKind = 'issue' | 'processes' | 'github' | 'tools'
@@ -28,7 +29,7 @@ interface BottomPanelNavProps {
 
 export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailTabsProps) {
   return (
-    <div className="grid h-10 shrink-0 grid-cols-3 gap-1 bg-app-surface p-1" role="tablist" aria-label="Right rail">
+    <div className="grid h-10 shrink-0 grid-cols-3 gap-1 bg-app-surface p-1" role="tablist" aria-label="Right rail" onKeyDown={handleTabListKeyDown}>
       <TabButton
         active={activeTab === 'files'}
         onClick={() => onSelectTab('files')}
@@ -140,6 +141,7 @@ function TabButton({
       id={`right-rail-${tab}-tab`}
       aria-controls={`right-rail-${tab}-panel`}
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
       aria-label={accessibleLabel}
       title={accessibleLabel}
       className={cn(

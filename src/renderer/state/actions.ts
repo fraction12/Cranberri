@@ -80,7 +80,13 @@ export interface AppAction {
   description?: string
   keywords: string[]
   disabledReason?: string
+  feedback?: 'none' | { success: string }
   run: () => unknown | Promise<unknown>
+}
+
+export function actionSuccessMessage(action: AppAction, result: unknown): string | null {
+  if (result === false || action.feedback === 'none') return null
+  return action.feedback?.success ?? action.label
 }
 
 export interface BuildAppActionsInput {
@@ -2182,7 +2188,15 @@ export function buildAppActions({
     })
   }
 
-  return actions
+  return actions.map((action) => (
+    action.id.startsWith('workspace:')
+    || action.id.startsWith('window:')
+    || action.id.startsWith('system:')
+    || action.id.startsWith('rail:')
+    || action.id.startsWith('repo:')
+      ? { ...action, feedback: 'none' as const }
+      : action
+  ))
 }
 
 function codexThreadAsSessionSummary(thread: CodexThread): CodexSessionSummary {

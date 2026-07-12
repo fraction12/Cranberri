@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
-import { actionMatchesQuery, buildActiveThreadMessageActions, buildAppActions, buildFileSearchActions, buildGitHubItemActions, filterAppActions } from './actions'
+import { actionMatchesQuery, actionSuccessMessage, buildActiveThreadMessageActions, buildAppActions, buildFileSearchActions, buildGitHubItemActions, filterAppActions } from './actions'
 
 describe('app actions', () => {
+  it('keeps navigation quiet while allowing explicit mutation feedback', () => {
+    const base = { id: 'action', group: 'system' as const, icon: 'settings' as const, label: 'Open settings', keywords: [], run: vi.fn() }
+    expect(actionSuccessMessage({ ...base, feedback: 'none' }, undefined)).toBeNull()
+    expect(actionSuccessMessage({ ...base, feedback: { success: 'Settings saved' } }, undefined)).toBe('Settings saved')
+    expect(actionSuccessMessage(base, false)).toBeNull()
+  })
+
   it('matches action queries across labels, descriptions, and keywords', () => {
     const action = {
       label: 'New browser',

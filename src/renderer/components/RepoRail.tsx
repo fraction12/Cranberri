@@ -11,6 +11,7 @@ import { useWorkspace } from '../state/workspace'
 import { localProjectExecutionContext } from '../state/workspace-model'
 import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
 import { codexThreadSummary } from '../state/session-search'
+import { invalidateSessions, sessionInvalidationMatches, subscribeSessionInvalidation } from '../state/session-invalidation'
 import { UsageMeter } from './UsageMeter'
 import { ConfirmDialog } from './ConfirmDialog'
 import { mergeHydratedPinnedSessions, shouldAutoLoadRepoSessions } from './repo-sessions-state'
@@ -249,16 +250,13 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   }, [loaded, loadError, loading, refresh])
 
   useEffect(() => {
-    const onSessionsChanged = (event: Event) => {
+    return subscribeSessionInvalidation((invalidation) => {
       if (!loaded) return
-      const changedRepoPath = (event as CustomEvent).detail?.repoPath
-      if (!changedRepoPath || changedRepoPath === repoPath) {
+      if (sessionInvalidationMatches(invalidation, projectId, repoPath)) {
         refresh().catch((error) => console.error('Failed to refresh Codex sessions:', error))
       }
-    }
-    window.addEventListener('cranberri:codex-sessions-changed', onSessionsChanged)
-    return () => window.removeEventListener('cranberri:codex-sessions-changed', onSessionsChanged)
-  }, [loaded, refresh, repoPath])
+    })
+  }, [loaded, projectId, refresh, repoPath])
 
   const archive = async (session: CodexSessionSummary) => {
     try {
@@ -285,9 +283,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       if (task) {
         await window.cranberri.tasks.unarchive(task.id)
         await tasksApi?.refresh()
-        window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
-          detail: { projectId, repoPath, threadId: session.id },
-        }))
+        invalidateSessions({ projectId, repoPath, threadId: session.id })
       } else {
         await unarchiveSession(session.id, repoPath)
       }
@@ -351,9 +347,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
     setRenameError(null)
     try {
       await renameSession(renameTarget.id, name, repoPath)
-      window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
-        detail: { projectId, repoPath, threadId: renameTarget.id },
-      }))
+      invalidateSessions({ projectId, repoPath, threadId: renameTarget.id })
       setRecent((prev) => prev.map((item) => item.id === renameTarget.id ? { ...item, title: name } : item))
       setArchived((prev) => prev.map((item) => item.id === renameTarget.id ? { ...item, title: name } : item))
       setRenameTarget(null)

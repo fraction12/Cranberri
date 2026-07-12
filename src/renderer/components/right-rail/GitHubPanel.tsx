@@ -21,6 +21,7 @@ import { githubItemChatContext, githubPanelChatContext } from '../github-chat-co
 import { githubPanelBadges } from './github-panel-model'
 import { loadGitHubPanelData, loadGitHubSummary } from './github-panel-route'
 import { typeStyle } from '../../lib/typography'
+import { handleTabListKeyDown } from '../../lib/tab-navigation'
 
 interface GitHubPanelProps {
   repoPath: string | null
@@ -143,13 +144,14 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 py-1" role="tablist" aria-label="GitHub view">
+      <div className="grid grid-cols-7 gap-1 py-1" role="tablist" aria-label="GitHub view" onKeyDown={handleTabListKeyDown}>
         {panelKinds.map((item) => (
           <button
             key={item.kind}
             type="button"
             role="tab"
             aria-selected={activeKind === item.kind}
+            tabIndex={activeKind === item.kind ? 0 : -1}
             aria-label={item.label}
             title={item.label}
             onClick={() => setActiveKind(item.kind)}
