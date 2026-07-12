@@ -57,6 +57,7 @@ export function Tooltip({
       <TooltipPrimitive.Trigger asChild>{trigger}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
+          data-cranberri-tooltip="true"
           side={side}
           align={align}
           sideOffset={6}

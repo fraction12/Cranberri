@@ -492,6 +492,10 @@ body.rail-resizing * {
   pointer-events: auto;
 }
 
+[data-radix-popper-content-wrapper]:has([data-cranberri-tooltip='true']) {
+  pointer-events: none !important;
+}
+
 textarea[aria-label='Chat message']:focus-visible {
   outline: none;
 }
