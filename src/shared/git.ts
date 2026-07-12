@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 export interface GitFileStatus {
   path: string
   status: 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'staged' | 'tracked'
@@ -61,7 +63,8 @@ export interface GitCommitMessageDraft {
   summary: string
 }
 
-export type GitHubPanelKind = 'repo' | 'pulls' | 'issues' | 'actions' | 'branches' | 'commits' | 'releases'
+export const githubPanelKindSchema = z.enum(['repo', 'pulls', 'issues', 'actions', 'branches', 'commits', 'releases'])
+export type GitHubPanelKind = z.infer<typeof githubPanelKindSchema>
 
 export interface GitHubPanelItem {
   id: string

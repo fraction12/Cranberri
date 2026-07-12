@@ -38,12 +38,14 @@ const api = {
     taskStatus: (taskId: string) => ipcRenderer.invoke('git:task:status', { taskId }),
     taskFiles: (taskId: string) => ipcRenderer.invoke('git:task:files', { taskId }),
     taskDiff: (taskId: string) => ipcRenderer.invoke('git:task:diff', { taskId }),
+    taskGithubSummary: (taskId: string) => ipcRenderer.invoke('git:task:github-summary', { taskId }),
     taskDiffFile: (taskId: string, filePath: string) => ipcRenderer.invoke('git:task:diff-file', { taskId, filePath }),
     taskRawContent: (taskId: string, filePath: string, ref: 'HEAD' | 'WORKING') => ipcRenderer.invoke('git:task:raw-content', { taskId, filePath }, ref),
     taskCommit: (taskId: string, title: string, summary: string) => ipcRenderer.invoke('git:task:commit', { taskId }, title, summary),
   },
   github: {
     panelData: (repoPath: string, kind: import('@/shared/git').GitHubPanelKind) => ipcRenderer.invoke('github:panel-data', repoPath, kind),
+    taskPanelData: (taskId: string, kind: import('@/shared/git').GitHubPanelKind) => ipcRenderer.invoke('github:task:panel-data', { taskId }, kind),
   },
   search: {
     repo: (repoPath: string, options: import('@/shared/search').RepoSearchOptions) => ipcRenderer.invoke('search:repo', repoPath, options),

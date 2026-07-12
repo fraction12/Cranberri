@@ -2,10 +2,12 @@ import { ipcMain } from 'electron'
 import { execFile } from 'node:child_process'
 import { Octokit } from '@octokit/rest'
 import simpleGit from 'simple-git'
-import type { GitHubPanelData, GitHubPanelItem, GitHubPanelKind } from '@/shared/git'
+import { githubPanelKindSchema, type GitHubPanelData, type GitHubPanelItem, type GitHubPanelKind } from '@/shared/git'
 import { getRegisteredRepoPaths } from './repos'
 import { validateRepoPath } from './repoSecurity'
 import { withGuiToolPath } from './guiToolPath'
+import { resolveExecutionContext } from './execution-context'
+import { executionRequestSchema } from '../shared/execution'
 
 interface GitHubRepoRef {
   owner: string
@@ -316,11 +318,10 @@ export async function loadOctokitPanelDataForRepo(
   return { kind, items, fetchedAt: Date.now(), source: 'octokit', authenticated: true }
 }
 
-async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Promise<GitHubPanelData> {
-  const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+async function loadGitHubPanelDataForCheckout(repoPath: string, kind: GitHubPanelKind): Promise<GitHubPanelData> {
   const token = getGitHubToken()
   if (token) {
-    const repoRef = await readGitHubRepoRef(safeRepoPath)
+    const repoRef = await readGitHubRepoRef(repoPath)
     if (repoRef) {
       try {
         return await loadOctokitPanelDataForRepo(new Octokit({ auth: token }) as GitHubApiClient, repoRef, kind)
@@ -331,7 +332,7 @@ async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Pro
   }
 
   if (!token && canLoadLocalGitHubPanelData(kind)) {
-    return loadLocalGitHubPanelData(safeRepoPath, kind)
+    return loadLocalGitHubPanelData(repoPath, kind)
   }
 
   const commands: Record<GitHubPanelKind, string[]> = {
@@ -345,9 +346,9 @@ async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Pro
   }
   let output: string
   try {
-    output = await execGh(safeRepoPath, commands[kind])
+    output = await execGh(repoPath, commands[kind])
   } catch (error) {
-    if (canLoadLocalGitHubPanelData(kind)) return loadLocalGitHubPanelData(safeRepoPath, kind)
+    if (canLoadLocalGitHubPanelData(kind)) return loadLocalGitHubPanelData(repoPath, kind)
     throw error
   }
   const raw = kind === 'repo' ? [JSON.parse(output)] : parseJsonList(output)
@@ -370,5 +371,12 @@ async function loadGitHubPanelData(repoPath: string, kind: GitHubPanelKind): Pro
 }
 
 export function initGitHubIpc(): void {
-  ipcMain.handle('github:panel-data', async (_, repoPath: string, kind: GitHubPanelKind) => loadGitHubPanelData(repoPath, kind))
+  ipcMain.handle('github:panel-data', async (_, repoPath: string, kind: unknown) => {
+    const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
+    return loadGitHubPanelDataForCheckout(safeRepoPath, githubPanelKindSchema.parse(kind))
+  })
+  ipcMain.handle('github:task:panel-data', async (_, request: unknown, kind: unknown) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return loadGitHubPanelDataForCheckout(context.cwd, githubPanelKindSchema.parse(kind))
+  })
 }

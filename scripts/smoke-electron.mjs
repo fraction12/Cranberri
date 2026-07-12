@@ -910,6 +910,9 @@ async function runSessionWorkspaceSmoke() {
         const state = await window.cranberri.appState.read()
         return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === taskId
       }, { windowId: restoredWindowId, taskId: identity.taskId }, { timeout: 10_000 })
+      await page.getByTitle('GitHub').click()
+      const githubPanel = page.locator('[data-bottom-panel="github"]')
+      await githubPanel.getByText('fraction12/Cranberri', { exact: true }).first().waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Continue in worktree' }).click()
       await page.waitForFunction(async ({ taskId, threadId }) => {
@@ -929,6 +932,21 @@ async function runSessionWorkspaceSmoke() {
       const promotedStatus = await page.evaluate((taskId) => window.cranberri.tasks.status(taskId), identity.taskId)
       if (!promotedStatus.worktree || !fs.existsSync(path.join(promotedStatus.worktree.path, 'local-draft.txt'))) {
         throw new Error('Continue in worktree did not carry the dirty Local checkout')
+      }
+      fs.writeFileSync(path.join(promotedStatus.worktree.path, 'worktree-right-rail-proof.txt'), 'active worktree\n')
+      await page.getByText('worktree-right-rail-proof.txt', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.waitForTimeout(250)
+      if (await page.getByText(/Repo is not registered/).count()) {
+        throw new Error('GitHub panel kept the registered-repo route after the session moved into a worktree')
+      }
+      await githubPanel.getByText('fraction12/Cranberri', { exact: true }).first().waitFor({ timeout: 10_000 })
+      const worktreeGitHub = await page.evaluate(async (taskId) => ({
+        summary: await window.cranberri.git.taskGithubSummary(taskId),
+        branches: await window.cranberri.github.taskPanelData(taskId, 'branches'),
+      }), identity.taskId)
+      if (worktreeGitHub.summary.webUrl !== 'https://github.com/fraction12/Cranberri'
+        || worktreeGitHub.branches.kind !== 'branches') {
+        throw new Error(`Worktree GitHub route returned the wrong checkout data: ${JSON.stringify(worktreeGitHub)}`)
       }
       const expandSessions = repo.getByRole('button', { name: `Expand sessions for ${repoName}` })
       if (await expandSessions.count()) await expandSessions.click()
