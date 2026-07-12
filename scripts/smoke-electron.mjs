@@ -2932,15 +2932,15 @@ async function runRepoWorkspaceSmoke() {
       const browserAddress = page.getByPlaceholder('https://localhost:5173')
       await browserAddress.waitFor({ timeout: 10_000 })
       await browserAddress.fill(browserUrl)
-      await page.getByTitle('Navigate').click()
+      await page.getByLabel('Navigate').click()
       await page.waitForFunction((url) => {
         const input = document.querySelector('input[name="browser-address"]')
         return input instanceof HTMLInputElement && input.value === url
       }, browserUrl, { timeout: 10_000 })
-      const browserActions = page.getByTitle('Browser actions')
+      const browserActions = page.getByLabel('Browser actions')
       await browserActions.click()
       await page.keyboard.press('Escape')
-      await page.waitForFunction(() => document.querySelector('button[title="Browser actions"]')?.getAttribute('aria-busy') !== 'true')
+      await page.waitForFunction(() => document.querySelector('button[aria-label="Browser actions"]')?.getAttribute('aria-busy') !== 'true')
       await page.waitForTimeout(500)
       if (await page.getByTitle('Copy browser URL').count()) {
         throw new Error('Canceled Browser actions opened after its preview capture completed')
@@ -2954,7 +2954,7 @@ async function runRepoWorkspaceSmoke() {
       let snapshotReady = false
       for (let attempt = 0; attempt < 15; attempt += 1) {
         await page.waitForTimeout(attempt === 0 ? 750 : 1_000)
-        await page.getByTitle('Browser actions').click()
+        await page.getByLabel('Browser actions').click()
         await page.getByTitle('Capture page text').click()
         snapshotReady = await page.getByText('cranberri-browser-smoke-ready').waitFor({ timeout: 3_000 })
           .then(() => true)
@@ -2991,7 +2991,7 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
 
       await setAttachedBrowserBackground(electronApp, 'rgb(215, 38, 61)')
-      await page.getByTitle('Browser actions').click()
+      await page.getByLabel('Browser actions').click()
       await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Browser actions did not freeze the red browser surface')
       await page.keyboard.press('Escape')
       await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Closing Browser actions did not restore the browser surface')
@@ -3055,7 +3055,7 @@ async function runRepoWorkspaceSmoke() {
       snapshotReady = false
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await page.waitForTimeout(attempt === 0 ? 750 : 1_000)
-        await page.getByTitle('Browser actions').click()
+        await page.getByLabel('Browser actions').click()
         await page.getByTitle('Capture page text').click()
         snapshotReady = await page.getByText('cranberri-browser-smoke-ready').waitFor({ timeout: 3_000 })
           .then(() => true)
@@ -3218,7 +3218,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('stop browser inspection')
       await page.locator('[cmdk-item]').filter({ hasText: 'Stop active browser inspection' }).first().click()
       await page.getByLabel(/Switch to (Browser|Smoke Browser Page)/).click()
-      await page.getByTitle('Browser actions').click()
+      await page.getByLabel('Browser actions').click()
       await page.locator('[data-browser-surface-frozen="true"] img').waitFor({ timeout: 10_000 })
       await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews - 1, 'Browser actions menu did not detach the browser surface')
       await captureSmokeScreenshot(page, 'browser-actions-menu-light')
