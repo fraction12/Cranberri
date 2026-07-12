@@ -52,4 +52,33 @@ describe('atomic updater helper', () => {
       expect(fs.existsSync(manifest.candidateAppPath)).toBe(false)
     })
   }
+
+  it('relaunches the restored app after a failed promotion', async () => {
+    const { manifest } = fixture()
+    const launched = []
+    process.env.CRANBERRI_UPDATER_FAIL_AFTER = 'candidatePromoted'
+
+    await expect(installFromManifest(manifest, { launchApp: (appPath) => launched.push(appPath) })).rejects.toThrow(
+      /Injected updater failure/,
+    )
+
+    expect(launched).toEqual([manifest.currentAppPath])
+    expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('old')
+  })
+
+  it('reports when the restored app cannot be relaunched', async () => {
+    const { manifest } = fixture()
+    process.env.CRANBERRI_UPDATER_FAIL_AFTER = 'candidatePromoted'
+
+    await expect(
+      installFromManifest(manifest, {
+        launchApp: () => {
+          throw new Error('launch unavailable')
+        },
+      }),
+    ).rejects.toThrow(/restored app relaunch failed: launch unavailable/)
+
+    const result = JSON.parse(fs.readFileSync(manifest.resultManifestPath, 'utf8'))
+    expect(result.message).toContain('restored app relaunch failed: launch unavailable')
+  })
 })

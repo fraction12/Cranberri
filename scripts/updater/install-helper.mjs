@@ -109,6 +109,7 @@ function relaunch(appPath) {
 }
 
 export async function installFromManifest(manifest, options = {}) {
+  const launchApp = options.launchApp ?? relaunch
   validateManifest(manifest)
   if (!fs.existsSync(manifest.currentAppPath) || !fs.existsSync(manifest.stagedAppPath)) {
     throw new Error('Installed or staged app bundle is unavailable')
@@ -130,12 +131,25 @@ export async function installFromManifest(manifest, options = {}) {
     journal(manifest, 'candidatePromoted')
     writeResult(manifest, true, 'relaunching', 'Update promoted; waiting for startup health acknowledgement')
     journal(manifest, 'relaunching')
-    if (options.relaunch !== false) relaunch(manifest.relaunchTarget || manifest.currentAppPath)
+    if (options.relaunch !== false) launchApp(manifest.relaunchTarget || manifest.currentAppPath)
     return { success: true }
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error))
     const rollbackError = rollback(manifest, cause)
-    const message = rollbackError ? `${cause.message}; rollback failed: ${rollbackError}` : cause.message
+    let relaunchError = null
+    if (!rollbackError && options.relaunch !== false && fs.existsSync(manifest.currentAppPath)) {
+      try {
+        launchApp(manifest.relaunchTarget || manifest.currentAppPath)
+      } catch (launchError) {
+        relaunchError = launchError instanceof Error ? launchError.message : String(launchError)
+      }
+    }
+    const failures = [
+      cause.message,
+      rollbackError ? `rollback failed: ${rollbackError}` : null,
+      relaunchError ? `restored app relaunch failed: ${relaunchError}` : null,
+    ].filter(Boolean)
+    const message = failures.join('; ')
     writeResult(manifest, false, rollbackError ? 'replacing' : 'backingUp', message)
     throw new Error(message, { cause: error })
   }
