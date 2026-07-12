@@ -13,6 +13,7 @@ import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
 import { useOptionalTasks } from '../state/tasks'
 import { useRepos } from '../state/repos'
+import { useRecovery } from '../state/recovery'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
@@ -53,6 +54,7 @@ import { PlanModePill } from './chat/PlanModePill'
 import { DraftSessionHeader } from './chat/DraftSessionHeader'
 import { TaskHeader } from './chat/TaskHeader'
 import { TaskSetupStatus } from './chat/TaskSetupStatus'
+import { StartupRecoveryNotice } from './chat/StartupRecoveryNotice'
 import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import {
@@ -134,6 +136,11 @@ export function ChatWindow({ id }: { id: string }) {
   const { activeProject } = useRepos()
   const { windows, renameWindow, bindWindowToTask, openTerminal } = useWorkspace()
   const workspaceWindow = windows.find((window) => window.id === id)
+  const recovery = useRecovery()
+  const recoveryNotice = recovery.noticeForWindow(workspaceWindow?.projectId ?? activeProject?.id, id)
+  const recoveryInputBlockReason = recoveryNotice?.blocksMutations
+    ? 'Resolve this workspace recovery issue before continuing.'
+    : null
   const mappedThreadId = getThreadForWindow(id)
   const persistedThreadId = workspaceWindow?.threadId ?? sessionThreadIdFromWindowId(id)
   const threadId = persistedThreadId ?? mappedThreadId
@@ -162,6 +169,7 @@ export function ChatWindow({ id }: { id: string }) {
           ? 'This worktree needs attention before the session can continue.'
           : 'This session is changing location. Wait for it to finish.'
     : null
+  const inputBlockReason = recoveryInputBlockReason ?? taskInputBlockReason
 
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
@@ -445,8 +453,8 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const handleSend = async (editorSnapshot?: ComposerSnapshot) => {
-    if (taskInputBlockReason) {
-      toast.error(taskInputBlockReason)
+    if (inputBlockReason) {
+      toast.error(inputBlockReason)
       return
     }
     const steeringActiveTurn = isRunning && !thread?.parentThreadId
@@ -834,6 +842,7 @@ export function ChatWindow({ id }: { id: string }) {
         onIncludeLocalChanges={setIncludeLocalChanges}
         onRetry={() => { void loadTaskTargets(true) }}
       /> : null}
+      {recoveryNotice && <StartupRecoveryNotice notice={recoveryNotice} />}
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollContainerRef}
@@ -915,7 +924,7 @@ export function ChatWindow({ id }: { id: string }) {
               ref={composerEditorRef}
               value={input}
               catalog={composerCatalog}
-              disabled={Boolean(taskInputBlockReason)}
+              disabled={Boolean(inputBlockReason)}
               onChange={(snapshot) => {
                 setInput(snapshot.text)
                 setComposerMentions(snapshot.mentions)
@@ -935,8 +944,8 @@ export function ChatWindow({ id }: { id: string }) {
                     : 'Send a follow-up while Codex works...'
                   : goalMode
                     ? 'Describe your goal, define measurable outcomes for best results'
-                    : taskInputBlockReason
-                      ? taskInputBlockReason
+                    : inputBlockReason
+                      ? inputBlockReason
                       : threadId
                         ? 'Ask for follow-up changes'
                         : 'Ask Codex to inspect, edit, or explain this repo'
@@ -979,7 +988,7 @@ export function ChatWindow({ id }: { id: string }) {
                 <button
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void handlePrimaryAction()}
-                  disabled={primaryActionIsStop ? !threadId : !hasComposerContent || Boolean(taskInputBlockReason)}
+                  disabled={primaryActionIsStop ? !threadId : !hasComposerContent || Boolean(inputBlockReason)}
                   className={SEND_BUTTON_CLASS}
                   aria-label={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
                   title={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
