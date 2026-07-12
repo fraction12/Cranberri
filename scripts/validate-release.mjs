@@ -41,6 +41,7 @@ const manifest = {
     architecture: 'arm64',
     minimumSystemVersion: plist.LSMinimumSystemVersion ?? null,
   },
+  schemas: { appState: 3, taskStore: 1, composerDrafts: 1 },
 }
 fs.writeFileSync(path.join(root, 'dist', 'release-manifest.json'), JSON.stringify(manifest, null, 2))
 console.log(`Validated ${tag}; wrote dist/release-manifest.json for ${zipName}`)

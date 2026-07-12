@@ -66,6 +66,7 @@ interface ReleaseManifest {
   channel: 'stable' | 'beta'
   asset: { name: string; sha256: string; bytes: number }
   bundle: { identifier: string; version: string; architecture: 'arm64'; minimumSystemVersion: string | null }
+  schemas: { appState: number; taskStore: number; composerDrafts: number }
 }
 
 interface SourceRepo {
@@ -230,7 +231,10 @@ function parseReleaseManifest(value: unknown): ReleaseManifest {
     || typeof manifest.asset?.bytes !== 'number'
     || manifest.bundle?.identifier !== 'com.dushyantgarg.cranberri'
     || manifest.bundle?.architecture !== 'arm64'
-    || typeof manifest.bundle?.version !== 'string') {
+    || typeof manifest.bundle?.version !== 'string'
+    || manifest.schemas?.appState !== 3
+    || manifest.schemas?.taskStore !== 1
+    || manifest.schemas?.composerDrafts !== 1) {
     throw new Error('Release integrity manifest is invalid')
   }
   return manifest as ReleaseManifest
@@ -367,6 +371,7 @@ async function installUpdate(): Promise<InstallResult> {
     setStatus({ status: 'readyToInstall', phase: 'readyToInstall', phaseMessage: 'Ready to install' })
 
     const currentAppPath = getCurrentAppPath()
+    assertInstallCapacity(currentAppPath, stagedAppPath)
     const installId = crypto.randomUUID()
     const installDirectory = path.dirname(currentAppPath)
     const backupAppPath = path.join(installDirectory, '.Cranberri.previous.app')
@@ -421,6 +426,25 @@ async function installUpdate(): Promise<InstallResult> {
     setStatus({ status: 'failed', failedPhase: currentStatus.phase, failureMessage: message, logPath })
     return { success: false, phase: currentStatus.phase, message, logPath }
   }
+}
+
+function directorySize(root: string): number {
+  let total = 0
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const candidate = path.join(root, entry.name)
+    if (entry.isSymbolicLink()) continue
+    total += entry.isDirectory() ? directorySize(candidate) : fs.statSync(candidate).size
+  }
+  return total
+}
+
+function assertInstallCapacity(currentAppPath: string, stagedAppPath: string): void {
+  const installDirectory = path.dirname(currentAppPath)
+  fs.accessSync(installDirectory, fs.constants.W_OK)
+  const stats = fs.statfsSync(installDirectory)
+  const available = stats.bavail * stats.bsize
+  const required = directorySize(stagedAppPath) * 2 + 256 * 1024 * 1024
+  if (available < required) throw new Error('Not enough free space to stage a recoverable update')
 }
 
 function requestRendererFlush(timeoutMs = 5_000): Promise<void> {

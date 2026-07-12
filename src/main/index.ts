@@ -34,6 +34,15 @@ if (process.env.CRANBERRI_USER_DATA_DIR) {
   app.setPath('userData', process.env.CRANBERRI_USER_DATA_DIR)
 }
 
+const ownsApplicationInstance = app.requestSingleInstanceLock?.() ?? true
+if (!ownsApplicationInstance) app.quit()
+app.on('second-instance', () => {
+  const existing = BrowserWindow.getAllWindows()[0]
+  if (!existing) return
+  if (existing.isMinimized()) existing.restore()
+  existing.focus()
+})
+
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
@@ -157,7 +166,7 @@ function createWindow(): void {
   })
 }
 
-app.whenReady().then(async () => {
+if (ownsApplicationInstance) app.whenReady().then(async () => {
   if (app.isPackaged) {
     registerAppProtocol()
   }
