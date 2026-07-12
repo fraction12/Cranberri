@@ -154,6 +154,7 @@ export function ChatWindow({ id }: { id: string }) {
     restoreSessionWindow,
     switchThread,
     bindTaskWindow,
+    markThreadSendFailed,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
@@ -168,6 +169,15 @@ export function ChatWindow({ id }: { id: string }) {
   const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
   const taskProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
   const taskTarget = activeTask?.location ?? workspaceWindow?.sessionTarget ?? 'local'
+  const taskInputBlockReason = activeTask && activeTask.state !== 'local' && activeTask.state !== 'active'
+    ? activeTask.state === 'archived'
+      ? 'This session is archived. Restore it to continue.'
+      : activeTask.state === 'failed'
+        ? 'Worktree setup failed. Retry setup before continuing.'
+        : activeTask.state === 'needsAttention'
+          ? 'This worktree needs attention before the session can continue.'
+          : 'This session is changing location. Wait for it to finish.'
+    : null
 
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(() => ({
@@ -486,12 +496,17 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const handleSend = async () => {
+    if (taskInputBlockReason) {
+      toast.error(taskInputBlockReason)
+      return
+    }
     if (isRunning && !thread?.parentThreadId) return
     const text = input.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
     const draftInput = input
     const draftAttachments = attachments
     const draftContextInputParts = contextInputParts
+    let preparedThreadId: string | null = null
     composerHadFocusRef.current = true
     setInput('')
     selectionRef.current = { start: 0, end: 0 }
@@ -516,7 +531,7 @@ export function ChatWindow({ id }: { id: string }) {
             const environmentRevision = selectedEnvironment && selectedEnvironment.manifest.trustedRevision === selectedEnvironment.manifest.currentRevision
               ? selectedEnvironment.manifest.currentRevision
               : null
-            const task = await tasks.submitWorktree({
+            await tasks.submitWorktree({
               draft: {
                 projectId: taskProject.id,
                 title: message.displayText.split('\n')[0]?.trim().slice(0, 160) || 'Task',
@@ -527,36 +542,39 @@ export function ChatWindow({ id }: { id: string }) {
               },
               includeLocalChanges,
               settings: turnSettings,
+            }, async (readyTask) => {
+              preparedThreadId = readyTask.threadId
+              const status = await window.cranberri.tasks.status(readyTask.id)
+              if (!status.worktree) throw new Error('Provisioned worktree is unavailable')
+              bindWindowToTask(id, {
+                projectId: readyTask.projectId,
+                taskId: readyTask.id,
+                checkoutId: status.worktree.checkoutId,
+                worktreeId: status.worktree.id,
+                checkoutPath: status.worktree.path,
+              })
+              const hydrated = await bindTaskWindow(id, readyTask, message.displayText)
+              renameWindow(id, hydrated.title)
             })
-            const status = await window.cranberri.tasks.status(task.id)
-            if (!status.worktree) throw new Error('Provisioned worktree is unavailable')
-            bindWindowToTask(id, {
-              projectId: task.projectId,
-              taskId: task.id,
-              checkoutId: status.worktree.checkoutId,
-              worktreeId: status.worktree.id,
-              checkoutPath: status.worktree.path,
-            })
-            const hydrated = await bindTaskWindow(id, task.id)
-            renameWindow(id, hydrated.title)
           } else {
-            const task = await tasks.submitLocal({
+            await tasks.submitLocal({
               projectId: taskProject.id,
               title: message.displayText.split('\n')[0]?.trim().slice(0, 160) || 'Local session',
               input: message.input,
-            }, turnSettings)
-            const checkout = tasks.checkouts.find((candidate) => candidate.id === task.checkoutId)
-            if (!checkout) throw new Error('Local checkout is unavailable')
-            bindWindowToTask(id, {
-              projectId: task.projectId,
-              taskId: task.id,
-              checkoutId: task.checkoutId,
-              worktreeId: null,
-              checkoutPath: checkout.canonicalPath,
+            }, turnSettings, async (readyTask) => {
+              preparedThreadId = readyTask.threadId
+              const checkout = tasks.checkouts.find((candidate) => candidate.id === readyTask.checkoutId)
+              if (!checkout) throw new Error('Local checkout is unavailable')
+              bindWindowToTask(id, {
+                projectId: readyTask.projectId,
+                taskId: readyTask.id,
+                checkoutId: readyTask.checkoutId,
+                worktreeId: null,
+                checkoutPath: checkout.canonicalPath,
+              })
+              const hydrated = await bindTaskWindow(id, readyTask, message.displayText)
+              renameWindow(id, hydrated.title)
             })
-            const hydrated = await bindTaskWindow(id, task.id)
-            renameWindow(id, hydrated.title)
-            await tasks.refresh()
           }
           window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: taskProject.id } }))
         } else {
@@ -564,6 +582,7 @@ export function ChatWindow({ id }: { id: string }) {
         }
       }
     } catch (error) {
+      if (preparedThreadId) markThreadSendFailed(preparedThreadId, error)
       if (thread?.parentThreadId || shouldRestoreDraftAfterSendError(threadId, error)) {
         setInput(draftInput)
         setAttachments(draftAttachments)
@@ -748,11 +767,12 @@ export function ChatWindow({ id }: { id: string }) {
           const context = tasks?.executionContextForTask(activeTask.id)
           if (context) openTerminal(undefined, 'Terminal', activeTask.projectId, context)
         }}
-        onHandoff={async () => {
+        onHandoff={isRunning || (activeTask.state !== 'local' && activeTask.state !== 'active') ? undefined : async () => {
           if (activeTask.location === 'local' && !activeTask.worktreeId) {
             if (!tasks) return
             try {
-              const continued = await tasks.continueInWorktree(activeTask.id)
+              const result = await tasks.continueInWorktree(activeTask.id)
+              const continued = result.task
               const status = await window.cranberri.tasks.status(continued.id)
               if (!status.worktree) throw new Error('Continued worktree is unavailable')
               bindWindowToTask(id, {
@@ -762,8 +782,19 @@ export function ChatWindow({ id }: { id: string }) {
                 worktreeId: status.worktree.id,
                 checkoutPath: status.worktree.path,
               })
-              toast.success('Continued in a worktree')
+              if (result.warning) toast.error(`Continued in a worktree, but ${result.warning.toLowerCase()}`)
+              else toast.success(result.includedLocalChanges ? 'Continued in a worktree with Local changes' : 'Continued in a worktree')
             } catch (error) {
+              const status = await window.cranberri.tasks.status(activeTask.id).catch(() => null)
+              if (status?.task.location === 'worktree' && status.worktree) {
+                bindWindowToTask(id, {
+                  projectId: status.task.projectId,
+                  taskId: status.task.id,
+                  checkoutId: status.worktree.checkoutId,
+                  worktreeId: status.worktree.id,
+                  checkoutPath: status.worktree.path,
+                })
+              }
               toast.error(errorMessage(error))
             }
             return
@@ -773,8 +804,23 @@ export function ChatWindow({ id }: { id: string }) {
           if (activeTask.location === 'worktree') await tasks.handoffToLocal({ taskId: activeTask.id, branch, createBranch: true })
           else await tasks.handoffToWorktree({ taskId: activeTask.id, branch })
         }}
-        onArchive={async () => { try { await tasks?.archive(activeTask.id); toast.success('Task archived') } catch (error) { toast.error(errorMessage(error)) } }}
-        onUnarchive={async () => { try { await tasks?.unarchive(activeTask.id); toast.success('Task restored') } catch (error) { toast.error(errorMessage(error)) } }}
+        onRetrySetup={activeTask.state === 'failed' && activeTask.environmentRevision ? async () => {
+          try { await tasks?.retrySetup(activeTask.id); toast.success('Environment ready') } catch (error) { toast.error(errorMessage(error)) }
+        } : undefined}
+        onArchive={isRunning ? undefined : async () => {
+          try {
+            await tasks?.archive(activeTask.id)
+            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: activeTask.projectId } }))
+            toast.success('Session archived')
+          } catch (error) { toast.error(errorMessage(error)) }
+        }}
+        onUnarchive={async () => {
+          try {
+            await tasks?.unarchive(activeTask.id)
+            window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { projectId: activeTask.projectId } }))
+            toast.success('Session restored')
+          } catch (error) { toast.error(errorMessage(error)) }
+        }}
       /> : !threadId && taskProject ? <DraftSessionHeader
         target={taskTarget}
         pinnedBranch={taskProject.pinnedLocalBranch}
@@ -953,6 +999,7 @@ export function ChatWindow({ id }: { id: string }) {
               ref={textareaRef}
               aria-label="Chat message"
               value={input}
+              disabled={Boolean(taskInputBlockReason)}
               onChange={(e) => {
                 selectionRef.current = {
                   start: e.currentTarget.selectionStart,
@@ -1028,7 +1075,11 @@ export function ChatWindow({ id }: { id: string }) {
                     : 'Keep typing while Codex works...'
                   : goalMode
                     ? 'Describe your goal, define measurable outcomes for best results'
-                    : 'Ask for follow-up changes'
+                    : taskInputBlockReason
+                      ? taskInputBlockReason
+                      : threadId
+                        ? 'Ask for follow-up changes'
+                        : 'Ask Codex to inspect, edit, or explain this repo'
               }
               rows={1}
               spellCheck={false}
@@ -1072,7 +1123,7 @@ export function ChatWindow({ id }: { id: string }) {
                 <button
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void handlePrimaryAction()}
-                  disabled={primaryActionIsStop ? !threadId : !hasComposerContent}
+                  disabled={primaryActionIsStop ? !threadId : !hasComposerContent || Boolean(taskInputBlockReason)}
                   className={SEND_BUTTON_CLASS}
                   aria-label={primaryActionIsStop ? 'Stop Codex' : 'Send message'}
                   title={primaryActionIsStop ? 'Stop Codex' : 'Send message'}

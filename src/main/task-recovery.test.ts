@@ -46,12 +46,94 @@ describe('task startup recovery', () => {
       environmentRevision: null, pendingFirstTurn: null, createdAt: 1, updatedAt: 1,
       archivedAt: null,
     })
-    await store.update((state) => ({ ...state, tasks: [control('kept', 'thread-1'), control('empty', null)] }))
+    await store.update((state) => ({
+      ...state,
+      tasks: [control('kept', 'thread-1'), control('empty', null)],
+      localLeaseByProjectId: { project: 'kept' },
+    }))
 
     await reconcileTaskStore(store, 10)
 
     expect(store.read().tasks).toEqual([
       expect.objectContaining({ id: 'kept', threadId: 'thread-1', role: 'root', location: 'local' }),
     ])
+    expect(store.read().localLeaseByProjectId.project).toBeNull()
+  })
+
+  it('recreates an empty prepared thread after restart before retrying its first turn', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    await store.update((state) => ({ ...state, tasks: [{
+      id: 'pending', projectId: 'project', threadId: 'empty-thread', checkoutId: 'local', worktreeId: null,
+      role: 'root', location: 'local', state: 'local', baseRef: 'refs/heads/main', baseSha: null,
+      environmentId: null, environmentRevision: null,
+      pendingFirstTurn: { payload: { input: [{ type: 'text', text: 'retry me' }] }, delivery: 'pending' },
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }] }))
+
+    await reconcileTaskStore(store, 10)
+
+    expect(store.read().tasks[0]).toMatchObject({
+      threadId: null,
+      pendingFirstTurn: { delivery: 'pending' },
+      updatedAt: 10,
+    })
+  })
+
+  it('restores a pre-provisioning Local binding after restart', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    await store.update((state) => ({ ...state, tasks: [{
+      id: 'local', projectId: 'project', threadId: 'thread', checkoutId: 'local', worktreeId: null,
+      role: 'root', location: 'local', state: 'provisioning', baseRef: 'refs/heads/feature', baseSha: null,
+      environmentId: 'node', environmentRevision: 'a'.repeat(64), pendingFirstTurn: null,
+      worktreeTransition: {
+        phase: 'provisioning', previousCheckoutId: 'local', previousBaseRef: 'refs/heads/main',
+        previousBaseSha: null, previousEnvironmentId: null, previousEnvironmentRevision: null,
+        startedAt: 1, error: null,
+      },
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }] }))
+
+    await reconcileTaskStore(store, 10)
+
+    expect(store.read().tasks[0]).toMatchObject({
+      location: 'local', state: 'local', checkoutId: 'local', baseRef: 'refs/heads/main',
+      environmentId: null, environmentRevision: null, worktreeTransition: null,
+    })
+  })
+
+  it('recovers a worktree created before its task binding persisted', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    const worktreePath = path.join(root, 'worktree')
+    fs.mkdirSync(worktreePath)
+    await store.update((state) => ({ ...state, tasks: [{
+      id: 'task', projectId: 'project', threadId: 'thread', checkoutId: 'local', worktreeId: null,
+      role: 'root', location: 'local', state: 'provisioning', baseRef: 'refs/heads/main', baseSha: null,
+      environmentId: null, environmentRevision: null, pendingFirstTurn: null,
+      worktreeTransition: {
+        phase: 'resuming', previousCheckoutId: 'local', previousBaseRef: 'refs/heads/main',
+        previousBaseSha: null, previousEnvironmentId: null, previousEnvironmentRevision: null,
+        startedAt: 1, error: null,
+      },
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }], managedWorktrees: [{
+      id: 'worktree', projectId: 'project', checkoutId: 'managed', taskId: 'task', path: worktreePath,
+      recordedRoot: root, gitCommonDir: root, manifestPath: path.join(root, 'manifest.json'),
+      baseRef: 'refs/heads/main', baseSha: 'a'.repeat(40), branch: null, headSha: 'a'.repeat(40),
+      archiveHeadSha: null, privateRef: null, lifecycle: 'active', cleanupReason: null,
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }] }))
+
+    await reconcileTaskStore(store, 10)
+
+    expect(store.read().tasks[0]).toMatchObject({
+      checkoutId: 'managed', worktreeId: 'worktree', location: 'worktree', state: 'needsAttention',
+      worktreeTransition: { phase: 'needsAttention', error: expect.stringContaining('before binding') },
+    })
   })
 })

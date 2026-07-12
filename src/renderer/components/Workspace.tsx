@@ -117,8 +117,8 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId, context, task?.location)
         if (context) bindWindowToTask(windowId, context)
         await tasksApi?.refresh()
-          if (targetRepo && targetRepo.id !== activeRepoId) return setActiveRepo(targetRepo.id)
-          return undefined
+        if (targetRepo && targetRepo.id !== activeRepoId) return setActiveRepo(targetRepo.id)
+        return undefined
       }
       void open().catch((error) => console.error('Failed to open Codex session:', error))
     }
@@ -299,28 +299,28 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5 pl-1">
-        <NewSessionMenu
-          onLocal={() => openChat(undefined, 'New local session', activeRepoId, undefined, 'local')}
-          onWorktree={() => openChat(undefined, 'New worktree session', activeRepoId, undefined, 'worktree')}
-        />
-        <button
-          type="button"
-          onClick={() => openTerminal()}
-          className={iconButton()}
-          title="New terminal"
-          aria-label="New terminal"
-        >
-          <SquareTerminal className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => openBrowser()}
-          className={iconButton()}
-          title="New browser"
-          aria-label="New browser"
-        >
-          <Globe className="h-3.5 w-3.5" />
-        </button>
+          {activeRepoId && <NewSessionMenu
+            onLocal={() => openChat(undefined, 'New local session', activeRepoId, undefined, 'local')}
+            onWorktree={() => openChat(undefined, 'New worktree session', activeRepoId, undefined, 'worktree')}
+          />}
+          <button
+            type="button"
+            onClick={() => openTerminal()}
+            className={iconButton()}
+            title="New terminal"
+            aria-label="New terminal"
+          >
+            <SquareTerminal className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => openBrowser()}
+            className={iconButton()}
+            title="New browser"
+            aria-label="New browser"
+          >
+            <Globe className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 

@@ -36,11 +36,18 @@ export interface WorktreeSubmissionApi {
   send(taskId: string, input: CodexUserInput[], settings?: CodexTurnSettings): Promise<Task>
 }
 
+export interface WorktreeContinuationResult {
+  task: Task
+  warning: string | null
+  includedLocalChanges: boolean
+}
+
 export async function provisionAndSendFirstTurn(
   api: WorktreeSubmissionApi,
   submission: WorktreeSubmission,
   onOperation: (operation: TaskOperation) => void,
   existingTask?: Task,
+  beforeSend?: (task: Task) => Promise<Task>,
 ): Promise<Task> {
   let task: Task | undefined = existingTask
   try {
@@ -60,18 +67,19 @@ export async function provisionAndSendFirstTurn(
   }
 
   if (task.environmentRevision) {
+    const setupTask = task
     let job: EnvironmentJob | null = null
     try {
-      job = await api.startSetup(task.id)
-      onOperation({ phase: 'setup', taskId: task.id, job, error: null })
+      job = await api.startSetup(setupTask.id)
+      onOperation({ phase: 'setup', taskId: setupTask.id, job, error: null })
       job = await api.waitForSetup(job, (next) => {
-        onOperation({ phase: 'setup', taskId: task.id, job: next, error: null })
+        onOperation({ phase: 'setup', taskId: setupTask.id, job: next, error: null })
       })
       if (job.status !== 'succeeded') throw new Error(`Environment setup ${job.status}`)
     } catch (error) {
       onOperation({
         phase: 'setupFailed',
-        taskId: task.id,
+        taskId: setupTask.id,
         job,
         error: errorMessage(error),
       })
@@ -79,7 +87,14 @@ export async function provisionAndSendFirstTurn(
     }
   }
 
-  const sent = await api.send(task.id, submission.draft.input as CodexUserInput[], submission.settings)
+  if (beforeSend) task = await beforeSend(task)
+  let sent: Task
+  try {
+    sent = await api.send(task.id, submission.draft.input as CodexUserInput[], submission.settings)
+  } catch (error) {
+    if (task.threadId && error && typeof error === 'object') Object.assign(error, { threadCreated: true })
+    throw error
+  }
   onOperation({ phase: 'idle', taskId: sent.id, job: null, error: null })
   return sent
 }
@@ -102,13 +117,14 @@ export interface TasksApi extends TaskCatalogSnapshot {
   refresh: () => Promise<void>
   loadRefs: (projectId: string, refresh?: boolean) => Promise<{ refs: GitRef[]; refresh?: RefRefreshResult }>
   loadEnvironments: (projectId: string) => Promise<EnvironmentRecord[]>
-  submitLocal: (draft: LocalTaskDraftRequest, settings?: CodexTurnSettings) => Promise<Task>
-  submitWorktree: (submission: WorktreeSubmission) => Promise<Task>
+  submitLocal: (draft: LocalTaskDraftRequest, settings?: CodexTurnSettings, onReady?: (task: Task) => Promise<void>) => Promise<Task>
+  submitWorktree: (submission: WorktreeSubmission, onReady?: (task: Task) => Promise<void>) => Promise<Task>
   retryProvisioning: (settings?: CodexTurnSettings) => Promise<Task>
   cancelSetup: () => Promise<void>
   handoffToLocal: (request: TaskHandoffRequest) => Promise<Task>
   handoffToWorktree: (request: TaskHandoffRequest) => Promise<Task>
-  continueInWorktree: (taskId: string) => Promise<Task>
+  continueInWorktree: (taskId: string) => Promise<WorktreeContinuationResult>
+  retrySetup: (taskId: string) => Promise<Task>
   archive: (taskId: string) => Promise<Task>
   unarchive: (taskId: string) => Promise<Task>
 }
@@ -180,6 +196,12 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
     refresh().catch((error) => console.error('Failed to load tasks:', error)).finally(() => setLoading(false))
   }, [refresh])
 
+  useEffect(() => {
+    const onTasksChanged = () => { void refresh().catch((error) => console.error('Failed to refresh tasks:', error)) }
+    window.addEventListener('cranberri:tasks-changed', onTasksChanged)
+    return () => window.removeEventListener('cranberri:tasks-changed', onTasksChanged)
+  }, [refresh])
+
   const submissionApi = useMemo<WorktreeSubmissionApi>(() => ({
     createDraft: async (request) => (await window.cranberri.tasks.createWorktreeDraft(request)).task,
     provision: async (taskId, includeLocalChanges) => (await window.cranberri.tasks.provision({ taskId, includeLocalChanges })).task,
@@ -188,11 +210,17 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
     send: async (taskId, input, settings) => (await window.cranberri.tasks.send({ taskId, input, settings })).task,
   }), [])
 
-  const submitWorktree = useCallback(async (submission: WorktreeSubmission) => {
+  const submitWorktree = useCallback(async (submission: WorktreeSubmission, onReady?: (task: Task) => Promise<void>) => {
     setLastSubmission(submission)
     setOperation({ phase: 'creating', taskId: null, job: null, error: null })
     try {
-      const task = await provisionAndSendFirstTurn(submissionApi, submission, setOperation)
+      const task = await provisionAndSendFirstTurn(submissionApi, submission, setOperation, undefined, async (provisioned) => {
+        const ready = (await window.cranberri.tasks.resume(provisioned.id)).task
+        setActiveTask(ready.id)
+        await refresh()
+        await onReady?.(ready)
+        return ready
+      })
       setActiveTask(task.id)
       await refresh()
       return task
@@ -202,10 +230,13 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
   }, [refresh, submissionApi])
 
   const runAndRefresh = useCallback(async (run: () => Promise<{ task: Task }>) => {
-    const result = await run()
-    setActiveTask(result.task.id)
-    await refresh()
-    return result.task
+    try {
+      const result = await run()
+      setActiveTask(result.task.id)
+      return result.task
+    } finally {
+      await refresh().catch(() => undefined)
+    }
   }, [refresh])
 
   const value = useMemo<TasksApi>(() => {
@@ -227,12 +258,23 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
         ? window.cranberri.worktrees.refreshRefs(projectId)
         : window.cranberri.worktrees.listRefs(projectId),
       loadEnvironments: async (projectId) => (await window.cranberri.environments.list(projectId)).environments,
-      submitLocal: async (draft, settings) => {
-        const { task } = await window.cranberri.tasks.createLocalDraft(draft)
-        const sent = (await window.cranberri.tasks.send({ taskId: task.id, input: draft.input, settings })).task
-        setActiveTask(sent.id)
-        await refresh()
-        return sent
+      submitLocal: async (draft, settings, onReady) => {
+        let task: Task | null = null
+        try {
+          task = (await window.cranberri.tasks.createLocalDraft(draft)).task
+          task = (await window.cranberri.tasks.resume(task.id)).task
+          setActiveTask(task.id)
+          await refresh()
+          await onReady?.(task)
+          const sent = (await window.cranberri.tasks.send({ taskId: task.id, input: draft.input, settings })).task
+          setActiveTask(sent.id)
+          return sent
+        } catch (error) {
+          if (task?.threadId && error && typeof error === 'object') Object.assign(error, { threadCreated: true })
+          throw error
+        } finally {
+          await refresh().catch(() => undefined)
+        }
       },
       submitWorktree,
       retryProvisioning: async (settings) => {
@@ -266,7 +308,25 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
       },
       handoffToLocal: (request) => runAndRefresh(() => window.cranberri.tasks.handoffToLocal(request)),
       handoffToWorktree: (request) => runAndRefresh(() => window.cranberri.tasks.handoffToWorktree(request)),
-      continueInWorktree: (taskId) => runAndRefresh(() => window.cranberri.tasks.continueInWorktree(taskId)),
+      continueInWorktree: async (taskId) => {
+        try {
+          const result = await window.cranberri.tasks.continueInWorktree(taskId)
+          setActiveTask(result.task.id)
+          return result
+        } finally {
+          await refresh().catch(() => undefined)
+        }
+      },
+      retrySetup: async (taskId) => {
+        try {
+          const job = await window.cranberri.environments.startSetup({ taskId })
+          const result = await waitForEnvironmentJob(job, () => undefined)
+          if (result.status !== 'succeeded') throw new Error(`Environment setup ${result.status}`)
+          return (await window.cranberri.tasks.status(taskId)).task
+        } finally {
+          await refresh().catch(() => undefined)
+        }
+      },
       archive: (taskId) => runAndRefresh(() => window.cranberri.tasks.archive(taskId)),
       unarchive: (taskId) => runAndRefresh(() => window.cranberri.tasks.unarchive(taskId)),
     }

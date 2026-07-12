@@ -35,11 +35,19 @@ export interface ContinueInWorktreeContext extends WorktreeProvisioningContext {
   baseRef: string
   environmentId: string | null
   environmentRevision: string | null
+  includeLocalChanges: boolean
 }
 
 interface TaskCodexLifecycle {
   archiveThread(threadId: string): Promise<void>
   unarchiveThread(threadId: string): Promise<unknown>
+}
+
+export function assertTaskRunnable(task: Task): void {
+  const expectedState = task.location === 'local' ? 'local' : 'active'
+  if (task.state !== expectedState) {
+    throw new Error(`Session cannot run while its task state is ${task.state}`)
+  }
 }
 
 export class TaskCoordinator {
@@ -50,33 +58,45 @@ export class TaskCoordinator {
   ) {}
 
   async createLocalTask(request: LocalTaskRequest, now = Date.now()): Promise<Task> {
-    const existing = request.threadId
-      ? this.store.read().tasks.find((task) => task.threadId === request.threadId)
-      : null
-    if (existing) return existing
-    const task: Task = {
-      id: crypto.randomUUID(),
-      projectId: request.projectId,
-      threadId: request.threadId ?? null,
-      checkoutId: request.localCheckoutId,
-      worktreeId: null,
-      role: 'root',
-      location: 'local',
-      state: request.archived ? 'archived' : 'local',
-      baseRef: request.baseRef,
-      baseSha: null,
-      environmentId: null,
-      environmentRevision: null,
-      pendingFirstTurn: request.threadId ? null : {
-        payload: { input: request.input },
-        delivery: 'pending',
-      },
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: request.archived ? now : null,
-    }
-    await this.store.update((state) => ({ ...state, tasks: [...state.tasks, task] }))
-    return task
+    let selected: Task | undefined
+    await this.store.update((state) => {
+      const existing = request.threadId
+        ? state.tasks.find((task) => task.threadId === request.threadId)
+        : null
+      if (existing) {
+        if (existing.projectId !== request.projectId) {
+          throw new Error('Codex thread is already bound to another project')
+        }
+        selected = existing
+        return state
+      }
+      const task: Task = {
+        id: crypto.randomUUID(),
+        projectId: request.projectId,
+        threadId: request.threadId ?? null,
+        checkoutId: request.localCheckoutId,
+        worktreeId: null,
+        role: 'root',
+        location: 'local',
+        state: request.archived ? 'archived' : 'local',
+        baseRef: request.baseRef,
+        baseSha: null,
+        environmentId: null,
+        environmentRevision: null,
+        pendingFirstTurn: request.threadId ? null : {
+          payload: { input: request.input },
+          delivery: 'pending',
+        },
+        worktreeTransition: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: request.archived ? now : null,
+      }
+      selected = task
+      return { ...state, tasks: [...state.tasks, task] }
+    })
+    if (!selected) throw new Error('Local task creation did not persist')
+    return selected
   }
 
   async createWorktreeDraft(request: WorktreeDraftRequest, now = Date.now()): Promise<Task> {
@@ -153,6 +173,16 @@ export class TaskCoordinator {
       baseRef: context.baseRef,
       environmentId: context.environmentId,
       environmentRevision: context.environmentRevision,
+      worktreeTransition: {
+        phase: 'provisioning',
+        previousCheckoutId: task.checkoutId,
+        previousBaseRef: task.baseRef,
+        previousBaseSha: task.baseSha,
+        previousEnvironmentId: task.environmentId,
+        previousEnvironmentRevision: task.environmentRevision,
+        startedAt: Date.now(),
+        error: null,
+      },
     })
     try {
       const worktree = await this.worktrees.create({
@@ -164,23 +194,101 @@ export class TaskCoordinator {
         managedRoot: context.managedRoot,
         baseRef: context.baseRef,
         cap: context.cap,
+        includeLocalChanges: context.includeLocalChanges,
       })
       return this.patchTask(taskId, {
         checkoutId: worktree.checkoutId,
         worktreeId: worktree.id,
         location: 'worktree',
         baseSha: worktree.baseSha,
-        state: context.environmentRevision ? 'setup' : 'active',
+        state: context.environmentRevision ? 'setup' : 'provisioning',
+        worktreeTransition: {
+          ...this.requireTransition(taskId),
+          phase: context.environmentRevision ? 'setup' : 'resuming',
+        },
       })
     } catch (error) {
       await this.patchTask(taskId, {
         state: 'local',
         baseRef: task.baseRef,
+        baseSha: task.baseSha,
         environmentId: task.environmentId,
         environmentRevision: task.environmentRevision,
+        worktreeTransition: null,
       })
       throw error
     }
+  }
+
+  async markWorktreeTransitionResuming(taskId: string): Promise<Task> {
+    const transition = this.requireTransition(taskId)
+    return this.patchTask(taskId, {
+      state: 'provisioning',
+      worktreeTransition: { ...transition, phase: 'resuming', error: null },
+    })
+  }
+
+  async completeWorktreeTransition(taskId: string, state: 'active' | 'failed' = 'active'): Promise<Task> {
+    this.requireTransition(taskId)
+    await this.store.update((store) => ({
+      ...store,
+      tasks: store.tasks.map((task) => task.id === taskId ? {
+        ...task,
+        state,
+        worktreeTransition: null,
+        updatedAt: Date.now(),
+      } : task),
+      managedWorktrees: store.managedWorktrees.map((worktree) => worktree.taskId === taskId ? {
+        ...worktree,
+        lifecycle: state,
+        updatedAt: Date.now(),
+      } : worktree),
+    }))
+    return this.requireTask(taskId)
+  }
+
+  async failWorktreeTransition(taskId: string, error: unknown): Promise<Task> {
+    const message = error instanceof Error ? error.message : 'Worktree transition failed'
+    const transition = this.requireTransition(taskId)
+    await this.store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => task.id === taskId ? {
+        ...task,
+        state: 'needsAttention' as const,
+        worktreeTransition: { ...transition, phase: 'needsAttention' as const, error: message },
+        updatedAt: Date.now(),
+      } : task),
+      managedWorktrees: state.managedWorktrees.map((worktree) => worktree.taskId === taskId ? {
+        ...worktree,
+        lifecycle: 'needsAttention' as const,
+        cleanupReason: message,
+        updatedAt: Date.now(),
+      } : worktree),
+    }))
+    return this.requireTask(taskId)
+  }
+
+  async rollbackWorktreeTransition(taskId: string): Promise<Task> {
+    if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')
+    const task = this.requireTask(taskId)
+    const transition = this.requireTransition(taskId)
+    try {
+      if (task.worktreeId) await this.worktrees.remove(task.worktreeId)
+    } catch (error) {
+      await this.failWorktreeTransition(taskId, error)
+      throw new Error('Could not safely restore the Local session after worktree transition failed', { cause: error })
+    }
+    return this.patchTask(taskId, {
+      checkoutId: transition.previousCheckoutId,
+      worktreeId: null,
+      location: 'local',
+      state: 'local',
+      baseRef: transition.previousBaseRef,
+      baseSha: transition.previousBaseSha,
+      environmentId: transition.previousEnvironmentId,
+      environmentRevision: transition.previousEnvironmentRevision,
+      worktreeTransition: null,
+    })
   }
 
   async acquireLocalLease(projectId: string, taskId: string): Promise<void> {
@@ -297,10 +405,32 @@ export class TaskCoordinator {
     })
   }
 
+  async delete(taskId: string, deleteThread: (threadId: string) => Promise<void>): Promise<void> {
+    const task = this.requireTask(taskId)
+    if (task.worktreeId) {
+      if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')
+      await this.worktrees.remove(task.worktreeId)
+    }
+    if (task.threadId) await deleteThread(task.threadId)
+    await this.store.update((state) => ({
+      ...state,
+      tasks: state.tasks.filter((candidate) => candidate.id !== taskId),
+      localLeaseByProjectId: state.localLeaseByProjectId[task.projectId] === taskId
+        ? { ...state.localLeaseByProjectId, [task.projectId]: null }
+        : state.localLeaseByProjectId,
+    }))
+  }
+
   private requireTask(taskId: string): Task {
     const task = this.store.read().tasks.find((candidate) => candidate.id === taskId)
     if (!task) throw new Error('Task not found')
     return task
+  }
+
+  private requireTransition(taskId: string): NonNullable<Task['worktreeTransition']> {
+    const transition = this.requireTask(taskId).worktreeTransition
+    if (!transition) throw new Error('Task has no worktree transition')
+    return transition
   }
 
   private async patchTask(taskId: string, patch: Partial<Task>): Promise<Task> {

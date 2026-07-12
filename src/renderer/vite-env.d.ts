@@ -120,12 +120,13 @@ declare global {
         send: (request: import('@/shared/tasks').TaskSendRequest) => Promise<{ ok: true; task: import('@/shared/tasks').Task }>
         createWorktreeDraft: (request: import('@/shared/tasks').TaskDraftRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         provision: (request: import('@/shared/tasks').TaskProvisionRequest) => Promise<{ task: import('@/shared/tasks').Task }>
-        continueInWorktree: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        continueInWorktree: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; warning: string | null; includedLocalChanges: boolean }>
         status: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; worktree: import('@/shared/worktrees').ManagedWorktree | null; setupJob: import('@/shared/terminal').EnvironmentJob | null }>
         handoffToLocal: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         handoffToWorktree: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         archive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
         unarchive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        delete: (taskId: string) => Promise<{ ok: true }>
       }
       worktrees: {
         listRefs: (projectId: string) => Promise<import('@/shared/worktrees').SelectableRefsResult>

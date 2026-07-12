@@ -61,7 +61,6 @@ type MigrationProject = {
   id: string
   localPath: string
   localCheckoutId: string
-  controlTaskId: string
 }
 
 export function parseAppState(
@@ -100,7 +99,7 @@ export function parseAppState(
               ? {
                   ...window,
                   projectId: id,
-                  taskId: project.controlTaskId,
+                  taskId: null,
                   checkoutId: project.localCheckoutId,
                   sessionTarget: 'local' as const,
                 }
@@ -135,7 +134,6 @@ function migrationContext(): { projects: MigrationProject[] } {
       id: project.id,
       localPath: checkouts.get(project.localCheckoutId)?.canonicalPath ?? '',
       localCheckoutId: project.localCheckoutId,
-      controlTaskId: project.controlTaskId,
     })),
   }
 }

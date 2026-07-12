@@ -61,6 +61,7 @@ import { environmentDefaultRequestSchema, environmentIdentityRequestSchema, envi
 import { projectIdRequestSchema } from '../../shared/worktrees'
 import { gitStatusPorcelain, listSelectableRefs, refreshGitRefs } from '../git-worktrees'
 import { taskCoordinator, taskStore, environmentRunner, environmentStore } from '../worktree-runtime'
+import { assertTaskRunnable } from '../tasks'
 
 interface PluginManifest {
   name?: string
@@ -1147,8 +1148,6 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('tasks:adopt-local-thread', async (_, raw: unknown) => {
     const request = localTaskAdoptRequestSchema.parse(raw)
-    const existing = taskCoordinator.findByThread(request.threadId)
-    if (existing) return { task: existing }
     const { project, checkout } = localCheckout(request.projectId)
     return {
       task: await taskCoordinator.createLocalTask({
@@ -1184,13 +1183,11 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const current = taskCoordinator.get(taskId)
     if (!current.threadId) throw new Error('Local session has no Codex thread')
     const c = await getCodexClient()
-    if (c instanceof CodexClient && (c.isThreadRunning(current.threadId) || c.hasActiveWorkers(current.threadId))) {
+    if (c.isThreadRunning(current.threadId) || c.hasActiveWorkers(current.threadId)) {
       throw new Error('Wait for Codex and its workers to finish before continuing in a worktree')
     }
     const { project, checkout } = localCheckout(current.projectId)
-    if (await gitStatusPorcelain(checkout.canonicalPath)) {
-      throw new Error('Local must be clean before continuing in a worktree')
-    }
+    const includeLocalChanges = Boolean(await gitStatusPorcelain(checkout.canonicalPath))
     const settings = readSettings().worktrees
     const manifest = project.defaultEnvironmentId
       ? environmentStore.list(project.id).find((candidate) => candidate.environmentId === project.defaultEnvironmentId)
@@ -1205,16 +1202,29 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       baseRef: project.pinnedLocalBranch ? `refs/heads/${project.pinnedLocalBranch}` : 'HEAD',
       environmentId: trustedRevision ? manifest!.environmentId : null,
       environmentRevision: trustedRevision,
+      includeLocalChanges,
     })
+    let setupError: Error | null = null
     if (task.environmentRevision) {
-      const job = await environmentRunner.startSetup({ taskId })
-      const result = await environmentRunner.wait(job.id)
-      if (result.status !== 'succeeded') throw new Error(`Environment setup ${result.status}`)
-      task = taskCoordinator.get(taskId)
+      try {
+        const job = await environmentRunner.startSetup({ taskId })
+        const result = await environmentRunner.wait(job.id)
+        if (result.status !== 'succeeded') setupError = new Error(`Environment setup ${result.status}`)
+      } catch (error) {
+        setupError = error instanceof Error ? error : new Error('Environment setup failed')
+      }
     }
+    task = await taskCoordinator.markWorktreeTransitionResuming(taskId)
     const runtime = taskCoordinator.resolveRuntime(taskId, readProjectRegistry())
-    await c.resumeThread(current.threadId, runtime)
-    return { task }
+    try {
+      await c.resumeThread(current.threadId, runtime)
+    } catch (error) {
+      if (task.environmentRevision) await taskCoordinator.failWorktreeTransition(taskId, error)
+      else await taskCoordinator.rollbackWorktreeTransition(taskId)
+      throw error
+    }
+    task = await taskCoordinator.completeWorktreeTransition(taskId, setupError ? 'failed' : 'active')
+    return { task, warning: setupError?.message ?? null, includedLocalChanges: includeLocalChanges }
   })
 
   ipcMain.handle('tasks:status', (_, raw: unknown) => {
@@ -1286,43 +1296,63 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const { taskId } = taskIdRequestSchema.parse(raw)
     const registry = readProjectRegistry()
     let task = taskCoordinator.get(taskId)
+    assertTaskRunnable(task)
     const c = await getCodexClient()
     ensureEnvironmentToolRouter(c, mainWindowGetter)
     const runtime = taskCoordinator.resolveRuntime(task.id, registry)
+    const threadRuntime = task.location === 'local' && c.supportsTransportCapability('dynamicTools')
+      ? { ...runtime, dynamicTools: environmentDynamicTools }
+      : runtime
     if (!task.threadId) {
-      const thread = await c.createThread(task.location === 'local'
-        ? { ...runtime, dynamicTools: environmentDynamicTools }
-        : runtime)
+      const thread = await c.createThread(threadRuntime)
       task = await taskCoordinator.bindThread(task.id, thread.id)
       advanceCapabilityEpoch(thread.id)
       return { task, threadId: thread.id }
     }
-    return { task, thread: await c.resumeThread(task.threadId, task.location === 'local' ? { ...runtime, dynamicTools: environmentDynamicTools } : runtime) }
+    return { task, thread: await c.resumeThread(task.threadId, threadRuntime) }
   })
 
   ipcMain.handle('tasks:send', async (_, raw: unknown) => {
     const request = taskSendRequestSchema.parse(raw)
     const registry = readProjectRegistry()
     let task = taskCoordinator.get(request.taskId)
+    assertTaskRunnable(task)
     const c = await getCodexClient()
     ensureEnvironmentToolRouter(c, mainWindowGetter)
     const runtime = taskCoordinator.resolveRuntime(task.id, registry)
-    if (!task.threadId) {
-      const thread = await c.createThread(task.location === 'local'
-        ? { ...runtime, dynamicTools: environmentDynamicTools }
-        : runtime)
-      task = await taskCoordinator.bindThread(task.id, thread.id)
-      advanceCapabilityEpoch(thread.id)
-    }
-    const pending = taskCoordinator.pendingInput(task.id)
-    const input = pending ?? request.input as CodexUserInput[]
-    if (pending) await taskCoordinator.markPendingTurnSending(task.id)
+    const threadRuntime = task.location === 'local' && c.supportsTransportCapability('dynamicTools')
+      ? { ...runtime, dynamicTools: environmentDynamicTools }
+      : runtime
+    const explicitTurnCwd = c.supportsTransportCapability('explicitTurnCwd')
+    let leaseAcquired = false
+    let pending: CodexUserInput[] | null = null
     try {
+      if (task.location === 'local') {
+        await taskCoordinator.acquireLocalLease(task.projectId, task.id)
+        leaseAcquired = true
+      }
+      if (!task.threadId) {
+        const thread = await c.createThread(threadRuntime)
+        task = await taskCoordinator.bindThread(task.id, thread.id)
+        advanceCapabilityEpoch(thread.id)
+      }
+      pending = taskCoordinator.pendingInput(task.id) as CodexUserInput[] | null
+      if (task.threadId && !explicitTurnCwd && !pending) {
+        await c.resumeThread(task.threadId, threadRuntime)
+      }
+      const input = pending ?? request.input as CodexUserInput[]
+      if (pending) await taskCoordinator.markPendingTurnSending(task.id)
       if (!task.threadId) throw new Error('Task thread creation did not persist')
-      await c.sendMessage(task.threadId, input, request.settings as CodexTurnSettings | undefined, runtime)
+      await c.sendMessage(
+        task.threadId,
+        input,
+        request.settings as CodexTurnSettings | undefined,
+        explicitTurnCwd ? runtime : undefined,
+      )
       if (pending) await taskCoordinator.acknowledgePendingTurn(task.id)
     } catch (error) {
       if (pending) await taskCoordinator.restorePendingTurn(task.id)
+      if (leaseAcquired) await taskCoordinator.releaseLocalLease(task.projectId, task.id)
       throw error
     }
     return { ok: true, task: taskCoordinator.get(task.id) }
@@ -1337,6 +1367,18 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       forgetCatalogThread(task.threadId)
     }
     return { task: await taskCoordinator.archive(taskId) }
+  })
+
+  ipcMain.handle('tasks:delete', async (_, raw: unknown) => {
+    const { taskId } = taskIdRequestSchema.parse(raw)
+    const task = taskCoordinator.get(taskId)
+    const c = await getCodexClient()
+    if (task.threadId && (c.isThreadRunning(task.threadId) || c.hasActiveWorkers(task.threadId))) {
+      throw new Error('Wait for Codex and its workers to finish before deleting this session')
+    }
+    await taskCoordinator.delete(taskId, (threadId) => c.deleteThread(threadId))
+    if (task.threadId) forgetCatalogThread(task.threadId)
+    return { ok: true }
   })
 
   ipcMain.handle('codex:start', async (_, cwd: string) => {

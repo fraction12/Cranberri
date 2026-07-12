@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectRegistry } from '../shared/projects'
 import { TaskStore } from './task-store'
-import { TaskCoordinator } from './tasks'
+import { assertTaskRunnable, TaskCoordinator } from './tasks'
 import type { WorktreeLifecycle } from './worktree-lifecycle'
 
 const roots: string[] = []
@@ -49,6 +49,24 @@ describe('TaskCoordinator', () => {
     })
   })
 
+  it('adopts a Codex thread exactly once and rejects cross-project rebinding', async () => {
+    const { store, coordinator } = fixture()
+    const request = {
+      projectId: 'project', title: 'Legacy', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    }
+
+    const [first, second] = await Promise.all([
+      coordinator.createLocalTask(request),
+      coordinator.createLocalTask(request),
+    ])
+
+    expect(second.id).toBe(first.id)
+    expect(store.read().tasks).toHaveLength(1)
+    await expect(coordinator.createLocalTask({ ...request, projectId: 'other' }))
+      .rejects.toThrow(/another project/)
+  })
+
   it('persists the full first turn before provisioning', async () => {
     const { store, coordinator } = fixture()
     const task = await coordinator.createWorktreeDraft({
@@ -74,6 +92,19 @@ describe('TaskCoordinator', () => {
     await expect(coordinator.acquireLocalLease('project', 'task-b')).rejects.toThrow(/in use/i)
     await coordinator.releaseLocalLease('project', 'task-a')
     expect(store.read().localLeaseByProjectId.project).toBeNull()
+  })
+
+  it('allows turns only in runnable Local or Worktree states', async () => {
+    const { coordinator } = fixture()
+    const local = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [{ type: 'text', text: 'Local' }],
+    })
+
+    expect(() => assertTaskRunnable(local)).not.toThrow()
+    expect(() => assertTaskRunnable({ ...local, state: 'archived' })).toThrow(/archived/)
+    expect(() => assertTaskRunnable({ ...local, location: 'worktree', state: 'failed' })).toThrow(/failed/)
+    expect(() => assertTaskRunnable({ ...local, location: 'worktree', state: 'active' })).not.toThrow()
   })
 
   it('resolves cwd from authoritative checkout and worktree records', async () => {
@@ -141,12 +172,63 @@ describe('TaskCoordinator', () => {
     const continued = await coordinator.continueInWorktree(local.id, {
       projectName: 'Project', localCheckoutId: 'local', localCheckoutPath: '/repo',
       managedRoot: '/managed', cap: 15, baseRef: 'refs/heads/main',
-      environmentId: null, environmentRevision: null,
+      environmentId: null, environmentRevision: null, includeLocalChanges: false,
     })
 
     expect(continued).toMatchObject({
-      location: 'worktree', state: 'active', worktreeId: 'worktree', checkoutId: 'managed',
+      location: 'worktree', state: 'provisioning', worktreeId: 'worktree', checkoutId: 'managed',
       threadId: 'thread',
+      worktreeTransition: { phase: 'resuming', previousCheckoutId: 'local' },
     })
+    expect(await coordinator.completeWorktreeTransition(local.id)).toMatchObject({
+      location: 'worktree', state: 'active', worktreeTransition: null,
+    })
+  })
+
+  it('rolls a failed runtime move back to the original Local binding', async () => {
+    const { store } = fixture()
+    const worktree = {
+      id: 'worktree', projectId: 'project', taskId: 'task', checkoutId: 'managed',
+      path: '/managed/task', recordedRoot: '/managed', gitCommonDir: '/repo/.git',
+      manifestPath: '/managed/task/.cranberri/worktree.json', baseRef: 'refs/heads/main',
+      baseSha: 'a'.repeat(40), branch: null, headSha: 'a'.repeat(40), archiveHeadSha: null,
+      privateRef: null, lifecycle: 'active' as const, cleanupReason: null,
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }
+    const remove = vi.fn(async () => ({ ...worktree, lifecycle: 'removed' as const }))
+    const lifecycle = { create: async () => worktree, remove } as unknown as WorktreeLifecycle
+    const coordinator = new TaskCoordinator(store, lifecycle)
+    const local = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [{ type: 'text', text: 'Local' }],
+    })
+    await coordinator.bindThread(local.id, 'thread')
+    await coordinator.continueInWorktree(local.id, {
+      projectName: 'Project', localCheckoutId: 'local', localCheckoutPath: '/repo',
+      managedRoot: '/managed', cap: 15, baseRef: 'refs/heads/main',
+      environmentId: null, environmentRevision: null, includeLocalChanges: false,
+    })
+
+    const rolledBack = await coordinator.rollbackWorktreeTransition(local.id)
+
+    expect(remove).toHaveBeenCalledWith('worktree')
+    expect(rolledBack).toMatchObject({
+      checkoutId: 'local', worktreeId: null, location: 'local', state: 'local',
+      baseRef: 'refs/heads/main', worktreeTransition: null,
+    })
+  })
+
+  it('deletes a Local task and its Codex thread together', async () => {
+    const { store, coordinator } = fixture()
+    const task = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+    const deleteThread = vi.fn(async () => undefined)
+
+    await coordinator.delete(task.id, deleteThread)
+
+    expect(deleteThread).toHaveBeenCalledWith('thread')
+    expect(store.read().tasks).toEqual([])
   })
 })

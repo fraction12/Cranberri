@@ -6,6 +6,7 @@ import type {
   CodexRuntimeContext,
   CodexSessionSummary,
   CodexSessionThread,
+  CodexTransportCapabilities,
   CodexTurnSettings,
   CodexUserInput,
   CodexWorker,
@@ -162,6 +163,20 @@ export class FakeCodexClient extends EventEmitter {
 
   setCwd(cwd: string): void {
     void cwd
+  }
+
+  supportsTransportCapability(_capability: keyof CodexTransportCapabilities): boolean {
+    return true
+  }
+
+  isThreadRunning(threadId: string): boolean {
+    return this.requireThread(threadId).turns.at(-1)?.status === 'running'
+  }
+
+  hasActiveWorkers(threadId: string): boolean {
+    return [...this.threads.values()].some((thread) => (
+      thread.parentThreadId === threadId && (thread.status === 'running' || thread.status === 'pendingInit')
+    ))
   }
 
   async createThread(cwdOrRuntime: string | CodexRuntimeContext = this.processCwd, _settings?: CodexTurnSettings): Promise<{ id: string; name?: string | null }> {
@@ -345,8 +360,13 @@ export class FakeCodexClient extends EventEmitter {
   async resumeThread(threadId: string, cwdOrRuntime?: string | CodexRuntimeContext, _settings?: CodexTurnSettings): Promise<CodexSessionThread> {
     const thread = this.requireThread(threadId)
     const runtime = typeof cwdOrRuntime === 'string' ? { cwd: cwdOrRuntime } : cwdOrRuntime
-    if (runtime && (thread.cwd !== runtime.cwd || (thread.taskId && runtime.taskId && thread.taskId !== runtime.taskId))) {
+    if (runtime && thread.taskId && runtime.taskId && thread.taskId !== runtime.taskId) {
       throw new Error(`Fake Codex runtime does not match task identity for thread ${threadId}`)
+    }
+    if (runtime) {
+      thread.cwd = runtime.cwd
+      thread.taskId = runtime.taskId ?? thread.taskId
+      thread.updatedAt = Date.now()
     }
     return this.readThread(threadId)
   }

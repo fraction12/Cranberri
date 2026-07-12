@@ -112,6 +112,7 @@ export interface BuildAppActionsInput {
   latestBrowserInspection?: BrowserElementInspection | null
   latestBrowserScreenshot?: LatestBrowserScreenshotContext | null
   openChat: () => string
+  openWorktreeChat?: () => string
   openTerminal: () => string
   openBrowser: () => string
   openSettings: (tab?: SettingsTabValue) => void
@@ -293,6 +294,7 @@ export function buildAppActions({
   latestBrowserInspection,
   latestBrowserScreenshot,
   openChat,
+  openWorktreeChat,
   openTerminal,
   openBrowser,
   openSettings,
@@ -411,12 +413,22 @@ export function buildAppActions({
       id: 'workspace:new-chat',
       group: 'workspace',
       icon: 'chat',
-      label: 'New chat',
-      description: 'Open a new Codex chat window',
-      keywords: ['codex', 'conversation', 'thread'],
+      label: 'New Local session',
+      description: 'Use the pinned checkout',
+      keywords: ['codex', 'conversation', 'thread', 'chat', 'local'],
       disabledReason: needsRepo,
       run: openChat,
     },
+    ...(openWorktreeChat ? [{
+      id: 'workspace:new-worktree-chat',
+      group: 'workspace' as const,
+      icon: 'chat' as const,
+      label: 'New Worktree session',
+      description: 'Create an isolated checkout',
+      keywords: ['codex', 'conversation', 'thread', 'chat', 'worktree', 'isolated'],
+      disabledReason: needsRepo,
+      run: openWorktreeChat,
+    }] : []),
     {
       id: 'workspace:new-terminal',
       group: 'workspace',

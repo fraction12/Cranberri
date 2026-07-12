@@ -84,9 +84,9 @@ describe('parseAppState', () => {
   })
 
   it('migrates windows and path-keyed pins to project identity without losing presentation state', () => {
-    const parsed = parseAppState({ version: 1, expandedRepoIds: { project: true }, workspacesByRepoId: { project: { activeWindowId: 'chat-1', windows: [{ id: 'chat-1', type: 'chat', title: 'Keep me' }] } }, pinnedCodexSessionsByRepoPath: { '/repo': [{ id: 'thread-1', title: 'Pinned' }] } }, { projects: [{ id: 'project', localPath: '/repo', localCheckoutId: 'checkout', controlTaskId: 'control' }] })
+    const parsed = parseAppState({ version: 1, expandedRepoIds: { project: true }, workspacesByRepoId: { project: { activeWindowId: 'chat-1', windows: [{ id: 'chat-1', type: 'chat', title: 'Keep me' }] } }, pinnedCodexSessionsByRepoPath: { '/repo': [{ id: 'thread-1', title: 'Pinned' }] } }, { projects: [{ id: 'project', localPath: '/repo', localCheckoutId: 'checkout' }] })
     expect(parsed.version).toBe(2)
-    expect(parsed.workspacesByProjectId.project.windows[0]).toMatchObject({ title: 'Keep me', projectId: 'project', taskId: 'control', checkoutId: 'checkout' })
+    expect(parsed.workspacesByProjectId.project.windows[0]).toMatchObject({ title: 'Keep me', projectId: 'project', taskId: null, checkoutId: 'checkout', sessionTarget: 'local' })
     expect(parsed.pinnedCodexSessionsByProjectId.project).toEqual([{ id: 'thread-1', title: 'Pinned' }])
   })
 })

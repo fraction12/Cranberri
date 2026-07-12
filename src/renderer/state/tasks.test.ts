@@ -81,6 +81,41 @@ describe('worktree submission recovery', () => {
     expect(api.send).toHaveBeenCalledWith(existing.id, expect.any(Array), undefined)
   })
 
+  it('binds the provisioned task before sending the first turn', async () => {
+    const existing = task('ready', 'root', 10)
+    existing.threadId = null
+    existing.environmentId = null
+    const order: string[] = []
+    const ready = { ...existing, threadId: 'thread-ready' }
+    const api: WorktreeSubmissionApi = {
+      createDraft: vi.fn(),
+      provision: vi.fn(),
+      startSetup: vi.fn(),
+      waitForSetup: vi.fn(),
+      send: vi.fn().mockImplementation(async () => {
+        order.push('send')
+        return ready
+      }),
+    }
+
+    await provisionAndSendFirstTurn(api, {
+      draft: {
+        projectId: existing.projectId,
+        title: 'Ready first',
+        baseRef: 'refs/heads/main',
+        environmentId: null,
+        environmentRevision: null,
+        input: [{ type: 'text', text: 'Ready first' }],
+      },
+      includeLocalChanges: false,
+    }, () => undefined, existing, async () => {
+      order.push('ready')
+      return ready
+    })
+
+    expect(order).toEqual(['ready', 'send'])
+  })
+
   it('retains the completed setup job when setup fails', async () => {
     const existing = task('setup', 'root', 10)
     existing.threadId = null

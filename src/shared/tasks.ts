@@ -7,6 +7,17 @@ export const pendingFirstTurnSchema = z.object({
   delivery: z.enum(['pending', 'sending', 'acknowledged']),
 })
 
+export const worktreeTransitionSchema = z.object({
+  phase: z.enum(['provisioning', 'setup', 'resuming', 'needsAttention']),
+  previousCheckoutId: z.string().min(1),
+  previousBaseRef: z.string().nullable(),
+  previousBaseSha: z.string().nullable(),
+  previousEnvironmentId: z.string().nullable(),
+  previousEnvironmentRevision: z.string().nullable(),
+  startedAt: z.number(),
+  error: z.string().nullable(),
+})
+
 export const taskSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -33,6 +44,7 @@ export const taskSchema = z.object({
   environmentId: z.string().nullable(),
   environmentRevision: z.string().nullable(),
   pendingFirstTurn: pendingFirstTurnSchema.nullable(),
+  worktreeTransition: worktreeTransitionSchema.nullable().optional(),
   parentTaskId: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),

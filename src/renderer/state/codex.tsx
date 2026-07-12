@@ -13,6 +13,7 @@ import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessag
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
 import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
 import { codexWorkerControlDisplayText } from '@/shared/codex-worker-control'
+import type { Task } from '@/shared/tasks'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
@@ -46,7 +47,8 @@ interface CodexActionsApi {
     repo?: { id: string; path: string },
   ) => Promise<CodexThread>
   restoreSessionWindow: (windowId: string, threadId: string) => Promise<CodexThread>
-  bindTaskWindow: (windowId: string, taskId: string) => Promise<CodexThread>
+  bindTaskWindow: (windowId: string, task: Task, initialContent?: string) => Promise<CodexThread>
+  markThreadSendFailed: (threadId: string, error: unknown) => void
   archiveSession: (threadId: string, repoPath?: string) => Promise<void>
   unarchiveSession: (threadId: string, repoPath?: string) => Promise<void>
   deleteSession: (threadId: string, repoPath?: string) => Promise<void>
@@ -679,22 +681,55 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     return hydrated
   }, [activeRepo])
 
-  const bindTaskWindow = useCallback(async (windowId: string, taskId: string): Promise<CodexThread> => {
-    const { task, thread } = await window.cranberri.tasks.read(taskId)
-    const hydrated = hydrateThread(thread, task.projectId)
-    setWorkersByParent((current) => hydrateSessionWorkerGraph(current, thread, hydrated.workers ?? []))
-    setThreads((current) => [...current.filter((candidate) => candidate.id !== hydrated.id), hydrated])
+  const bindTaskWindow = useCallback(async (windowId: string, task: Task, initialContent?: string): Promise<CodexThread> => {
+    if (!task.threadId) throw new Error('Task has no Codex thread')
+    const pendingTitle = pendingThreadTitlesRef.current[task.threadId]
+    delete pendingThreadTitlesRef.current[task.threadId]
+
+    let hydrated: CodexThread
+    if (initialContent) {
+      const initialTitle = initialContent.split('\n')[0]?.trim().slice(0, 160) || 'New session'
+      const meaningfulPendingTitle = pendingTitle && pendingTitle !== 'Untitled session' ? pendingTitle : null
+      hydrated = {
+        id: task.threadId,
+        title: meaningfulPendingTitle ?? initialTitle,
+        repoId: task.projectId,
+        messages: [{ id: crypto.randomUUID(), role: 'user', content: initialContent, timestamp: Date.now() }],
+        pendingApprovals: [],
+        isRunning: true,
+        currentActivity: 'Working',
+        runStartedAt: Date.now(),
+        workers: [],
+      }
+    } else {
+      const result = await window.cranberri.tasks.read(task.id)
+      const base = hydrateThread(result.thread, result.task.projectId)
+      hydrated = { ...base, title: pendingTitle ?? base.title }
+      setWorkersByParent((current) => hydrateSessionWorkerGraph(current, result.thread, hydrated.workers ?? []))
+    }
+
+    const nextThreads = [...threadsRef.current.filter((candidate) => candidate.id !== hydrated.id), hydrated]
+    threadsRef.current = nextThreads
+    setThreads(nextThreads)
     setActiveThreadId(hydrated.id)
     setWindowToThread((current) => ({ ...current, [windowId]: hydrated.id }))
     return hydrated
   }, [])
 
+  const markThreadSendFailed = useCallback((threadId: string, error: unknown) => {
+    markSendFailed(threadId, error)
+  }, [markSendFailed])
+
   const archiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
+    const snapshot = await window.cranberri.tasks.snapshot()
+    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+    if (task) await window.cranberri.tasks.archive(task.id)
+    else await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    if (task) window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
@@ -702,16 +737,24 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const unarchiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
+    const snapshot = await window.cranberri.tasks.snapshot()
+    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+    if (task) await window.cranberri.tasks.unarchive(task.id)
+    else await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    if (task) window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
   }, [activeRepo])
 
   const deleteSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
+    const snapshot = await window.cranberri.tasks.snapshot()
+    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+    if (task) await window.cranberri.tasks.delete(task.id)
+    else await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
+    window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWorkersByParent((current) => {
       const { [threadId]: removed, ...rest } = current
@@ -755,6 +798,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     openSession,
     restoreSessionWindow,
     bindTaskWindow,
+    markThreadSendFailed,
     archiveSession,
     unarchiveSession,
     deleteSession,
@@ -773,6 +817,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     renameSession,
     restoreSessionWindow,
     bindTaskWindow,
+    markThreadSendFailed,
     sendMessage,
     stopWorker,
     switchThread,

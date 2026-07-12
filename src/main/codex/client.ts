@@ -48,6 +48,34 @@ interface Thread {
   name?: string | null
 }
 
+interface MultiRootHistoryCursor {
+  version: 1
+  cursors: Record<string, string | null>
+}
+
+const MULTI_ROOT_HISTORY_CURSOR_PREFIX = 'cranberri-multi-root:'
+
+function decodeMultiRootHistoryCursor(cursor: string | null | undefined): MultiRootHistoryCursor | null {
+  if (!cursor?.startsWith(MULTI_ROOT_HISTORY_CURSOR_PREFIX)) return null
+  try {
+    const encoded = cursor.slice(MULTI_ROOT_HISTORY_CURSOR_PREFIX.length)
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as MultiRootHistoryCursor
+    return parsed.version === 1 && parsed.cursors && typeof parsed.cursors === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function encodeMultiRootHistoryCursor(cursors: Record<string, string | null>): string | null {
+  if (!Object.values(cursors).some(Boolean)) return null
+  const payload: MultiRootHistoryCursor = { version: 1, cursors }
+  return `${MULTI_ROOT_HISTORY_CURSOR_PREFIX}${Buffer.from(JSON.stringify(payload)).toString('base64url')}`
+}
+
+function sessionRecency(session: CodexSessionSummary): number {
+  return session.recencyAt ?? session.updatedAt ?? session.createdAt
+}
+
 interface SdkThread {
   id: string
   sessionId?: string
@@ -194,6 +222,10 @@ export class CodexClient extends EventEmitter {
 
   setTransportCapabilities(capabilities: CodexTransportCapabilities): void {
     this.transportCapabilities = { ...capabilities }
+  }
+
+  supportsTransportCapability(capability: keyof CodexTransportCapabilities): boolean {
+    return this.transportCapabilities[capability]
   }
 
   requireTransportCapability(capability: keyof CodexTransportCapabilities): void {
@@ -485,7 +517,34 @@ export class CodexClient extends EventEmitter {
   }
 
   async listThreads(cwd: string | string[], options: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null } = {}): Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }> {
-    if (Array.isArray(cwd) && cwd.length > 1) this.requireTransportCapability('cwdArrayHistory')
+    if (Array.isArray(cwd) && cwd.length > 1 && !this.supportsTransportCapability('cwdArrayHistory')) {
+      const roots = [...new Set(cwd)]
+      const compositeCursor = decodeMultiRootHistoryCursor(options.cursor)
+      const pages = await Promise.all(roots.map(async (root) => {
+        const hasCursor = compositeCursor && Object.prototype.hasOwnProperty.call(compositeCursor.cursors, root)
+        const rootCursor = hasCursor ? compositeCursor.cursors[root] : compositeCursor ? null : options.cursor
+        if (hasCursor && rootCursor === null) {
+          return { root, sessions: [] as CodexSessionSummary[], nextCursor: null, backwardsCursor: null }
+        }
+        const page = await this.listThreads(root, { ...options, cursor: rootCursor })
+        return { root, ...page }
+      }))
+      const sessions = new Map<string, CodexSessionSummary>()
+      for (const page of pages) {
+        for (const session of page.sessions) {
+          const current = sessions.get(session.id)
+          if (!current || sessionRecency(session) >= sessionRecency(current)) sessions.set(session.id, session)
+        }
+      }
+      const cursorRecord = (key: 'nextCursor' | 'backwardsCursor') => Object.fromEntries(
+        pages.map((page) => [page.root, page[key] ?? null]),
+      )
+      return {
+        sessions: [...sessions.values()].sort((left, right) => sessionRecency(right) - sessionRecency(left)),
+        nextCursor: encodeMultiRootHistoryCursor(cursorRecord('nextCursor')),
+        backwardsCursor: encodeMultiRootHistoryCursor(cursorRecord('backwardsCursor')),
+      }
+    }
     const archived = options.archived ?? false
     const res = await this.call('thread/list', {
       cwd,

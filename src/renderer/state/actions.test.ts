@@ -31,6 +31,7 @@ describe('app actions', () => {
     const renameSession = vi.fn()
     const deleteSession = vi.fn()
     const toggleSessionPinned = vi.fn()
+    const openWorktreeChat = vi.fn()
     const actions = buildAppActions({
       repos: [{ id: 'repo-1', name: 'Cranberri', path: '/repo/cranberri' }],
       activeRepoId: null,
@@ -65,6 +66,7 @@ describe('app actions', () => {
       activeSessionIds: ['thread-1'],
       pinnedSessionIds: ['thread-2'],
       openChat: vi.fn(),
+      openWorktreeChat,
       openTerminal: vi.fn(),
       openBrowser: vi.fn(),
       openSettings: vi.fn(),
@@ -79,6 +81,10 @@ describe('app actions', () => {
     })
 
     expect(actions.find((action) => action.id === 'workspace:new-chat')?.disabledReason).toBe('Select a repo first')
+    expect(actions.find((action) => action.id === 'workspace:new-worktree-chat')).toMatchObject({
+      label: 'New Worktree session',
+      disabledReason: 'Select a repo first',
+    })
     expect(actions.find((action) => action.id === 'window:win-1')?.label).toBe('Switch to Terminal 1')
     expect(actions.find((action) => action.id === 'session:thread-1')?.label).toBe('Switch to Fix browser polish')
     expect(actions.find((action) => action.id === 'session:archived:thread-2')).toMatchObject({

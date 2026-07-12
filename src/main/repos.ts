@@ -113,7 +113,7 @@ function migrateLegacy(raw: unknown): ProjectRegistry {
       pinnedLocalBranch: inspection.branch,
       defaultEnvironmentId: null,
       controlTaskId,
-      localLeaseTaskId: controlTaskId,
+      localLeaseTaskId: null,
     })
   }
 
@@ -202,7 +202,7 @@ export function initRepoIpc(): void {
       pinnedLocalBranch: inspection.branch,
       defaultEnvironmentId: null,
       controlTaskId,
-      localLeaseTaskId: controlTaskId,
+      localLeaseTaskId: null,
     }
     const checkout: Checkout = {
       id: checkoutId,

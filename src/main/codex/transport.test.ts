@@ -68,10 +68,41 @@ describe('CodexClient explicit runtime routing', () => {
     }))
   })
 
-  it('fails clearly when multiple-root history is unavailable', async () => {
+  it('merges individual root history when array history is unavailable', async () => {
     const client = new CodexClient('/default')
-    await expect(client.listThreads(['/repo/local', '/repo/worktree']))
-      .rejects.toThrow('Codex app-server does not support multi-root project history')
+    const call = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== 'thread/list' || !params || params.ancestorThreadId) {
+        return { jsonrpc: '2.0' as const, id: 1, result: { data: [] } }
+      }
+      const cwd = String(params.cwd)
+      return {
+        jsonrpc: '2.0' as const,
+        id: 1,
+        result: {
+          data: [{
+            id: cwd.endsWith('worktree') ? 'worktree-thread' : 'local-thread',
+            name: cwd,
+            cwd,
+            createdAt: cwd.endsWith('worktree') ? 20 : 10,
+            updatedAt: cwd.endsWith('worktree') ? 20 : 10,
+          }],
+          nextCursor: `${cwd}-next`,
+        },
+      }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    const firstPage = await client.listThreads(['/repo/local', '/repo/worktree'], { limit: 10 })
+
+    expect(firstPage.sessions.map((session) => session.id)).toEqual(['worktree-thread', 'local-thread'])
+    expect(firstPage.nextCursor).toMatch(/^cranberri-multi-root:/)
+    expect(call.mock.calls.filter(([method, params]) => method === 'thread/list' && !params?.ancestorThreadId)
+      .map(([, params]) => params?.cwd)).toEqual(['/repo/local', '/repo/worktree'])
+
+    call.mockClear()
+    await client.listThreads(['/repo/local', '/repo/worktree'], { cursor: firstPage.nextCursor })
+    expect(call.mock.calls.filter(([method, params]) => method === 'thread/list' && !params?.ancestorThreadId)
+      .map(([, params]) => params?.cursor)).toEqual(['/repo/local-next', '/repo/worktree-next'])
   })
 })
 
@@ -87,5 +118,16 @@ describe('FakeCodexClient task identity', () => {
     expect(a.sessions.map((session) => session.cwd)).toEqual(['/repo/a'])
     expect(b.sessions).toHaveLength(2)
     expect(client.getTaskIdForThread(a.sessions[0].id)).toBe('task-a')
+  })
+
+  it('allows the same task thread to move from Local into a worktree', async () => {
+    const client = new FakeCodexClient('/default')
+    const thread = await client.createThread({ cwd: '/repo/local', taskId: 'task-a' })
+
+    const resumed = await client.resumeThread(thread.id, { cwd: '/repo/worktree', taskId: 'task-a' })
+
+    expect(resumed.cwd).toBe('/repo/worktree')
+    await expect(client.resumeThread(thread.id, { cwd: '/repo/other', taskId: 'task-b' }))
+      .rejects.toThrow(/task identity/)
   })
 })

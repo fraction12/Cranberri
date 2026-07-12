@@ -77,6 +77,7 @@ function SessionRow({
   return (
     <div
       data-session-id={session.id}
+      data-session-location={location}
       className={cn('group/session flex w-full items-center rounded-md', active ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/60')}
     >
       <button
@@ -84,10 +85,11 @@ function SessionRow({
         onClick={() => openSession(session, repoPath, archived)}
         className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
         title={sessionTitle(session)}
+        aria-label={`${sessionTitle(session)}, ${location ?? 'Local'} session`}
       >
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            {location === 'local' ? <Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /> : location === 'worktree' ? <TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /> : null}
+            {location === 'local' ? <span title="Local session"><Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Local</span></span> : location === 'worktree' ? <span title="Worktree session"><TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Worktree</span></span> : null}
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
             <span className={cn('truncate', typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }))}>{sessionTitle(session)}</span>
           </span>
@@ -154,7 +156,13 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
     .filter((session): session is CodexSessionSummary => Boolean(session))
   const recentSessions = recent.filter((session) => !pinnedIdSet.has(session.id))
   const archivedSessions = archived.filter((session) => !pinnedIdSet.has(session.id))
-  const locationForSession = (session: CodexSessionSummary) => tasksApi?.tasks.find((task) => task.threadId === session.id)?.location
+  const locationForSession = (session: CodexSessionSummary): 'local' | 'worktree' => {
+    const taskLocation = tasksApi?.tasks.find((task) => task.threadId === session.id)?.location
+    if (taskLocation) return taskLocation
+    return session.cwd && tasksApi?.managedWorktrees?.some((worktree) => worktree.path === session.cwd)
+      ? 'worktree'
+      : 'local'
+  }
 
   const rememberSessionOptionsTrigger = useCallback((trigger: HTMLButtonElement) => {
     dialogReturnFocusRef.current = trigger
@@ -670,7 +678,7 @@ export function RepoRail() {
     bindWindowToTask(windowId, context)
     if (task.threadId) {
       try {
-        await bindTaskWindow(windowId, task.id)
+        await bindTaskWindow(windowId, task)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to open task')
       }
@@ -809,6 +817,7 @@ function ProjectTaskRows({ projectId, tasks, onOpen }: { projectId: string; task
 
 function TaskRailRow({ task, onOpen }: { task: import('@/shared/tasks').Task; onOpen: (id: string) => void }) {
   const Icon = task.location === 'local' ? Laptop : TreePine
-  const detail = task.baseRef ?? 'Detached'
-  return <button type="button" onClick={() => onOpen(task.id)} className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-app-surface-2/60" aria-label={`Open ${detail} task`}><Icon className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{task.location === 'local' ? 'Local' : 'Worktree'} · {detail}</span></button>
+  const location = task.location === 'local' ? 'Local' : 'Worktree'
+  const detail = (task.baseRef ?? 'Detached').replace(/^refs\/(heads|remotes)\//, '')
+  return <button type="button" onClick={() => onOpen(task.id)} className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-app-surface-2/60" aria-label={`Open ${location} task on ${detail}`}><Icon className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{location} · {detail}</span></button>
 }
