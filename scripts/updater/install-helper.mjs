@@ -123,6 +123,7 @@ export async function installFromManifest(manifest, options = {}) {
       recursive: true,
       preserveTimestamps: true,
       errorOnExist: true,
+      verbatimSymlinks: true,
     })
     journal(manifest, 'candidateCopied')
     fs.renameSync(manifest.currentAppPath, manifest.backupAppPath)

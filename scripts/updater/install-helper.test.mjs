@@ -15,6 +15,7 @@ function fixture() {
   fs.mkdirSync(path.join(stagedAppPath, 'Contents', 'MacOS'), { recursive: true })
   fs.writeFileSync(path.join(currentAppPath, 'version'), 'old')
   fs.writeFileSync(path.join(stagedAppPath, 'version'), 'new')
+  fs.symlinkSync('version', path.join(stagedAppPath, 'version-link'))
   fs.writeFileSync(path.join(currentAppPath, 'Contents', 'MacOS', 'Cranberri'), '')
   fs.writeFileSync(path.join(stagedAppPath, 'Contents', 'MacOS', 'Cranberri'), '')
   const manifest = {
@@ -38,6 +39,7 @@ describe('atomic updater helper', () => {
     const { manifest } = fixture()
     await installFromManifest(manifest, { relaunch: false })
     expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('new')
+    expect(fs.readlinkSync(path.join(manifest.currentAppPath, 'version-link'))).toBe('version')
     expect(fs.readFileSync(path.join(manifest.backupAppPath, 'version'), 'utf8')).toBe('old')
     expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('relaunching')
   })
