@@ -71,7 +71,7 @@ async function waitForWorkerStatus(page, workerId, expected, timeout = 240_000) 
 
 async function selectWorker(page, workerId) {
   const worker = page.locator(`[data-worker-id="${workerId}"]`).first()
-  if (await worker.getAttribute('aria-pressed') !== 'true') await worker.click()
+  if (await worker.getAttribute('aria-expanded') !== 'true') await worker.click()
 }
 
 async function waitForAuthoritativeWorkerEvent(page, workerId, eventOffset, statuses, timeout = 180_000) {
@@ -85,14 +85,14 @@ async function waitForAuthoritativeWorkerEvent(page, workerId, eventOffset, stat
 }
 
 async function workerControl(page, verb, workerId) {
-  const title = {
-    Steer: 'Steer worker',
-    Resume: 'Resume worker',
-    Stop: 'Stop worker',
-    Open: 'Open worker task',
+  const label = {
+    Steer: 'Steer ',
+    Resume: 'Resume ',
+    Stop: 'Stop ',
+    Open: 'Open ',
   }[verb]
-  if (!title) throw new Error(`Unknown worker control: ${verb}`)
-  const control = page.locator(`[data-worker-detail="${workerId}"] button[title="${title}"]:visible`)
+  if (!label) throw new Error(`Unknown worker control: ${verb}`)
+  const control = page.locator(`[data-worker-detail="${workerId}"] button[aria-label^="${label}"]:visible`)
   await control.waitFor({ timeout: 15_000 })
   return control
 }
@@ -107,6 +107,8 @@ async function main() {
   let page
   let parentThreadId
   let workerThreadId
+  let worktreePath
+  let worktreeTaskId
   try {
     step('launch packaged app with the real Codex runtime')
     electronApp = await electron.launch({
@@ -133,6 +135,14 @@ async function main() {
     }
     step(`connected to Codex ${connection.version ?? 'unknown version'}`)
 
+    step('open a managed worktree session through the visible repo controls')
+    const repoName = path.basename(repoPath)
+    const repo = page.locator('[data-repo-id="real-worker-uat-repo"]')
+    await repo.hover()
+    await repo.getByRole('button', { name: `New session in ${repoName}` }).click()
+    await page.getByRole('menuitem', { name: /New Worktree session/ }).click()
+    await page.getByLabel('New worktree setup').waitFor({ timeout: 20_000 })
+
     step('configure GPT-5.6-Sol with Ultra reasoning')
     const modelSelector = page.getByRole('button', { name: 'Configure model, reasoning, and speed' })
     await modelSelector.click()
@@ -140,10 +150,7 @@ async function main() {
     await page.getByRole('menuitemradio', { name: /GPT-5\.6-Sol Most capable/ }).click()
     await modelSelector.click()
     await page.getByRole('menuitemradio', { name: 'Ultra', exact: true }).click()
-    await page.waitForFunction(() => {
-      const trigger = document.querySelector('button[aria-label="Configure model, reasoning, and speed"]')
-      return trigger?.textContent?.includes('5.6-Sol') && trigger.textContent.includes('Ultra')
-    }, undefined, { timeout: 15_000 })
+    await modelSelector.filter({ hasText: /5\.6-Sol.*Ultra/ }).waitFor({ timeout: 15_000 })
 
     await page.evaluate(() => {
       window.__cranberriWorkerUatEvents = []
@@ -160,6 +167,26 @@ async function main() {
     await page.getByRole('textbox', { name: 'Chat message' }).fill(prompt)
     await page.getByRole('button', { name: 'Send message' }).click()
 
+    const worktreeDeadline = Date.now() + 60_000
+    let worktreeIdentity = null
+    while (!worktreeIdentity && Date.now() < worktreeDeadline) {
+      worktreeIdentity = await page.evaluate(async () => {
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.projectId === 'real-worker-uat-repo'
+          && candidate.location === 'worktree'
+          && candidate.threadId)
+        if (!task) return null
+        const status = await window.cranberri.tasks.status(task.id)
+        return status.worktree ? { taskId: task.id, worktreePath: status.worktree.path } : null
+      })
+      if (!worktreeIdentity) await page.waitForTimeout(250)
+    }
+    if (!worktreeIdentity) throw new Error('Worker UAT task did not persist a managed worktree')
+    worktreeTaskId = worktreeIdentity.taskId
+    worktreePath = worktreeIdentity.worktreePath
+    await page.getByText(/Worktree ·/).waitFor({ timeout: 30_000 })
+
+    await page.getByRole('tab', { name: /Agents/ }).click()
     const workerRow = page.locator('[data-worker-id]').first()
     await workerRow.waitFor({ timeout: 180_000 })
     workerThreadId = await workerRow.getAttribute('data-worker-id')
@@ -175,6 +202,15 @@ async function main() {
       return event?.threadId ?? null
     }, workerId)
     if (!parentThreadId) throw new Error('The worker event was not routed to its parent task.')
+    const workerCwd = await page.evaluate((id) => {
+      const event = window.__cranberriWorkerUatEvents.find((candidate) => (
+        candidate.type === 'worker_updated' && candidate.worker.threadId === id && candidate.worker.cwd
+      ))
+      return event?.worker.cwd ?? null
+    }, workerId)
+    if (workerCwd && fs.realpathSync(workerCwd) !== fs.realpathSync(worktreePath)) {
+      throw new Error(`Worker cwd drifted from its managed checkout: ${JSON.stringify({ workerCwd, worktreePath })}`)
+    }
     step(`spawned ${workerName} (${workerId}) under ${parentThreadId}`)
 
     step('steer the running worker from the parent task')
@@ -182,10 +218,10 @@ async function main() {
     const steerEventOffset = await page.evaluate(() => window.__cranberriWorkerUatEvents.length)
     const steer = await workerControl(page, 'Steer', workerId)
     await steer.click()
-    await page.locator('input[placeholder="Steer this worker..."]:visible').fill(
+    await page.locator('input[placeholder="Steer this agent..."]:visible').fill(
       'Also include the literal text CRANBERRI_STEERED in your final report.',
     )
-    await page.locator('button[aria-label="Send worker instruction"]:visible').click()
+    await page.locator('button[aria-label="Send agent instruction"]:visible').click()
     await waitForAuthoritativeWorkerEvent(page, workerId, steerEventOffset, ['pendingInit', 'running'])
 
     step('open the worker task and return through its parent breadcrumb')
@@ -202,23 +238,29 @@ async function main() {
 
     step('wait for the worker to complete and verify its persisted output')
     await waitForWorkerStatus(page, workerId, 'completed')
-    const completedTree = await page.evaluate(async ({ repo, parentId, childId }) => {
-      const listed = await window.cranberri.codex.listThreads(repo, { archived: false, limit: 20 })
+    const completedTree = await page.evaluate(async ({ checkout, taskId, parentId, childId }) => {
+      const listed = await window.cranberri.codex.listThreads(checkout, { archived: false, limit: 20 })
       const parent = listed.sessions.find((session) => session.id === parentId)
-      const restored = await window.cranberri.codex.readThread(repo, parentId, false)
-      const child = await window.cranberri.codex.readThread(repo, childId, false)
+      const restored = await window.cranberri.tasks.read(taskId)
+      const child = await window.cranberri.codex.readThread(checkout, childId, false)
       const output = child.thread.turns.flatMap((turn) => turn.items ?? [])
         .filter((item) => item.type === 'agentMessage')
         .map((item) => item.text ?? item.content?.map((part) => part.text ?? '').join('') ?? '')
         .join('\n')
       return {
+        parentCwd: parent?.cwd,
+        childCwd: child.thread.cwd,
         listedStatus: parent?.workers?.find((worker) => worker.threadId === childId)?.status,
         restoredStatus: restored.thread.workers?.find((worker) => worker.threadId === childId)?.status,
         output,
       }
-    }, { repo: repoPath, parentId: parentThreadId, childId: workerId })
+    }, { checkout: worktreePath, taskId: worktreeTaskId, parentId: parentThreadId, childId: workerId })
     if (completedTree.listedStatus !== 'completed' || completedTree.restoredStatus !== 'completed') {
       throw new Error(`Worker completion did not restore from Codex: ${JSON.stringify(completedTree)}`)
+    }
+    if (fs.realpathSync(completedTree.parentCwd) !== fs.realpathSync(worktreePath)
+      || fs.realpathSync(completedTree.childCwd) !== fs.realpathSync(worktreePath)) {
+      throw new Error(`Persisted worker context drifted from its managed checkout: ${JSON.stringify({ ...completedTree, output: undefined, worktreePath })}`)
     }
     if (!completedTree.output.includes('CRANBERRI_REAL_WORKER_UAT')) {
       throw new Error(`Worker output did not contain the fixture marker: ${completedTree.output}`)
@@ -237,7 +279,7 @@ async function main() {
     await page.locator('input[placeholder="Resume with a new instruction..."]:visible').fill(
       'Run `sleep 30`, then report CRANBERRI_RESUME_UAT. Do not edit files.',
     )
-    await page.locator('button[aria-label="Send worker instruction"]:visible').click()
+    await page.locator('button[aria-label="Send agent instruction"]:visible').click()
     await waitForAuthoritativeWorkerEvent(page, workerId, resumeEventOffset, ['pendingInit', 'running'])
     await waitForWorkerStatus(page, workerId, ['pendingInit', 'running'], 60_000)
     await selectWorker(page, workerId)
@@ -247,6 +289,8 @@ async function main() {
     step('verify the real UAT left the fixture repository unchanged')
     const gitStatus = execFileSync('git', ['status', '--porcelain'], { cwd: repoPath, encoding: 'utf8' })
     if (gitStatus.trim()) throw new Error(`Worker UAT modified the fixture repo:\n${gitStatus}`)
+    const worktreeStatus = execFileSync('git', ['status', '--porcelain'], { cwd: worktreePath, encoding: 'utf8' })
+    if (worktreeStatus.trim()) throw new Error(`Worker UAT modified the managed worktree:\n${worktreeStatus}`)
     await page.screenshot({ path: screenshotPath })
 
     if (pageErrors.length > 0) throw new Error(`Renderer page errors:\n${pageErrors.join('\n')}`)
