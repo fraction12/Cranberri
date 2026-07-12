@@ -3309,7 +3309,7 @@ async function runRepoWorkspaceSmoke() {
 
       smokeStep('visual theme and window matrix')
       await waitForVisibleToastsToClear(page)
-      await page.getByLabel('Switch to Smoke Codex Thread').click()
+      await page.locator('[role="tab"]:has(svg.lucide-message-square)').first().click()
       if (typographyUat) {
         const typographyComposer = page.getByRole('textbox', { name: 'Chat message' })
         await typographyComposer.fill('Mermaid typography smoke:\n```mermaid\ngraph LR\n  A[Plan] --> B[Build]\n```')
