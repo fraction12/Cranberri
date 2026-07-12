@@ -26,7 +26,7 @@ function createFixtureRepo(rootDir) {
     'Exact marker: CRANBERRI_REAL_WORKER_UAT',
     '',
   ].join('\n'))
-  execFileSync('git', ['init', '--quiet'], { cwd: repoPath, stdio: 'ignore' })
+  execFileSync('git', ['init', '--quiet', '-b', 'main'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['add', 'README.md'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', [
     '-c', 'user.name=Cranberri UAT',

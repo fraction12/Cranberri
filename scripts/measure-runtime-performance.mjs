@@ -355,7 +355,7 @@ function createFixtureRepo(rootDir, index) {
   const fixturePath = path.join(rootDir, name)
   fs.mkdirSync(fixturePath, { recursive: true })
   fs.writeFileSync(path.join(fixturePath, 'README.md'), `# Cranberri runtime fixture ${index}\n`)
-  execFileSync('git', ['init', '--quiet'], { cwd: fixturePath })
+  execFileSync('git', ['init', '--quiet', '-b', 'main'], { cwd: fixturePath })
   execFileSync('git', ['add', 'README.md'], { cwd: fixturePath })
   execFileSync('git', ['-c', 'user.name=Cranberri Runtime', '-c', 'user.email=runtime@example.invalid', 'commit', '--quiet', '-m', 'Initial fixture'], { cwd: fixturePath })
   return { id: `perf-repo-${index}`, name, path: fixturePath }

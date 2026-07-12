@@ -73,7 +73,7 @@ function createFixtureRepo(rootDir, repoName = 'cranberri-smoke-repo', dirty = t
     '</html>',
   ].join('\n'))
   fs.writeFileSync(path.join(repoPath, 'smoke-image.png'), Buffer.from(SMOKE_PNG_BASE64, 'base64'))
-  execFileSync('git', ['init', '--quiet'], { cwd: repoPath, stdio: 'ignore' })
+  execFileSync('git', ['init', '--quiet', '-b', 'main'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:fraction12/Cranberri.git'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['add', 'README.md', 'index.html', 'smoke-image.png'], { cwd: repoPath, stdio: 'ignore' })
   execFileSync('git', ['-c', 'user.name=Cranberri Smoke', '-c', 'user.email=smoke@example.invalid', 'commit', '--quiet', '-m', 'Initial smoke fixture'], { cwd: repoPath, stdio: 'ignore' })
