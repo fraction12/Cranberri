@@ -9,7 +9,7 @@ import {
   normalizeCodexReasoningEffort,
   normalizeCodexSpeed,
 } from '@/shared/codex'
-import { cn, menuSurface } from '../../lib/ui'
+import { cn, dropdownChevronStyle, dropdownTriggerStyle, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 
 type ModelSelectorProps = {
@@ -57,10 +57,8 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
         <button
           type="button"
           aria-label="Configure model, reasoning, and speed"
-          className={cn(
-            typeStyle({ role: 'control' }),
-            'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 transition-colors duration-fast ease-standard hover:bg-app-surface-2',
-          )}
+          data-dropdown-trigger="compact"
+          className={dropdownTriggerStyle()}
         >
           <span className="max-w-28 truncate" title={selectedModelLabel}>{selectedModelLabel.replace('GPT-', '')}</span>
           <span className="shrink-0">{selectedEffort.label}</span>
@@ -78,7 +76,7 @@ export function ModelSelector({ settings, onChange }: ModelSelectorProps) {
               <span className="hidden shrink-0 xl:inline">{selectedSpeed.label}</span>
             </>
           )}
-          <ChevronDown className="h-3 w-3 text-app-text-muted" />
+          <ChevronDown aria-hidden="true" data-dropdown-chevron="true" className={dropdownChevronStyle()} />
         </button>
       </DropdownMenu.Trigger>
 

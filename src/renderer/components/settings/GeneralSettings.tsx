@@ -11,11 +11,12 @@ import {
   type CodexConnectionStatus,
 } from '@/shared/codex'
 import { useSettings } from '../../state/settings'
-import { buttonStyle, cn, fieldStyle } from '../../lib/ui'
+import { buttonStyle, cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import { SettingsList, SettingsPage, SettingsRow, SettingsSection } from './settings-page'
+import { SelectControl } from '../ui/SelectControl'
 
-const SELECT_CLASS = cn(fieldStyle, 'w-56 max-w-[45vw]')
+const SELECT_CLASS = 'w-56 max-w-[45vw]'
 
 function connectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating...' : 'Connecting...'
@@ -98,7 +99,7 @@ export function GeneralSettings() {
       <SettingsSection title="Task defaults" description="Applied when a task does not provide its own setting.">
         <SettingsList>
           <SettingsRow label="Model">
-            <select
+            <SelectControl
               aria-label="Default model"
               value={settings.codex.defaultModel}
               onChange={(event) => {
@@ -112,37 +113,37 @@ export function GeneralSettings() {
               className={SELECT_CLASS}
             >
               {CODEX_MODELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </SelectControl>
           </SettingsRow>
           <SettingsRow label="Reasoning">
-            <select
+            <SelectControl
               aria-label="Default reasoning effort"
               value={settings.codex.defaultEffort}
               onChange={(event) => void saveDefaults({ defaultEffort: event.target.value as typeof settings.codex.defaultEffort })}
               className={SELECT_CLASS}
             >
               {efforts.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </SelectControl>
           </SettingsRow>
           <SettingsRow label="Speed">
-            <select
+            <SelectControl
               aria-label="Default speed"
               value={settings.codex.defaultSpeed ?? 'standard'}
               onChange={(event) => void saveDefaults({ defaultSpeed: event.target.value as typeof settings.codex.defaultSpeed })}
               className={SELECT_CLASS}
             >
               {speeds.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </SelectControl>
           </SettingsRow>
           <SettingsRow label="Approval policy">
-            <select
+            <SelectControl
               aria-label="Default approval mode"
               value={settings.codex.defaultApprovalMode}
               onChange={(event) => void saveDefaults({ defaultApprovalMode: event.target.value as typeof settings.codex.defaultApprovalMode })}
               className={SELECT_CLASS}
             >
               {CODEX_APPROVAL_MODES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </SelectControl>
           </SettingsRow>
         </SettingsList>
       </SettingsSection>

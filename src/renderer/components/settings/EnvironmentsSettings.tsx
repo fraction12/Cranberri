@@ -5,6 +5,7 @@ import type { Project } from '@/shared/projects'
 import { buttonStyle, cn, compactFieldStyle, iconButton } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import { SettingsDisclosure, SettingsList, SettingsPage, SettingsRow } from './settings-page'
+import { SelectControl } from '../ui/SelectControl'
 
 export interface EnvironmentSettingsItem { id: string; projectId: string; profile: EnvironmentProfile; revision: string; trustedRevision: string | null }
 export function EnvironmentsSettings({ projects = [], activeProjectId, environments = [], onProjectChange, onCreate, onUpdate, onTrust, onTest, onDelete, onSetDefault }: {
@@ -13,9 +14,9 @@ export function EnvironmentsSettings({ projects = [], activeProjectId, environme
   const project = projects.find((item) => item.id === activeProjectId) ?? projects[0]
   const items = project ? environments.filter((item) => item.projectId === project.id) : []
   return <SettingsPage title="Environments" description="Reusable setup for isolated tasks." actions={<button type="button" disabled={!project} className={buttonStyle({ tone: 'secondary', size: 'compact' })} onClick={onCreate}><Plus className="h-3.5 w-3.5" />Add</button>}>
-    {projects.length > 1 && <label className="block"><span className={typeStyle({ role: 'label', tone: 'secondary' })}>Project</span><select aria-label="Environment project" className={cn(compactFieldStyle, 'mt-1 w-full')} value={project?.id ?? ''} onChange={(event) => onProjectChange?.(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    {projects.length > 1 && <label className="block"><span className={typeStyle({ role: 'label', tone: 'secondary' })}>Project</span><SelectControl density="compact" aria-label="Environment project" className="mt-1 w-full" value={project?.id ?? ''} onChange={(event) => onProjectChange?.(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectControl></label>}
     {!project ? <EmptyState title="No project selected" detail="Add a project to create an environment." /> : <>
-      <SettingsList><SettingsRow label="Default environment"><select aria-label="Default environment" className={compactFieldStyle} value={project.defaultEnvironmentId ?? ''} onChange={(event) => onSetDefault?.(event.target.value || null)}><option value="">No environment</option>{items.map((item) => <option key={item.id} value={item.id}>{item.profile.name}</option>)}</select></SettingsRow></SettingsList>
+      <SettingsList><SettingsRow label="Default environment"><SelectControl density="compact" aria-label="Default environment" value={project.defaultEnvironmentId ?? ''} onChange={(event) => onSetDefault?.(event.target.value || null)}><option value="">No environment</option>{items.map((item) => <option key={item.id} value={item.id}>{item.profile.name}</option>)}</SelectControl></SettingsRow></SettingsList>
       {items.length === 0 ? <EmptyState title="No environments" detail="Add a profile when this project needs setup before Codex starts." /> : <div className="space-y-2">{items.map((item) => <EnvironmentEditor key={item.id} item={item} onUpdate={onUpdate} onTrust={onTrust} onTest={onTest} onDelete={onDelete} />)}</div>}
     </>}
   </SettingsPage>

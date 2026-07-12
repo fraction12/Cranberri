@@ -66,6 +66,65 @@ export const fieldStyle = cn(
 
 export const compactFieldStyle = cn(fieldStyle, 'h-8 px-2')
 
+export const selectControlStyle = cva(
+  cn(fieldStyle, 'peer w-full appearance-none'),
+  {
+    variants: {
+      density: {
+        compact: 'h-8 pl-2.5 pr-8',
+        standard: 'h-9 pl-3.5 pr-10',
+      },
+    },
+    defaultVariants: {
+      density: 'standard',
+    },
+  },
+)
+
+export const dropdownTriggerStyle = cva(
+  `inline-flex min-w-0 items-center rounded-md transition-colors duration-fast ease-standard hover:bg-app-surface-2 data-[state=open]:bg-app-surface-2 ${focusRing}`,
+  {
+    variants: {
+      density: {
+        compact: 'h-7 gap-1.5 pl-2 pr-2.5',
+        standard: 'h-9 gap-2 pl-3.5 pr-3',
+      },
+      tone: {
+        primary: typeStyle({ role: 'control' }),
+        secondary: cn(typeStyle({ role: 'control', tone: 'secondary' }), 'hover:text-app-text data-[state=open]:text-app-text'),
+      },
+    },
+    defaultVariants: {
+      density: 'compact',
+      tone: 'primary',
+    },
+  },
+)
+
+export const dropdownChevronStyle = cva(
+  'shrink-0 text-app-text-muted',
+  {
+    variants: {
+      density: {
+        compact: 'h-3 w-3',
+        standard: 'h-3.5 w-3.5',
+      },
+      placement: {
+        flow: 'ml-auto',
+        overlay: 'pointer-events-none absolute top-1/2 -translate-y-1/2',
+      },
+    },
+    compoundVariants: [
+      { density: 'compact', placement: 'overlay', className: 'right-2.5' },
+      { density: 'standard', placement: 'overlay', className: 'right-3' },
+    ],
+    defaultVariants: {
+      density: 'compact',
+      placement: 'flow',
+    },
+  },
+)
+
 export const menuSurface = 'rounded-lg bg-app-elevated p-1.5 shadow-2xl ring-1 ring-app-border/80'
 export const dialogSurface = 'rounded-lg bg-app-elevated shadow-2xl ring-1 ring-app-border/80'
 export const segmentedControl = 'grid gap-1 rounded-lg bg-app-bg p-1 ring-1 ring-app-border/55'

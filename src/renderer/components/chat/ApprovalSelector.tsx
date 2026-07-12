@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Hand, Settings2, ShieldCheck, ShieldQuestion } from 'lucide-react'
-import { cn, menuSurface } from '../../lib/ui'
+import { cn, dropdownChevronStyle, dropdownTriggerStyle, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexApprovalMode } from '@/shared/codex'
 import { CODEX_APPROVAL_MODES } from '@/shared/codex'
@@ -24,21 +24,20 @@ export function ApprovalSelector({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className={cn(
-            typeStyle({ role: 'control', tone: 'secondary' }),
-            'flex h-7 items-center gap-1.5 rounded-md px-2 transition-colors duration-fast ease-standard hover:bg-app-surface-2 hover:text-app-text',
-          )}
+          data-dropdown-trigger="compact"
+          className={dropdownTriggerStyle({ tone: 'secondary' })}
           aria-label={`Approval policy: ${selected.label}`}
           title="Approval policy"
         >
           <Settings2 className="h-3.5 w-3.5" />
           <span>{selected.value === 'custom' ? 'Custom' : selected.label}</span>
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown aria-hidden="true" data-dropdown-chevron="true" className={dropdownChevronStyle()} />
         </button>
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
+          data-dropdown-menu="approval"
           side="top"
           align="start"
           sideOffset={10}

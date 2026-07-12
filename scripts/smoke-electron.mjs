@@ -15,6 +15,7 @@ const SMOKE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQV
 const smokeScreenshotDir = process.env.CRANBERRI_SMOKE_SCREENSHOT_DIR
 const useRendererScreenshots = process.env.CRANBERRI_SMOKE_RENDERER_SCREENSHOTS === '1'
 const typographyUat = process.env.CRANBERRI_SMOKE_TYPOGRAPHY_UAT === '1'
+const dropdownUat = process.env.CRANBERRI_SMOKE_DROPDOWN_UAT === '1'
 const realCodexTimeoutMs = Number(process.env.CRANBERRI_SMOKE_REAL_TIMEOUT_MS ?? 180_000)
 const capturedSmokeScreenshots = new Set()
 let screenshotElectronApp = null
@@ -117,6 +118,56 @@ async function captureSmokeScreenshot(page, name) {
   fs.mkdirSync(smokeScreenshotDir, { recursive: true })
   await page.screenshot({ path: path.join(smokeScreenshotDir, `${name}.png`) })
   capturedSmokeScreenshots.add(name)
+}
+
+function assertGeometry(metrics, expected, label) {
+  const tolerance = 0.75
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    const actualValue = metrics[key]
+    if (!Number.isFinite(actualValue) || Math.abs(actualValue - expectedValue) > tolerance) {
+      throw new Error(`${label} ${key} rendered at ${actualValue}px; expected ${expectedValue}px (${JSON.stringify(metrics)})`)
+    }
+  }
+}
+
+async function assertSelectControlGeometry(control, density) {
+  const metrics = await control.evaluate((element) => {
+    const host = element.closest('[data-select-control]')
+    const chevron = host?.querySelector('[data-select-chevron]')
+    if (!(host instanceof HTMLElement) || !(chevron instanceof SVGElement)) {
+      throw new Error('Select control is missing its shared host or chevron')
+    }
+    const controlRect = element.getBoundingClientRect()
+    const chevronRect = chevron.getBoundingClientRect()
+    const computed = getComputedStyle(element)
+    return {
+      height: controlRect.height,
+      paddingLeft: Number.parseFloat(computed.paddingLeft),
+      paddingRight: Number.parseFloat(computed.paddingRight),
+      rightInset: controlRect.right - chevronRect.right,
+      chevronWidth: chevronRect.width,
+    }
+  })
+  assertGeometry(metrics, density === 'standard'
+    ? { height: 36, paddingLeft: 14, paddingRight: 40, rightInset: 12, chevronWidth: 14 }
+    : { height: 32, paddingLeft: 10, paddingRight: 32, rightInset: 10, chevronWidth: 12 }, `${density} select`)
+}
+
+async function assertCompactDropdownGeometry(trigger) {
+  const metrics = await trigger.evaluate((element) => {
+    const chevron = element.querySelector('[data-dropdown-chevron]')
+    if (!(chevron instanceof SVGElement)) throw new Error('Dropdown trigger is missing its shared chevron')
+    const triggerRect = element.getBoundingClientRect()
+    const chevronRect = chevron.getBoundingClientRect()
+    const computed = getComputedStyle(element)
+    return {
+      height: triggerRect.height,
+      paddingRight: Number.parseFloat(computed.paddingRight),
+      rightInset: triggerRect.right - chevronRect.right,
+      chevronWidth: chevronRect.width,
+    }
+  })
+  assertGeometry(metrics, { height: 28, paddingRight: 10, rightInset: 10, chevronWidth: 12 }, 'compact dropdown')
 }
 
 async function assertRenderedTypography(page, preset) {
@@ -516,6 +567,10 @@ async function runFreshStartupSmoke() {
       const defaultModel = page.getByLabel('Default model')
       const defaultEffort = page.getByLabel('Default reasoning effort')
       const defaultSpeed = page.getByLabel('Default speed')
+      const defaultApproval = page.getByLabel('Default approval mode')
+      for (const control of [defaultModel, defaultEffort, defaultSpeed, defaultApproval]) {
+        await assertSelectControlGeometry(control, 'standard')
+      }
       await defaultModel.selectOption('gpt-5.6-sol')
       await defaultEffort.locator('option[value="ultra"]').waitFor({ state: 'attached', timeout: 10_000 })
       await defaultEffort.selectOption('ultra')
@@ -943,8 +998,58 @@ async function runRepoWorkspaceSmoke() {
       await page.getByRole('menuitem', { name: /New Worktree session/ }).click()
       await page.getByLabel('New worktree setup').waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Close New local session' }).click()
-      await page.getByRole('button', { name: 'Base branch: main' }).waitFor({ timeout: 10_000 })
-      await page.getByRole('button', { name: 'Environment: No environment' }).waitFor({ timeout: 10_000 })
+      const branchSelector = page.getByRole('button', { name: 'Base branch: main' })
+      const environmentSelector = page.getByRole('button', { name: 'Environment: No environment' })
+      await branchSelector.waitFor({ timeout: 10_000 })
+      await environmentSelector.waitFor({ timeout: 10_000 })
+      const compactDropdowns = page.locator('[data-dropdown-trigger="compact"]:visible')
+      const compactDropdownCount = await compactDropdowns.count()
+      if (compactDropdownCount !== 4) throw new Error(`Expected four visible compact dropdowns, found ${compactDropdownCount}`)
+      for (let index = 0; index < compactDropdownCount; index += 1) {
+        await assertCompactDropdownGeometry(compactDropdowns.nth(index))
+      }
+      await branchSelector.click()
+      await page.locator('[data-dropdown-menu="branch"]').waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-branch-light-standard')
+      await page.keyboard.press('Escape')
+      await environmentSelector.click()
+      await page.locator('[data-dropdown-menu="environment"]').waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-environment-light-standard')
+      await page.keyboard.press('Escape')
+      const approvalSelector = page.getByRole('button', { name: /Approval policy:/ })
+      await approvalSelector.click()
+      await page.locator('[data-dropdown-menu="approval"]').waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-approval-light-standard')
+      await page.keyboard.press('Escape')
+      const modelTrigger = page.getByRole('button', { name: 'Configure model, reasoning, and speed' })
+      await modelTrigger.click()
+      await page.locator('[data-model-selector-menu="root"]').waitFor({ timeout: 10_000 })
+      await captureSmokeScreenshot(page, 'dropdown-model-trigger-light-standard')
+      await page.keyboard.press('Escape')
+      await page.getByLabel('Open settings').click()
+      await page.getByRole('button', { name: 'Environments', exact: true }).click()
+      const environmentProject = page.getByLabel('Environment project')
+      const defaultEnvironment = page.getByLabel('Default environment')
+      await environmentProject.waitFor({ timeout: 10_000 })
+      await defaultEnvironment.waitFor({ timeout: 10_000 })
+      await assertSelectControlGeometry(environmentProject, 'compact')
+      await assertSelectControlGeometry(defaultEnvironment, 'compact')
+      await captureSmokeScreenshot(page, 'settings-environments-selects-light-standard')
+      if (dropdownUat) {
+        await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+        await page.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Dark' }).click()
+        await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark')
+        await page.getByRole('button', { name: 'General', exact: true }).click()
+        for (const label of ['Default model', 'Default reasoning effort', 'Default speed', 'Default approval mode']) {
+          await assertSelectControlGeometry(page.getByLabel(label), 'standard')
+        }
+        await captureSmokeScreenshot(page, 'settings-general-selects-dark-standard')
+      }
+      await page.getByLabel('Close settings').click()
+      if (dropdownUat) {
+        smokeStep('dropdown geometry assertions complete')
+        return
+      }
       await page.waitForFunction(() => {
         const composer = document.querySelector('[data-chat-composer="true"]')
         if (!(composer instanceof HTMLElement)) return false
@@ -3253,6 +3358,9 @@ if (smokeOnly && !validSmokeModes.has(smokeOnly)) {
 }
 if (typographyUat && smokeOnly !== 'repo') {
   throw new Error('Typography UAT must run with CRANBERRI_SMOKE_ONLY=repo.')
+}
+if (dropdownUat && smokeOnly !== 'repo') {
+  throw new Error('Dropdown UAT must run with CRANBERRI_SMOKE_ONLY=repo.')
 }
 if (!smokeOnly || smokeOnly === 'fresh') await runFreshStartupSmoke()
 if (!smokeOnly || smokeOnly === 'fresh' || smokeOnly === 'idle') await runIdleToolCatalogSmoke()
