@@ -368,16 +368,28 @@ describe('app actions', () => {
     const copyMcpToolContext = vi.fn()
     const registry: ToolRegistrySnapshot = {
       generatedAt: '2026-07-08T00:00:00.000Z',
-      apps: [{
-        id: 'github',
-        name: 'GitHub',
-        description: 'Repository automation',
-        logoUrl: null,
-        enabled: true,
-        accessible: true,
-        distributionChannel: 'plugin',
-        pluginDisplayNames: ['GitHub'],
-      }],
+      apps: [
+        {
+          id: 'github',
+          name: 'GitHub',
+          description: 'Repository automation',
+          logoUrl: null,
+          enabled: true,
+          accessible: true,
+          distributionChannel: 'plugin',
+          pluginDisplayNames: ['GitHub'],
+        },
+        {
+          id: 'directory-only',
+          name: 'Directory only',
+          description: 'Not available to this runtime',
+          logoUrl: null,
+          enabled: true,
+          accessible: false,
+          distributionChannel: 'ECOSYSTEM_DIRECTORY',
+          pluginDisplayNames: [],
+        },
+      ],
       mcpServers: [{
         name: 'github',
         authStatus: 'authenticated',
@@ -444,6 +456,8 @@ describe('app actions', () => {
       label: 'Copy app context: GitHub',
       description: 'Repository automation',
     })
+    expect(actions.find((action) => action.id === 'app:directory-only:context')).toBeUndefined()
+    expect(actions.find((action) => action.id === 'app:directory-only:copy-context')).toBeUndefined()
     expect(actions.find((action) => action.id === 'mcp:github:context')).toMatchObject({
       label: 'Send MCP server context: github',
       description: 'authenticated - 1 tools',

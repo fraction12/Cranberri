@@ -658,6 +658,22 @@ async function runFreshStartupSmoke() {
       await page.getByRole('button', { name: 'Installed' }).waitFor({ timeout: 10_000 })
       await page.getByText('Loading extensions', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
       await captureSmokeScreenshot(page, 'settings-extensions-light')
+      await page.getByRole('button', { name: 'Connections', exact: true }).click()
+      await page.getByRole('heading', { name: 'Available apps', exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByRole('heading', { name: 'App directory', exact: true }).waitFor({ timeout: 10_000 })
+      if (await page.getByRole('heading', { name: 'Connected apps', exact: true }).count()) {
+        throw new Error('Connections still labels Codex directory entries as connected apps')
+      }
+      const appDirectory = page.locator('[data-app-directory="true"]')
+      const showUnavailableApps = appDirectory.getByRole('button', { name: 'Show unavailable' })
+      if (await showUnavailableApps.count()) {
+        await showUnavailableApps.click()
+        await appDirectory.getByText('Unavailable', { exact: true }).first().waitFor({ timeout: 10_000 })
+        if (await appDirectory.getByTitle('Add to chat').count()) {
+          throw new Error('Unavailable directory apps still expose an add-to-chat action')
+        }
+      }
+      await captureSmokeScreenshot(page, 'settings-connections-light')
       const settingsContent = page.locator('main[aria-live="polite"]')
       await settingsContent.evaluate((element) => { element.scrollTop = element.scrollHeight })
       await page.getByRole('button', { name: 'Updates' }).click()

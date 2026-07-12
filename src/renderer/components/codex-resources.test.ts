@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexPluginInfo, CodexSkillInfo } from '@/shared/codex'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
-import { appChatContext, filterCodexPlugins, mcpServerChatContext, mcpToolChatContext, skillChatContext, skillSourceLabel, summarizeCodexResources } from './codex-resources'
+import { appChatContext, codexAppStatus, filterCodexPlugins, groupCodexApps, mcpServerChatContext, mcpToolChatContext, skillChatContext, skillSourceLabel, summarizeCodexResources } from './codex-resources'
 
 describe('codex resource helpers', () => {
   it('summarizes plugins, skills, app registry, and MCP tools', () => {
@@ -87,12 +87,26 @@ describe('codex resource helpers', () => {
       ],
     }
 
-    expect(appContext).toContain('Connected app context:')
-    expect(appContext).toContain('Status: needs access')
+    expect(appContext).toContain('Codex app context:')
+    expect(appContext).toContain('Status: unavailable')
     expect(appContext).toContain('Plugins: GitHub')
     expect(mcpServerChatContext(server)).toContain('Known tools: Create issue, list_prs')
     expect(mcpToolChatContext(server, server.tools[0])).toContain('Tool: Create issue')
     expect(mcpToolChatContext(server, server.tools[0])).toContain('Description: Open a GitHub issue')
+  })
+
+  it('separates usable apps from directory-only and disabled entries', () => {
+    const ready = { id: 'ready', name: 'Ready', description: null, logoUrl: null, enabled: true, accessible: true, distributionChannel: 'plugin', pluginDisplayNames: [] }
+    const unavailable = { ...ready, id: 'unavailable', name: 'Unavailable', accessible: false }
+    const disabled = { ...ready, id: 'disabled', name: 'Disabled', enabled: false }
+
+    expect(codexAppStatus(ready)).toBe('ready')
+    expect(codexAppStatus(unavailable)).toBe('unavailable')
+    expect(codexAppStatus(disabled)).toBe('disabled')
+    expect(groupCodexApps([unavailable, ready, disabled])).toEqual({
+      ready: [ready],
+      directory: [unavailable, disabled],
+    })
   })
 
   it('filters plugins by name, id, marketplace, description, and version', () => {
