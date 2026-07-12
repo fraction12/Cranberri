@@ -58,13 +58,13 @@ describe('composer send lifecycle', () => {
     const result = await runComposerSendLifecycle({
       journal: async () => { events.push('journal'); return { id: 'pending-send' } },
       clearVisible: () => events.push('clear-visible'),
-      dispatch: async () => { events.push('dispatch') },
+      dispatch: async (journaled) => { events.push(`dispatch:${journaled?.id}`) },
       restoreVisible: () => events.push('restore-visible'),
       restoreSavedDraft: () => events.push('restore-saved'),
       clearSavedDraft: async () => { events.push('clear-saved') },
     })
 
-    expect(events).toEqual(['journal', 'clear-visible', 'dispatch', 'clear-saved'])
+    expect(events).toEqual(['journal', 'clear-visible', 'dispatch:pending-send', 'clear-saved'])
     expect(result).toEqual({ acknowledged: true })
   })
 

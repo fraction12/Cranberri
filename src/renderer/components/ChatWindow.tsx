@@ -5,7 +5,7 @@ import { ArrowDown } from 'lucide-react'
 import { useCodexActions, useCodexThreads, useCodexWindows } from '../state/codex'
 import { useWorkspace } from '../state/workspace'
 import { useSettings } from '../state/settings'
-import { useOptionalTasks } from '../state/tasks'
+import { taskExecutionContext, useOptionalTasks } from '../state/tasks'
 import { useRepos } from '../state/repos'
 import { useRecovery } from '../state/recovery'
 import { invalidateSessions } from '../state/session-invalidation'
@@ -27,9 +27,35 @@ import { StartupRecoveryNotice } from './chat/StartupRecoveryNotice'
 import { PromptDialog } from './PromptDialog'
 import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import {
+  taskFirstTurnIdempotencyKey,
+  withFirstTurnIdempotencyKey,
+  type Task,
+} from '@/shared/tasks'
+import type { TaskExecutionContext } from '../state/execution-context'
+import type { Checkout } from '@/shared/projects'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Task action failed'
+}
+
+export function rebindWindowAfterHandoff({
+  windowId,
+  task,
+  checkouts,
+  bindWindowToTask,
+  closeDialog,
+}: {
+  windowId: string
+  task: Task
+  checkouts: ReadonlyArray<Checkout>
+  bindWindowToTask: (windowId: string, context: TaskExecutionContext) => void
+  closeDialog: () => void
+}): void {
+  const context = taskExecutionContext(task, [...checkouts])
+  if (!context) throw new Error('Task checkout is unavailable after handoff')
+  bindWindowToTask(windowId, context)
+  closeDialog()
 }
 
 
@@ -260,7 +286,29 @@ export function ChatWindow({ id }: { id: string }) {
   const dispatchComposerSubmission = async (submission: ChatComposerSubmission): Promise<void> => {
     let preparedThreadId: string | null = null
     try {
-      if (submission.text === '/compact' && !thread?.parentThreadId) {
+      const firstTurnInput = submission.idempotencyKey
+        ? withFirstTurnIdempotencyKey(submission.input, submission.idempotencyKey)
+        : submission.input
+      const activeFirstTurnKey = activeTask ? taskFirstTurnIdempotencyKey(activeTask) : null
+      if (submission.idempotencyKey && activeTask?.pendingFirstTurn) {
+        preparedThreadId = activeTask.threadId
+        await window.cranberri.tasks.send({
+          taskId: activeTask.id,
+          input: firstTurnInput,
+          settings: submission.turnSettings,
+        })
+        await tasks?.refresh()
+      } else if (submission.idempotencyKey && activeTask && activeFirstTurnKey === submission.idempotencyKey) {
+        preparedThreadId = activeTask.threadId
+        if (activeTask.firstTurnIdempotencyKey !== submission.idempotencyKey) {
+          await window.cranberri.tasks.send({
+            taskId: activeTask.id,
+            input: firstTurnInput,
+            settings: submission.turnSettings,
+          })
+          await tasks?.refresh()
+        }
+      } else if (submission.text === '/compact' && !thread?.parentThreadId) {
         if (!threadId) return
         await compactThread(threadId)
       } else if (threadId) {
@@ -284,7 +332,7 @@ export function ChatWindow({ id }: { id: string }) {
               baseRef,
               environmentId: environmentRevision ? environmentId : null,
               environmentRevision,
-              input: submission.input,
+              input: firstTurnInput,
             },
             includeLocalChanges,
             settings: submission.turnSettings,
@@ -306,7 +354,7 @@ export function ChatWindow({ id }: { id: string }) {
           await tasks.submitLocal({
             projectId: taskProject.id,
             title: submission.displayText.split('\n')[0]?.trim().slice(0, 160) || 'Local session',
-            input: submission.input,
+            input: firstTurnInput,
           }, submission.turnSettings, async (readyTask) => {
             preparedThreadId = readyTask.threadId
             const checkout = tasks.checkouts.find((candidate) => candidate.id === readyTask.checkoutId)
@@ -355,6 +403,7 @@ export function ChatWindow({ id }: { id: string }) {
     onRestoreIncludeLocalChanges: setIncludeLocalChanges,
     onComposerInsetChange: setComposerInset,
     onDispatch: dispatchComposerSubmission,
+    acknowledgedFirstTurnIdempotencyKey: activeTask?.firstTurnIdempotencyKey ?? null,
     onAbort: async () => {
       if (!threadId) return
       try {
@@ -502,7 +551,16 @@ export function ChatWindow({ id }: { id: string }) {
             ? tasks.handoffToLocal({ taskId: handoffPrompt.taskId, branch, createBranch: handoffPrompt.createBranch })
             : tasks.handoffToWorktree({ taskId: handoffPrompt.taskId, branch })
           void operation
-            .then(() => setHandoffPrompt(null))
+            .then(async (handedOffTask) => {
+              const snapshot = await window.cranberri.tasks.snapshot()
+              rebindWindowAfterHandoff({
+                windowId: id,
+                task: handedOffTask,
+                checkouts: snapshot.checkouts,
+                bindWindowToTask,
+                closeDialog: () => setHandoffPrompt(null),
+              })
+            })
             .catch((error) => {
               console.error('Task handoff failed:', error)
               setHandoffError('The branch could not be moved. Review the checkout and try again.')

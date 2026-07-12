@@ -11,12 +11,29 @@ import { useRepoWatchInvalidation } from './state/search'
 import { RecoveryProvider, recoveryAllowsUpdateHealth, useRecovery } from './state/recovery'
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
 import { TooltipProvider } from './components/ui/Tooltip'
+import type { PersistenceFlushAcknowledgement, PersistenceFlushRequest } from '@/shared/appState'
 
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((module) => ({ default: module.CommandPalette })))
 const StableRepoRail = memo(RepoRail)
 const StableWorkspace = memo(Workspace)
 const StableRightRail = memo(RightRail)
+
+export async function runRendererPersistenceFlush(
+  request: PersistenceFlushRequest,
+  collectWrites: (writes: Promise<unknown>[]) => void,
+  acknowledge: (acknowledgement: PersistenceFlushAcknowledgement) => Promise<unknown>,
+): Promise<void> {
+  const writes: Promise<unknown>[] = []
+  collectWrites(writes)
+  let errorMessage: string | null = null
+  try {
+    await Promise.all(writes)
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : 'Workspace flush failed'
+  }
+  await acknowledge({ requestId: request.requestId, errorMessage })
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
@@ -94,6 +111,14 @@ function AppShell() {
       () => window.cranberri.update.acknowledgeFlush(requestId),
       (error) => window.cranberri.update.acknowledgeFlush(requestId, error instanceof Error ? error.message : 'Workspace flush failed'),
     )
+  }), [])
+
+  useEffect(() => window.cranberri.lifecycle.onPersistenceFlushRequest((request) => {
+    void runRendererPersistenceFlush(
+      request,
+      (writes) => window.dispatchEvent(new CustomEvent('cranberri:flush-persistence', { detail: { writes } })),
+      window.cranberri.lifecycle.acknowledgePersistenceFlush,
+    ).catch((error) => console.error('Failed to acknowledge persistence flush:', error))
   }), [])
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null)

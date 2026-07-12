@@ -44,6 +44,10 @@ declare global {
         read: () => Promise<CranberriAppState>
         write: (state: CranberriAppState) => Promise<CranberriAppState>
       }
+      lifecycle: {
+        acknowledgePersistenceFlush: (acknowledgement: import('@/shared/appState').PersistenceFlushAcknowledgement) => Promise<{ ok: boolean }>
+        onPersistenceFlushRequest: (cb: (request: import('@/shared/appState').PersistenceFlushRequest) => void) => (() => void)
+      }
       composerDrafts: {
         read: (ownerKey: string) => Promise<import('@/shared/composer-drafts').ComposerDraft | null>
         write: (draft: import('@/shared/composer-drafts').ComposerDraft) => Promise<import('@/shared/composer-drafts').ComposerDraft>

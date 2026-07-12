@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { composerDraftOwnerKey, useComposerDraftController } from './composer-drafts'
+import {
+  composerDraftOwnerKey,
+  legacyComposerDraftOwnerKey,
+  sameComposerDraftPayload,
+  useComposerDraftController,
+} from './composer-drafts'
 import { registerChatContextTarget, type ChatContextPayload } from './chat-context-command'
 import {
   contextInputLabel,
@@ -43,6 +48,7 @@ export interface ChatComposerSubmission {
   input: CodexUserInput[]
   text: string
   turnSettings: CodexTurnSettings
+  idempotencyKey: string | null
 }
 
 export interface ComposerSendLifecycleResult {
@@ -61,7 +67,7 @@ export async function runComposerSendLifecycle<T>({
 }: {
   journal: () => Promise<T | null>
   clearVisible: () => void
-  dispatch: () => Promise<void>
+  dispatch: (journaled: T | null) => Promise<void>
   restoreVisible: () => void
   restoreSavedDraft: (journaled: T) => void
   clearSavedDraft: () => Promise<void>
@@ -69,7 +75,7 @@ export async function runComposerSendLifecycle<T>({
   const journaled = await journal()
   clearVisible()
   try {
-    await dispatch()
+    await dispatch(journaled)
   } catch (dispatchError) {
     restoreVisible()
     if (journaled) restoreSavedDraft(journaled)
@@ -102,6 +108,7 @@ interface UseChatComposerOptions {
   onComposerInsetChange: (inset: number) => void
   onDispatch: (submission: ChatComposerSubmission) => Promise<void>
   onAbort: () => Promise<void>
+  acknowledgedFirstTurnIdempotencyKey?: string | null
 }
 
 export interface ChatComposerController {
@@ -214,9 +221,11 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     onComposerInsetChange,
     onDispatch,
     onAbort,
+    acknowledgedFirstTurnIdempotencyKey,
   } = options
   const ownerKey = projectId ? composerDraftOwnerKey(projectId, windowId, threadId) : null
-  const { loaded, restoredDraft, persist, beginSend, clear } = useComposerDraftController(ownerKey)
+  const legacyOwnerKey = projectId ? legacyComposerDraftOwnerKey(projectId, threadId) : null
+  const { loaded, restoredDraft, persist, beginSend, clear } = useComposerDraftController(ownerKey, legacyOwnerKey)
   const [input, setInput] = useState('')
   const [turnSettings, setTurnSettings] = useState<CodexTurnSettings>(initialTurnSettings)
   const [planMode, setPlanMode] = useState(false)
@@ -236,6 +245,8 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
   const restoredOwnerRef = useRef<string | null>(null)
   const skipPersistOwnerRef = useRef<string | null>(null)
   const sendInFlightRef = useRef(false)
+  const pendingSendRef = useRef<ComposerDraft['pendingSend']>(undefined)
+  const pendingDraftRef = useRef<ComposerDraft | null>(null)
 
   const buildDraft = useCallback((text = input, mentions = composerMentions): ComposerDraft | null => {
     if (!ownerKey || !projectId) return null
@@ -255,6 +266,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
       baseRef,
       environmentId,
       includeLocalChanges,
+      ...(pendingSendRef.current ? { pendingSend: pendingSendRef.current } : {}),
     }
   }, [attachments, baseRef, bindingRevision, composerMentions, contextInputParts, environmentId, goalMode, includeLocalChanges, input, ownerKey, planMode, projectId, turnSettings, windowId])
 
@@ -263,6 +275,17 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     restoredOwnerRef.current = ownerKey
     skipPersistOwnerRef.current = ownerKey
     if (!restoredDraft) return
+    if (
+      restoredDraft.pendingSend
+      && restoredDraft.pendingSend.id === acknowledgedFirstTurnIdempotencyKey
+    ) {
+      pendingSendRef.current = undefined
+      pendingDraftRef.current = null
+      void clear().catch(() => toast.error('Sent, but the saved draft could not be cleared', { id: 'composer-draft-clear-failed' }))
+      return
+    }
+    pendingSendRef.current = restoredDraft.pendingSend
+    pendingDraftRef.current = restoredDraft.pendingSend ? restoredDraft : null
     setInput(restoredDraft.text)
     setComposerMentions(restoredDraft.mentions)
     setAttachments(restoredDraft.attachmentPaths)
@@ -279,7 +302,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
         description: 'Review the restored message before sending it again.',
       })
     }
-  }, [loaded, onRestoreBaseRef, onRestoreEnvironment, onRestoreIncludeLocalChanges, ownerKey, restoredDraft])
+  }, [acknowledgedFirstTurnIdempotencyKey, clear, loaded, onRestoreBaseRef, onRestoreEnvironment, onRestoreIncludeLocalChanges, ownerKey, restoredDraft])
 
   useEffect(() => {
     if (!ownerKey || !loaded || restoredOwnerRef.current !== ownerKey || sendInFlightRef.current) return
@@ -297,7 +320,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
 
   useEffect(() => {
     const flush = (event: Event) => {
-      const draft = buildDraft()
+      const draft = sendInFlightRef.current ? pendingDraftRef.current : buildDraft()
       if (!draft || !loaded) return
       const detail = (event as CustomEvent<{ writes: Promise<unknown>[] }>).detail
       detail?.writes.push(persist(draft))
@@ -391,7 +414,16 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     let lifecycle: ComposerSendLifecycleResult
     try {
       lifecycle = await runComposerSendLifecycle({
-        journal: () => durableDraft ? beginSend(durableDraft, threadId ?? undefined) : Promise.resolve(null),
+        journal: () => {
+          if (!durableDraft) return Promise.resolve(null)
+          const pendingDraft = pendingDraftRef.current
+          const retryId = pendingDraft?.pendingSend
+            ? sameComposerDraftPayload(pendingDraft, durableDraft)
+              ? pendingDraft.pendingSend.id
+              : null
+            : undefined
+          return beginSend(durableDraft, threadId ?? undefined, retryId)
+        },
         clearVisible: () => {
           sendInFlightRef.current = true
           composerHadFocusRef.current = true
@@ -401,7 +433,9 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
           setAttachments([])
           setContextInputParts([])
         },
-        dispatch: () => {
+        dispatch: (journaledDraft) => {
+          pendingSendRef.current = journaledDraft?.pendingSend
+          pendingDraftRef.current = journaledDraft
           const message = buildChatComposerMessage({
             text,
             mentions: snapshot.mentions,
@@ -410,7 +444,12 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
             goalMode,
             planMode,
           })
-          return onDispatch({ ...message, text, turnSettings })
+          return onDispatch({
+            ...message,
+            text,
+            turnSettings,
+            idempotencyKey: journaledDraft?.pendingSend?.id ?? null,
+          })
         },
         restoreVisible: () => {
           setInput(draftInput)
@@ -420,10 +459,15 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
         },
         restoreSavedDraft: (journaledDraft) => {
           const retryDraft: ComposerDraft = { ...journaledDraft, updatedAt: Date.now() }
-          delete retryDraft.pendingSend
+          pendingSendRef.current = retryDraft.pendingSend
+          pendingDraftRef.current = retryDraft
           void persist(retryDraft).catch(() => toast.error('Composer draft could not be saved', { id: 'composer-draft-save-failed' }))
         },
-        clearSavedDraft: clear,
+        clearSavedDraft: async () => {
+          pendingSendRef.current = undefined
+          pendingDraftRef.current = null
+          await clear()
+        },
       })
     } catch {
       toast.error('Composer draft could not be saved. Message was not sent.', { id: 'composer-draft-send-journal-failed' })

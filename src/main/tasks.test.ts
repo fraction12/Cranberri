@@ -147,6 +147,10 @@ describe('TaskCoordinator', () => {
     expect(coordinator.get(task.id).pendingFirstTurn?.delivery).toBe('sending')
     await coordinator.restorePendingTurn(task.id)
     expect(coordinator.get(task.id).pendingFirstTurn?.delivery).toBe('pending')
+    await coordinator.replacePendingTurn(task.id, [{ type: 'text', text: 'Edited' }])
+    expect(coordinator.get(task.id).pendingFirstTurn).toEqual({
+      delivery: 'pending', payload: { input: [{ type: 'text', text: 'Edited' }] },
+    })
     await coordinator.acknowledgePendingTurn(task.id)
     expect(coordinator.get(task.id).pendingFirstTurn).toBeNull()
   })

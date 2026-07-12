@@ -359,6 +359,17 @@ export class TaskCoordinator {
     })
   }
 
+  async replacePendingTurn(taskId: string, input: Array<Record<string, unknown>>): Promise<Task> {
+    const task = this.requireTask(taskId)
+    if (!task.pendingFirstTurn) throw new Error('Task has no pending first turn')
+    return this.patchTask(taskId, {
+      pendingFirstTurn: {
+        payload: { ...task.pendingFirstTurn.payload, input },
+        delivery: 'pending',
+      },
+    })
+  }
+
   async acknowledgePendingTurn(taskId: string): Promise<Task> {
     const task = this.requireTask(taskId)
     if (!task.pendingFirstTurn) return task

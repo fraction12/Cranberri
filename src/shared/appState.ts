@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 export type WorkspaceWindowType = 'chat' | 'terminal' | 'browser'
 export type SessionExecutionTarget = 'local' | 'worktree'
 
@@ -47,3 +49,16 @@ export const DEFAULT_APP_STATE: CranberriAppState = {
   workspacesByProjectId: {},
   pinnedCodexSessionsByProjectId: {},
 }
+
+export const persistenceFlushRequestSchema = z.object({
+  requestId: z.string().min(1).max(512),
+  reason: z.enum(['window-close', 'app-quit']),
+}).strict()
+
+export const persistenceFlushAcknowledgementSchema = z.object({
+  requestId: z.string().min(1).max(512),
+  errorMessage: z.string().max(10_000).nullable(),
+}).strict()
+
+export type PersistenceFlushRequest = z.infer<typeof persistenceFlushRequestSchema>
+export type PersistenceFlushAcknowledgement = z.infer<typeof persistenceFlushAcknowledgementSchema>

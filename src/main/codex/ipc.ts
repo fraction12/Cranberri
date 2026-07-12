@@ -6,7 +6,7 @@ import path from 'node:path'
 import { CodexClient } from './client'
 import { makeCodexEnv } from './env'
 import { FakeCodexClient } from './fakeClient'
-import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
+import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexRuntimeContext, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import {
   toolCatalogListRequestSchema,
   toolCatalogTestRequestSchema,
@@ -52,6 +52,11 @@ import {
   taskDraftRequestSchema,
   taskHandoffRequestSchema,
   taskProvisionRequestSchema,
+  firstTurnIdempotencyKey,
+  firstTurnRecoveryAction,
+  taskFirstTurnIdempotencyKey,
+  withoutFirstTurnIdempotencyKey,
+  type Task,
 } from '../../shared/tasks'
 import { readProjectRegistry, writeProjectRegistry } from '../repos'
 import { HandoffCoordinator } from '../handoff'
@@ -122,6 +127,8 @@ const registryFingerprintByThread = new Map<string, string>()
 const registryAppsByContext = new Map<string, ToolRegistryApp[]>()
 const registryMcpByContext = new Map<string, ToolRegistryMcpServer[]>()
 const pendingApprovalToolEvents = new Map<string, ToolEventRecord>()
+const firstTurnCreationByKey = new Map<string, Promise<Task>>()
+const firstTurnSendByKey = new Map<string, Promise<unknown>>()
 let idleRegistryGeneration = 0
 let idleRegistryResult: ToolRegistryLoadResult | null = null
 let idleRegistryLoad: Promise<ToolRegistryLoadResult> | null = null
@@ -341,6 +348,110 @@ function authorizeCatalogIpc(
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
+}
+
+function existingTaskForFirstTurn(projectId: string, input: readonly Record<string, unknown>[]): Task | null {
+  const idempotencyKey = firstTurnIdempotencyKey(input)
+  if (!idempotencyKey) return null
+  return taskCoordinator.list(projectId).find((task) => (
+    task.state !== 'removed' && taskFirstTurnIdempotencyKey(task) === idempotencyKey
+  )) ?? null
+}
+
+async function createTaskIdempotently(
+  projectId: string,
+  input: readonly Record<string, unknown>[],
+  create: () => Promise<Task>,
+): Promise<Task> {
+  const existing = existingTaskForFirstTurn(projectId, input)
+  if (existing) return existing
+  const idempotencyKey = firstTurnIdempotencyKey(input)
+  if (!idempotencyKey) return create()
+  const creationKey = `${projectId}:${idempotencyKey}`
+  const inFlight = firstTurnCreationByKey.get(creationKey)
+  if (inFlight) return inFlight
+  const creation = (async () => existingTaskForFirstTurn(projectId, input) ?? await create())()
+  firstTurnCreationByKey.set(creationKey, creation)
+  try {
+    return await creation
+  } finally {
+    if (firstTurnCreationByKey.get(creationKey) === creation) firstTurnCreationByKey.delete(creationKey)
+  }
+}
+
+async function runFirstTurnSendIdempotently<T>(
+  idempotencyKey: string | null,
+  send: () => Promise<T>,
+): Promise<T> {
+  if (!idempotencyKey) return send()
+  const inFlight = firstTurnSendByKey.get(idempotencyKey) as Promise<T> | undefined
+  if (inFlight) return inFlight
+  const sending = send()
+  firstTurnSendByKey.set(idempotencyKey, sending)
+  try {
+    return await sending
+  } finally {
+    if (firstTurnSendByKey.get(idempotencyKey) === sending) firstTurnSendByKey.delete(idempotencyKey)
+  }
+}
+
+async function acknowledgeFirstTurn(taskId: string, idempotencyKey: string): Promise<Task> {
+  const state = await taskStore.update((current) => ({
+    ...current,
+    tasks: current.tasks.map((task) => task.id === taskId
+      ? {
+          ...task,
+          pendingFirstTurn: null,
+          firstTurnIdempotencyKey: idempotencyKey,
+          updatedAt: Date.now(),
+        }
+      : task),
+  }))
+  const task = state.tasks.find((candidate) => candidate.id === taskId)
+  if (!task) throw new Error(`Task not found: ${taskId}`)
+  return task
+}
+
+async function persistedTurnCount(candidate: CodexClientLike, threadId: string | null): Promise<number> {
+  if (!threadId) return 0
+  return (await candidate.readThread(threadId)).turns.length
+}
+
+function pendingFirstTurnThreadName(idempotencyKey: string): string {
+  return `Cranberri pending ${idempotencyKey}`
+}
+
+async function createOrRecoverFirstTurnThread(
+  candidate: CodexClientLike,
+  task: Task,
+  runtime: CodexRuntimeContext,
+): Promise<{ id: string }> {
+  const idempotencyKey = taskFirstTurnIdempotencyKey(task)
+  if (!idempotencyKey) return candidate.createThread(runtime)
+  const marker = pendingFirstTurnThreadName(idempotencyKey)
+  const history = await candidate.listThreads(runtime.cwd, { limit: 100, searchTerm: marker })
+  const recovered = history.sessions.find((session) => session.title === marker && session.turnCount === 0)
+  if (recovered) return { id: recovered.id }
+
+  const thread = await candidate.createThread(runtime)
+  try {
+    await candidate.setThreadName(thread.id, marker)
+  } catch (error) {
+    await candidate.deleteThread(thread.id).catch(() => undefined)
+    throw error
+  }
+  return thread
+}
+
+async function finalizeFirstTurnThreadName(
+  candidate: CodexClientLike,
+  threadId: string,
+  input: readonly Record<string, unknown>[],
+): Promise<void> {
+  const textItem = [...input].reverse().find((item) => item.type === 'text' && typeof item.text === 'string')
+  if (!textItem || typeof textItem.text !== 'string') return
+  const title = textItem.text
+  await candidate.setThreadName(threadId, title.trim().split('\n')[0]?.slice(0, 160) || 'New session')
 }
 
 function isThreadNotFoundError(error: unknown): boolean {
@@ -1152,21 +1263,28 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('tasks:create-worktree-draft', async (_, raw: unknown) => {
     const request = taskDraftRequestSchema.parse(raw)
-    const task = await taskCoordinator.createWorktreeDraft(request)
+    const task = await createTaskIdempotently(
+      request.projectId,
+      request.input,
+      () => taskCoordinator.createWorktreeDraft(request),
+    )
     return { task }
   })
 
   ipcMain.handle('tasks:create-local-draft', async (_, raw: unknown) => {
     const request = localTaskDraftRequestSchema.parse(raw)
-    const { project, checkout } = localCheckout(request.projectId)
-    return {
-      task: await taskCoordinator.createLocalTask({
+    const task = await createTaskIdempotently(request.projectId, request.input, async () => {
+      const { project, checkout } = localCheckout(request.projectId)
+      return taskCoordinator.createLocalTask({
         projectId: request.projectId,
         title: request.title,
         localCheckoutId: checkout.id,
         baseRef: project.pinnedLocalBranch ? `refs/heads/${project.pinnedLocalBranch}` : null,
         input: request.input,
-      }),
+      })
+    })
+    return {
+      task,
     }
   })
 
@@ -1328,7 +1446,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       ? { ...runtime, dynamicTools: environmentDynamicTools }
       : runtime
     if (!task.threadId) {
-      const thread = await c.createThread(threadRuntime)
+      const thread = await createOrRecoverFirstTurnThread(c, task, threadRuntime)
       task = await taskCoordinator.bindThread(task.id, thread.id)
       advanceCapabilityEpoch(thread.id)
       return { task, threadId: thread.id }
@@ -1338,6 +1456,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('tasks:send', async (_, raw: unknown) => {
     const request = taskSendRequestSchema.parse(raw)
+    return runFirstTurnSendIdempotently(firstTurnIdempotencyKey(request.input), async () => {
     const registry = readProjectRegistry()
     let task = taskCoordinator.get(request.taskId)
     assertTaskRunnable(task)
@@ -1351,12 +1470,51 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     let leaseAcquired = false
     let pending: CodexUserInput[] | null = null
     try {
+      const requestInput = request.input as CodexUserInput[]
+      const requestIdempotencyKey = firstTurnIdempotencyKey(request.input)
+      const pendingIdempotencyKey = task.pendingFirstTurn
+        ? firstTurnIdempotencyKey(task.pendingFirstTurn.payload.input)
+        : null
+      if (
+        requestIdempotencyKey
+        && pendingIdempotencyKey
+        && requestIdempotencyKey !== pendingIdempotencyKey
+      ) {
+        const persistedTurns = task.pendingFirstTurn?.delivery === 'sending'
+          ? await persistedTurnCount(c, task.threadId)
+          : 0
+        if (persistedTurns > 0) {
+          if (task.threadId && task.pendingFirstTurn) {
+            await finalizeFirstTurnThreadName(c, task.threadId, task.pendingFirstTurn.payload.input).catch(() => undefined)
+          }
+          task = await acknowledgeFirstTurn(task.id, pendingIdempotencyKey)
+        } else {
+          task = await taskCoordinator.replacePendingTurn(task.id, request.input)
+        }
+      }
+      const recoveryAction = firstTurnRecoveryAction(
+        task,
+        request.input,
+        task.pendingFirstTurn?.delivery === 'sending'
+          ? await persistedTurnCount(c, task.threadId)
+          : 0,
+      )
+      if (recoveryAction === 'alreadyAcknowledged') return { ok: true, task }
+      if (recoveryAction === 'acknowledge') {
+        const idempotencyKey = firstTurnIdempotencyKey(request.input)
+        if (!idempotencyKey) throw new Error('Interrupted first turn lost its idempotency key')
+        if (task.threadId && task.pendingFirstTurn) {
+          await finalizeFirstTurnThreadName(c, task.threadId, task.pendingFirstTurn.payload.input).catch(() => undefined)
+        }
+        task = await acknowledgeFirstTurn(task.id, idempotencyKey)
+        return { ok: true, task }
+      }
       if (task.location === 'local') {
         await taskCoordinator.acquireLocalLease(task.projectId, task.id)
         leaseAcquired = true
       }
       if (!task.threadId) {
-        const thread = await c.createThread(threadRuntime)
+        const thread = await createOrRecoverFirstTurnThread(c, task, threadRuntime)
         task = await taskCoordinator.bindThread(task.id, thread.id)
         advanceCapabilityEpoch(thread.id)
       }
@@ -1364,22 +1522,44 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       if (task.threadId && !explicitTurnCwd && !pending) {
         await c.resumeThread(task.threadId, threadRuntime)
       }
-      const input = pending ?? request.input as CodexUserInput[]
+      const input = pending ?? requestInput
       if (pending) await taskCoordinator.markPendingTurnSending(task.id)
       if (!task.threadId) throw new Error('Task thread creation did not persist')
       await c.sendMessage(
         task.threadId,
-        input,
+        withoutFirstTurnIdempotencyKey(input) as CodexUserInput[],
         request.settings as CodexTurnSettings | undefined,
         explicitTurnCwd ? runtime : undefined,
       )
-      if (pending) await taskCoordinator.acknowledgePendingTurn(task.id)
+      if (pending) {
+        const idempotencyKey = firstTurnIdempotencyKey(input)
+        if (idempotencyKey) {
+          await finalizeFirstTurnThreadName(c, task.threadId, input).catch((error) => {
+            console.warn('Failed to finalize first-turn thread name:', error)
+          })
+          task = await acknowledgeFirstTurn(task.id, idempotencyKey)
+        }
+        else task = await taskCoordinator.acknowledgePendingTurn(task.id)
+      }
     } catch (error) {
-      if (pending) await taskCoordinator.restorePendingTurn(task.id)
+      const idempotencyKey = pending ? firstTurnIdempotencyKey(pending) : null
+      if (pending && idempotencyKey && task.threadId) {
+        try {
+          if (await persistedTurnCount(c, task.threadId) > 0) {
+            await finalizeFirstTurnThreadName(c, task.threadId, pending).catch(() => undefined)
+            task = await acknowledgeFirstTurn(task.id, idempotencyKey)
+            return { ok: true, task }
+          }
+        } catch {
+          // Leave the journal in `sending`; the next attempt reconciles it against the thread.
+        }
+      }
+      if (pending && !idempotencyKey) await taskCoordinator.restorePendingTurn(task.id)
       if (leaseAcquired) await taskCoordinator.releaseLocalLease(task.projectId, task.id)
       throw error
     }
     return { ok: true, task: taskCoordinator.get(task.id) }
+    })
   })
 
   ipcMain.handle('tasks:archive', async (_, raw: unknown) => {

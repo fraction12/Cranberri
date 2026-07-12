@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+const firstTurnIdempotencyKeySchema = z.string().min(1).max(512)
+const FIRST_TURN_IDEMPOTENCY_PROPERTY = '__cranberriFirstTurnIdempotencyKey'
+
 export const pendingFirstTurnSchema = z.object({
   payload: z.object({
     input: z.array(z.record(z.string(), z.unknown())),
@@ -44,6 +47,7 @@ export const taskSchema = z.object({
   environmentId: z.string().nullable(),
   environmentRevision: z.string().nullable(),
   pendingFirstTurn: pendingFirstTurnSchema.nullable(),
+  firstTurnIdempotencyKey: firstTurnIdempotencyKeySchema.nullable().optional(),
   worktreeTransition: worktreeTransitionSchema.nullable().optional(),
   parentTaskId: z.string().nullable().optional(),
   createdAt: z.number(),
@@ -61,6 +65,57 @@ export const taskSchema = z.object({
 
 export type PendingFirstTurn = z.infer<typeof pendingFirstTurnSchema>
 export type Task = z.infer<typeof taskSchema>
+
+export function firstTurnIdempotencyKey(input: readonly Record<string, unknown>[]): string | null {
+  for (const item of input) {
+    const parsed = firstTurnIdempotencyKeySchema.safeParse(item[FIRST_TURN_IDEMPOTENCY_PROPERTY])
+    if (parsed.success) return parsed.data
+  }
+  return null
+}
+
+export function withFirstTurnIdempotencyKey<T extends Record<string, unknown>>(
+  input: readonly T[],
+  idempotencyKey: string,
+): T[] {
+  const parsedKey = firstTurnIdempotencyKeySchema.parse(idempotencyKey)
+  if (input.length === 0) throw new Error('First-turn input cannot be empty')
+  return input.map((item, index) => index === 0
+    ? { ...item, [FIRST_TURN_IDEMPOTENCY_PROPERTY]: parsedKey }
+    : { ...item })
+}
+
+export function withoutFirstTurnIdempotencyKey<T extends Record<string, unknown>>(input: readonly T[]): T[] {
+  return input.map((item) => {
+    const copy = { ...item }
+    delete copy[FIRST_TURN_IDEMPOTENCY_PROPERTY]
+    return copy
+  })
+}
+
+export function taskFirstTurnIdempotencyKey(task: Task): string | null {
+  if (task.firstTurnIdempotencyKey) return task.firstTurnIdempotencyKey
+  return task.pendingFirstTurn
+    ? firstTurnIdempotencyKey(task.pendingFirstTurn.payload.input)
+    : null
+}
+
+export type FirstTurnRecoveryAction = 'send' | 'acknowledge' | 'alreadyAcknowledged' | 'notFirstTurn'
+
+export function firstTurnRecoveryAction(
+  task: Task,
+  requestInput: readonly Record<string, unknown>[],
+  persistedTurnCount: number,
+): FirstTurnRecoveryAction {
+  const requestKey = firstTurnIdempotencyKey(requestInput)
+  if (!requestKey) return 'notFirstTurn'
+  if (task.firstTurnIdempotencyKey === requestKey) return 'alreadyAcknowledged'
+  if (taskFirstTurnIdempotencyKey(task) !== requestKey) return 'notFirstTurn'
+  if (task.pendingFirstTurn?.delivery === 'acknowledged') return 'alreadyAcknowledged'
+  return task.pendingFirstTurn?.delivery === 'sending' && persistedTurnCount > 0
+    ? 'acknowledge'
+    : 'send'
+}
 
 export const taskIdRequestSchema = z.object({ taskId: z.string().min(1) }).strict()
 export const taskListRequestSchema = z.object({ projectId: z.string().min(1).optional() }).strict()

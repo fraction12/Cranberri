@@ -1,6 +1,7 @@
-import { app, BrowserWindow, nativeTheme, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { initAppIpc } from './appIpc'
 import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
@@ -19,6 +20,11 @@ import { initSearchIpc } from './search'
 import { initBrowserIpc } from './browser'
 import { initEnvironmentIpc } from './environments/ipc'
 import { initStartupRecoveryIpc } from './startup-recovery'
+import {
+  persistenceFlushAcknowledgementSchema,
+  persistenceFlushRequestSchema,
+  type PersistenceFlushRequest,
+} from '../shared/appState'
 
 const APP_SCHEME = 'cranberri'
 const MEDIA_SCHEME = 'cranberri-media'
@@ -29,6 +35,57 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let mainWindow: BrowserWindow | null = null
+let allowWindowClose = false
+let windowCloseInFlight = false
+let allowAppQuit = false
+let appQuitInFlight = false
+
+interface PendingPersistenceFlush {
+  resolve: () => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout>
+}
+
+export class RendererPersistenceFlushCoordinator {
+  private readonly pending = new Map<string, PendingPersistenceFlush>()
+
+  constructor(private readonly timeoutMs = 5_000) {}
+
+  request(
+    webContents: Pick<Electron.WebContents, 'isDestroyed' | 'send'>,
+    reason: PersistenceFlushRequest['reason'],
+  ): Promise<void> {
+    if (webContents.isDestroyed()) return Promise.reject(new Error('Renderer is unavailable for persistence flush'))
+    const request = persistenceFlushRequestSchema.parse({ requestId: randomUUID(), reason })
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(request.requestId)
+        reject(new Error(`Renderer persistence flush timed out during ${reason}`))
+      }, this.timeoutMs)
+      this.pending.set(request.requestId, { resolve, reject, timeout })
+      try {
+        webContents.send('app:persistence-flush-request', request)
+      } catch (error) {
+        clearTimeout(timeout)
+        this.pending.delete(request.requestId)
+        reject(error instanceof Error ? error : new Error('Failed to request renderer persistence flush'))
+      }
+    })
+  }
+
+  acknowledge(raw: unknown): { ok: boolean } {
+    const acknowledgement = persistenceFlushAcknowledgementSchema.parse(raw)
+    const pending = this.pending.get(acknowledgement.requestId)
+    if (!pending) return { ok: false }
+    clearTimeout(pending.timeout)
+    this.pending.delete(acknowledgement.requestId)
+    if (acknowledgement.errorMessage) pending.reject(new Error(acknowledgement.errorMessage))
+    else pending.resolve()
+    return { ok: true }
+  }
+}
+
+const persistenceFlushCoordinator = new RendererPersistenceFlushCoordinator()
 
 if (process.env.CRANBERRI_USER_DATA_DIR) {
   app.setPath('userData', process.env.CRANBERRI_USER_DATA_DIR)
@@ -153,6 +210,20 @@ function createWindow(): void {
   }
   nativeTheme.on('updated', syncWindowBackground)
 
+  win.on('close', (event) => {
+    if (allowWindowClose) return
+    event.preventDefault()
+    if (windowCloseInFlight) return
+    windowCloseInFlight = true
+    void persistenceFlushCoordinator.request(win.webContents, 'window-close')
+      .then(() => {
+        allowWindowClose = true
+        win.close()
+      })
+      .catch((error) => console.error('[persistence] window close blocked:', error))
+      .finally(() => { windowCloseInFlight = false })
+  })
+
   if (!app.isPackaged) {
     const devUrl = process.env.ELECTRON_VITE_DEV_SERVER_URL ?? 'http://localhost:5173'
     win.loadURL(devUrl)
@@ -163,6 +234,7 @@ function createWindow(): void {
   win.on('closed', () => {
     nativeTheme.removeListener('updated', syncWindowBackground)
     mainWindow = null
+    allowWindowClose = false
   })
 }
 
@@ -188,6 +260,10 @@ if (ownsApplicationInstance) app.whenReady().then(async () => {
   initAppStateIpc()
   initComposerDraftsIpc()
   initStartupRecoveryIpc()
+  ipcMain.handle('app:persistence-flush-ack', (event, raw: unknown) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized persistence flush acknowledgement')
+    return persistenceFlushCoordinator.acknowledge(raw)
+  })
   initTelemetryIpc()
   initUpdaterIpc()
   createWindow()
@@ -203,6 +279,26 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  stopCodexClient()
+app.on('before-quit', (event) => {
+  if (allowAppQuit) {
+    stopCodexClient()
+    return
+  }
+  const win = mainWindow
+  if (!win || win.webContents.isDestroyed()) {
+    stopCodexClient()
+    return
+  }
+  event.preventDefault()
+  if (appQuitInFlight) return
+  appQuitInFlight = true
+  void persistenceFlushCoordinator.request(win.webContents, 'app-quit')
+    .then(() => {
+      allowAppQuit = true
+      allowWindowClose = true
+      stopCodexClient()
+      app.quit()
+    })
+    .catch((error) => console.error('[persistence] app quit blocked:', error))
+    .finally(() => { appQuitInFlight = false })
 })

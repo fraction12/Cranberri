@@ -10,6 +10,8 @@ import {
 } from './chat/chat-window-state'
 import { renderSkillText } from './chat/composer-text'
 import type { CodexSkillInfo } from '@/shared/codex'
+import type { Task } from '@/shared/tasks'
+import { rebindWindowAfterHandoff } from './ChatWindow'
 
 const CE_BRAINSTORM: CodexSkillInfo = {
   id: 'skill:ce-brainstorm',
@@ -89,6 +91,34 @@ describe('ChatWindow composer rendering', () => {
       defaultEnvironmentId: null,
     })
     expect(projectWithFreshLocalSettings(catalogProject, { ...activeProject, id: 'project-2' })).toBe(catalogProject)
+  })
+
+  it.each([
+    { checkoutId: 'checkout-local', location: 'local' as const, worktreeId: 'worktree-1', path: '/repo' },
+    { checkoutId: 'checkout-worktree', location: 'worktree' as const, worktreeId: 'worktree-1', path: '/managed/task' },
+  ])('rebinds a successful $location handoff before dismissing its dialog', ({ checkoutId, location, worktreeId, path }) => {
+    const order: string[] = []
+    const handedOffTask = {
+      id: 'task-1', projectId: 'project-1', checkoutId, location, worktreeId,
+    } as Task
+
+    rebindWindowAfterHandoff({
+      windowId: 'window-1',
+      task: handedOffTask,
+      checkouts: [{
+        id: checkoutId,
+        projectId: 'project-1',
+        kind: location === 'local' ? 'local' : 'managed',
+        canonicalPath: path,
+        gitCommonDir: '/repo/.git',
+        ownership: location === 'local' ? 'user' : 'cranberri',
+        available: true,
+      }],
+      bindWindowToTask: (_windowId, context) => order.push(`bind:${context.checkoutPath}`),
+      closeDialog: () => order.push('close'),
+    })
+
+    expect(order).toEqual([`bind:${path}`, 'close'])
   })
 
 })
