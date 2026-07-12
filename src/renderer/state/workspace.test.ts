@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { codexThreadIdForActiveWindow, createBoundWorkspaceWindow, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -63,6 +63,16 @@ describe('workspace execution identity', () => {
     expect(window).toMatchObject({ projectId: 'project', taskId: 'task', checkoutId: 'checkout' })
   })
 
+  it('creates an unbound local context for a new session', () => {
+    expect(localProjectExecutionContext({ id: 'project', path: '/repo', localCheckoutId: 'local' })).toEqual({
+      projectId: 'project',
+      taskId: null,
+      checkoutId: 'local',
+      worktreeId: null,
+      checkoutPath: '/repo',
+    })
+  })
+
   it('repairs deleted Local control bindings without touching managed or valid tasks', () => {
     const workspaces = {
       project: {
@@ -86,5 +96,38 @@ describe('workspace execution identity', () => {
       expect.objectContaining({ id: 'valid', taskId: 'valid-task', checkoutId: 'local' }),
       expect.objectContaining({ id: 'managed', taskId: 'deleted-managed', checkoutId: 'managed' }),
     ])
+  })
+})
+
+describe('closeSessionChatWindows', () => {
+  it('closes every matching chat while preserving related tools and choosing a neighboring tab', () => {
+    const workspace = {
+      windows: [
+        { id: 'before', type: 'browser' as const, title: 'Browser' },
+        { id: 'task-chat', type: 'chat' as const, title: 'Task chat', taskId: 'task-1' },
+        { id: 'session-thread-1', type: 'chat' as const, title: 'Restored chat' },
+        { id: 'task-terminal', type: 'terminal' as const, title: 'Terminal', taskId: 'task-1' },
+        { id: 'after', type: 'chat' as const, title: 'Another chat', taskId: 'task-2' },
+      ],
+      activeWindowId: 'task-chat',
+    }
+
+    expect(closeSessionChatWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toEqual({
+      windows: [
+        workspace.windows[0],
+        workspace.windows[3],
+        workspace.windows[4],
+      ],
+      activeWindowId: 'before',
+    })
+  })
+
+  it('preserves the workspace identity when no session chat matches', () => {
+    const workspace = {
+      windows: [{ id: 'chat', type: 'chat' as const, title: 'Chat', taskId: 'task-2' }],
+      activeWindowId: 'chat',
+    }
+
+    expect(closeSessionChatWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toBe(workspace)
   })
 })

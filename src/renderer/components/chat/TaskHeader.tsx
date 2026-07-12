@@ -20,7 +20,7 @@ function shortRef(ref: string): string {
 }
 
 export function taskHeaderDetail(task: Task, branch?: string | null): string {
-  if (branch) return shortRef(branch)
+  if (branch && branch !== 'HEAD') return shortRef(branch)
   const base = task.baseRef ? shortRef(task.baseRef) : null
   if (task.location === 'worktree') return base ? `from ${base}` : 'detached'
   return base ?? 'detached'

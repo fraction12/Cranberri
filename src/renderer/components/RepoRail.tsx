@@ -8,6 +8,7 @@ import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useAppState } from '../state/appState'
 import { useOptionalTasks } from '../state/tasks'
 import { useWorkspace } from '../state/workspace'
+import { localProjectExecutionContext } from '../state/workspace-model'
 import { pinnedSessionRecords, removePinnedSessions, togglePinnedSession } from '../state/pinned-sessions'
 import { codexThreadSummary } from '../state/session-search'
 import { UsageMeter } from './UsageMeter'
@@ -129,7 +130,12 @@ function SessionRow({
   )
 }
 
-function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string; repoPath: string; isActiveRepo: boolean }) {
+function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }: {
+  projectId: string
+  repoPath: string
+  isActiveRepo: boolean
+  closeSessionWindows: (projectId: string, identity: { threadId: string; taskId?: string | null }) => void
+}) {
   const { openThreadIds } = useCodexWindows()
   const { archiveSession, unarchiveSession, deleteSession, renameSession } = useCodexActions()
   const tasksApi = useOptionalTasks()
@@ -258,15 +264,9 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
       setRecent((prev) => prev.filter((item) => item.id !== session.id))
       setArchived((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
-      if (task) {
-        await window.cranberri.tasks.archive(task.id)
-        await tasksApi?.refresh()
-        window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
-          detail: { projectId, repoPath, threadId: session.id },
-        }))
-      } else {
-        await archiveSession(session.id, repoPath)
-      }
+      await archiveSession(session.id, repoPath)
+      closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
+      await tasksApi?.refresh()
       toast.success('Session archived')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to archive session')
@@ -312,10 +312,9 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
     setRecent((prev) => prev.filter((item) => item.id !== session.id))
     setArchived((prev) => prev.filter((item) => item.id !== session.id))
     try {
+      const task = await taskForSession(session.id)
       await deleteSession(session.id, repoPath)
-      window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', {
-        detail: { projectId, repoPath, threadId: session.id },
-      }))
+      closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
       removePinnedIds([session.id])
       setDeleteTarget(null)
       toast.success('Session deleted')
@@ -622,7 +621,7 @@ export function RepoRail() {
   const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
   const { state: appState, updateAppState } = useAppState()
   const tasksApi = useOptionalTasks()
-  const { openChat, bindWindowToTask } = useWorkspace()
+  const { openChat, bindWindowToTask, closeSessionWindows } = useWorkspace()
   const { bindTaskWindow } = useCodexActions()
   const expandedRepoIds = appState.expandedRepoIds
   const [removeRepoTarget, setRemoveRepoTarget] = useState<{ id: string; name: string } | null>(null)
@@ -686,9 +685,15 @@ export function RepoRail() {
   }, [activeRepoId, bindTaskWindow, bindWindowToTask, openChat, setActiveRepo, tasksApi])
 
   const openNewSession = useCallback(async (projectId: string, target: 'local' | 'worktree') => {
+    const project = repos.find((candidate) => candidate.id === projectId)
+    if (!project) {
+      toast.error('This repository is unavailable')
+      return
+    }
     if (activeRepoId !== projectId) await setActiveRepo(projectId)
-    openChat(undefined, target === 'local' ? 'New local session' : 'New worktree session', projectId, undefined, target)
-  }, [activeRepoId, openChat, setActiveRepo])
+    tasksApi?.setActiveTask(null)
+    openChat(undefined, target === 'local' ? 'New local session' : 'New worktree session', projectId, localProjectExecutionContext(project), target)
+  }, [activeRepoId, openChat, repos, setActiveRepo, tasksApi])
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-surface px-2.5 py-2">
@@ -780,7 +785,7 @@ export function RepoRail() {
                 <ChevronRight className={`w-3 h-3 transition-transform ${expandedRepoIds[repo.id] ? 'rotate-90' : ''}`} />
               </button>
             </div>
-            {expandedRepoIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} />}
+            {expandedRepoIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} closeSessionWindows={closeSessionWindows} />}
             {expandedRepoIds[repo.id] && tasksApi && (
               <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id && !task.threadId && task.role !== 'control')} onOpen={(taskId) => { void openTask(taskId) }} />
             )}

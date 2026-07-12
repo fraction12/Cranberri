@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useRepos } from './repos'
 import { useAppState } from './appState'
-import { createBoundWorkspaceWindow, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { closeSessionChatWindows, createBoundWorkspaceWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 import { useOptionalTasks } from './tasks'
 import { resolveTaskExecutionContext, type ExecutionContextResolution, type TaskExecutionContext } from './execution-context'
 import type { SessionExecutionTarget, WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
@@ -23,6 +23,7 @@ interface WorkspaceApi {
   openBrowser: (options?: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string; context?: TaskExecutionContext }) => string
   updateBrowserState: (id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => void
   closeWindow: (id: string) => void
+  closeSessionWindows: (projectId: string, identity: { threadId: string; taskId?: string | null }) => void
   setActiveWindow: (id: string) => void
   renameWindow: (id: string, title: string) => void
   bindWindowToTask: (windowId: string, context: TaskExecutionContext) => void
@@ -39,16 +40,6 @@ function defaultWorkspace(context: TaskExecutionContext) {
   return { windows: [first], activeWindowId: first.id }
 }
 
-function localExecutionContext(project: { id: string; path: string; localCheckoutId?: string }): TaskExecutionContext {
-  return {
-    projectId: project.id,
-    taskId: null,
-    checkoutId: project.localCheckoutId ?? `local:${project.id}`,
-    worktreeId: null,
-    checkoutPath: project.path,
-  }
-}
-
 export function useWorkspace(): WorkspaceApi {
   const { activeProjectId, activeProject, projects } = useRepos()
   const tasks = useOptionalTasks()
@@ -59,7 +50,7 @@ export function useWorkspace(): WorkspaceApi {
       return tasks.executionContextForTask(tasks.activeTask.id)
     }
     const project = projects.find((candidate) => candidate.id === projectId)
-    return project ? localExecutionContext(project) : null
+    return project ? localProjectExecutionContext(project) : null
   }, [projects, tasks])
 
   const workspace = useMemo(() => {
@@ -206,6 +197,10 @@ export function useWorkspace(): WorkspaceApi {
     })
   }, [mutateWorkspace])
 
+  const closeSessionWindows = useCallback((projectId: string, identity: { threadId: string; taskId?: string | null }) => {
+    mutateWorkspace(projectId, (windows, activeWindowId) => closeSessionChatWindows({ windows, activeWindowId }, identity))
+  }, [mutateWorkspace])
+
   const setActiveWindow = useCallback((id: string) => {
     mutateWorkspace(null, (windows) => ({ windows, activeWindowId: id }))
   }, [mutateWorkspace])
@@ -232,7 +227,7 @@ export function useWorkspace(): WorkspaceApi {
     : activeWindow && tasks
       ? resolveTaskExecutionContext(activeWindow, tasks)
       : activeWindow && activeProject
-        ? { status: 'available' as const, context: localExecutionContext(activeProject) }
+        ? { status: 'available' as const, context: localProjectExecutionContext(activeProject) }
         : null
   const activeExecutionContext = activeExecutionResolution?.status === 'available'
     ? activeExecutionResolution.context
@@ -256,6 +251,7 @@ export function useWorkspace(): WorkspaceApi {
     openBrowser,
     updateBrowserState,
     closeWindow,
+    closeSessionWindows,
     setActiveWindow,
     renameWindow,
     bindWindowToTask,

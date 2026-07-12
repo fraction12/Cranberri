@@ -25,6 +25,7 @@ function task(location: Task['location'], baseRef: string | null = 'refs/heads/m
 describe('taskHeaderDetail', () => {
   it('describes a detached worktree by its base instead of presenting the base as its branch', () => {
     expect(taskHeaderDetail(task('worktree'), null)).toBe('from main')
+    expect(taskHeaderDetail(task('worktree'), 'HEAD')).toBe('from main')
   })
 
   it('shows the live branch once the worktree checks one out', () => {
