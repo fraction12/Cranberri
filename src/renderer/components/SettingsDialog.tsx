@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Activity, AlertTriangle, Command, Download, FileText, GitBranch, Keyboard, Loader2, PackageOpen, Palette, PlugZap, RotateCcw, Wrench, X } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
-import { cn, dialogSurface, iconButton } from '../lib/ui'
+import { cn, dialogSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import { CodexResourcesSection } from './CodexResourcesSection'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -19,6 +19,7 @@ import { useTasks } from '../state/tasks'
 import { useRepos } from '../state/repos'
 import { toast } from 'sonner'
 import type { EnvironmentProfile, EnvironmentRecord } from '@/shared/environments'
+import { IconButton } from './ui/IconButton'
 
 interface SettingsDialogProps {
   open: boolean
@@ -72,9 +73,9 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
           <header className="flex h-12 shrink-0 items-center justify-between px-4">
             <Dialog.Title className={typeStyle({ role: 'overlayTitle', tone: 'primary' })}>Settings</Dialog.Title>
             <Dialog.Close asChild>
-              <button type="button" className={iconButton()} aria-label="Close settings" title="Close settings">
+              <IconButton type="button" label="Close settings">
                 <X className="h-4 w-4" />
-              </button>
+              </IconButton>
             </Dialog.Close>
           </header>
 

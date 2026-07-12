@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Check, ExternalLink, ImagePlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { reportSendChatContextError, sendChatContext } from '../../state/chat-context-command'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
+import { IconButton } from '../ui/IconButton'
 
 export type MarkdownMediaKind = 'image' | 'video'
 
@@ -139,26 +140,24 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
         <figcaption className="truncate" title={title}>{title}</figcaption>
         <span className="flex items-center gap-1">
           {canSendToChat && (
-            <button
+            <IconButton
               type="button"
               onClick={() => void sendToChat()}
-              className={cn(iconButton(), 'h-6 w-6')}
-              aria-label="Send image to chat"
-              title="Send image to chat"
+              className="h-6 w-6"
+              label="Send image to chat"
             >
               {sent ? <Check className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
-            </button>
+            </IconButton>
           )}
           {source.openUrl && (
-            <button
+            <IconButton
               type="button"
               onClick={() => openMedia(source.openUrl!)}
-              className={cn(iconButton(), 'h-6 w-6')}
-              aria-label="Open media"
-              title="Open media"
+              className="h-6 w-6"
+              label="Open media"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           )}
         </span>
       </div>

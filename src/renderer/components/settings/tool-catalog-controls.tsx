@@ -1,6 +1,7 @@
 import { Loader2, RefreshCw, Search } from 'lucide-react'
-import { cn, fieldStyle, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
+import { cn, fieldStyle, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
 import { TOOL_CATALOG_FILTER_OPTIONS, type ToolCatalogFilter } from './tool-catalog-settings-model'
+import { IconButton } from '../ui/IconButton'
 
 interface ToolCatalogControlsProps {
   search: string
@@ -36,18 +37,17 @@ export function ToolCatalogControls({
           />
         </label>
         {onRefresh && (
-          <button
+          <IconButton
             type="button"
-            className={cn(iconButton(), 'h-9 w-9')}
+            className="h-9 w-9"
             disabled={loading || refreshing}
-            title="Refresh tool catalog"
-            aria-label="Refresh tool catalog"
+            label="Refresh tool catalog"
             onClick={onRefresh}
           >
             {refreshing
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
               : <RefreshCw className="h-3.5 w-3.5" />}
-          </button>
+          </IconButton>
         )}
       </div>
       <div className={cn(segmentedControl, 'grid-cols-4')} role="group" aria-label="Tool catalog filter">

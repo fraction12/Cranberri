@@ -9,8 +9,9 @@ import { processChatContext } from '../process-chat-context'
 import { canFocusProcessTerminal, processRowMetadata } from './process-row-model'
 import { ConfirmDialog } from '../ConfirmDialog'
 import type { AgentProcessInfo } from '@/shared/processes'
-import { buttonStyle, cn, iconButton } from '../../lib/ui'
+import { buttonStyle, cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 interface ProcessesPanelProps {
   repoPath: string | null
@@ -211,46 +212,42 @@ function ProcessRow({
         )}
       </div>
       {canFocusTerminal && (
-        <button
+        <IconButton
           type="button"
           onClick={openTerminal}
-          className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
-          title="Focus process terminal"
-          aria-label="Focus process terminal"
+          className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+          label="Focus process terminal"
         >
           <Terminal className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       )}
-      <button
+      <IconButton
         type="button"
         onClick={sendContextToChat}
-        className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
-        title="Send process context to chat"
-        aria-label="Send process context to chat"
+        className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+        label="Send process context to chat"
       >
         <MessageSquare className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
       {processInfo.kind === 'dev-server' && (
-        <button
+        <IconButton
           type="button"
           onClick={openBrowser}
-          className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
-          title="Open browser"
-          aria-label="Open browser"
+          className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+          label="Open browser"
         >
           <Globe className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       )}
-      <button
+      <IconButton
         type="button"
         onClick={() => void onTerminate(processInfo)}
         disabled={terminating || stale}
-        className={cn(iconButton({ tone: 'danger' }), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
-        title={stale ? 'Refresh the process list before closing' : 'Close process'}
-        aria-label={stale ? 'Refresh the process list before closing' : 'Close process'}
+        tone={'danger'} className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+        label={stale ? 'Refresh the process list before closing' : 'Close process'}
       >
         <X className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </div>
   )
 }

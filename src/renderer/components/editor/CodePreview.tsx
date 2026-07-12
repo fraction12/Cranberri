@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { boundedCodeText, displayLanguage, focusedCodePreview, languageFromFileName, type FocusedCodePreviewLine } from './code-utils'
 import { useAppearance } from '../../state/appearance-context'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 const DEFAULT_MAX_LINES = 1200
 const MAX_HIGHLIGHT_CHARS = 40000
@@ -82,15 +83,14 @@ export function CodePreview({
         <span className="truncate">{filePath ?? resolvedLanguage}</span>
         <span className="flex items-center gap-2">
           <span>{focused.focusLine ? `line ${focused.focusLine}` : highlightFailed || !canHighlight ? 'plain' : resolvedLanguage}</span>
-          <button
+          <IconButton
             type="button"
             onClick={() => void copyCode()}
-            className={cn(iconButton(), 'h-6 w-6')}
-            aria-label="Copy code"
-            title="Copy code"
+            className="h-6 w-6"
+            label="Copy code"
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
+          </IconButton>
           {copied && <span className={cn(typeStyle({ role: 'status', tone: 'success' }), 'normal-case')}>Copied</span>}
         </span>
       </figcaption>

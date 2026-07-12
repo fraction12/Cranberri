@@ -8,8 +8,9 @@ import type { WorkspaceWindow } from '../state/workspace'
 import { BROWSER_VIEWPORT_PROFILES, type BrowserViewportMode, browserViewportFrame } from './browser-viewport'
 import { browserInspectionChatContext, browserScreenshotChatContext, browserSnapshotChatContext } from './browser-chat-context'
 import { createBrowserScreenshotContextCapturedEvent, createBrowserSnapshotContextCapturedEvent } from './browser-context-events'
-import { cn, iconButton, menuSurface } from '../lib/ui'
+import { cn, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import { IconButton } from './ui/IconButton'
 
 interface BrowserWindowProps {
   windowState: WorkspaceWindow
@@ -421,35 +422,29 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   return (
     <div className={cn('flex h-full min-h-0 flex-col bg-app-bg', typeStyle({ role: 'body' }))}>
       <div className="flex h-10 shrink-0 items-center gap-1 bg-app-surface px-2 shadow-sm">
-        <button
+        <IconButton
           type="button"
           onClick={() => window.cranberri.browser.back(windowState.id).catch(() => undefined)}
           disabled={!state.canGoBack}
-          className={iconButton()}
-          title="Back"
-          aria-label="Back"
+          label="Back"
         >
           <ArrowLeft className="h-4 w-4" />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           type="button"
           onClick={() => window.cranberri.browser.forward(windowState.id).catch(() => undefined)}
           disabled={!state.canGoForward}
-          className={iconButton()}
-          title="Forward"
-          aria-label="Forward"
+          label="Forward"
         >
           <ArrowRight className="h-4 w-4" />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           type="button"
           onClick={() => state.loading ? window.cranberri.browser.stop(windowState.id) : window.cranberri.browser.reload(windowState.id)}
-          className={iconButton()}
-          title={state.loading ? 'Stop' : 'Reload'}
-          aria-label={state.loading ? 'Stop' : 'Reload'}
+          label={state.loading ? 'Stop' : 'Reload'}
         >
           {state.loading ? <Square className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
-        </button>
+        </IconButton>
         <form
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-app-bg px-2 ring-1 ring-app-border/75 focus-within:ring-2 focus-within:ring-app-accent/45"
           onSubmit={(event) => {
@@ -476,25 +471,23 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
             className={cn('h-7 min-w-0 flex-1 bg-transparent outline-none', typeStyle({ role: 'control' }))}
             placeholder="https://localhost:5173"
           />
-          <button
+          <IconButton
             type="submit"
-            className={cn(iconButton(), 'h-6 w-6')}
-            title="Navigate"
-            aria-label="Navigate"
+            className="h-6 w-6"
+            label="Navigate"
             onMouseDown={(event) => event.preventDefault()}
           >
             <Search className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </form>
-        <button
+        <IconButton
           type="button"
           onClick={toggleInspectMode}
-          className={iconButton({ tone: inspectActive ? 'active' : 'neutral' })}
-          title={inspectActive ? 'Stop inspecting' : 'Inspect page element'}
-          aria-label={inspectActive ? 'Stop inspecting' : 'Inspect page element'}
+          tone={inspectActive ? 'active' : 'neutral'}
+          label={inspectActive ? 'Stop inspecting' : 'Inspect page element'}
         >
           <Crosshair className="h-4 w-4" />
-        </button>
+        </IconButton>
         <BrowserActionsMenu
           open={actionsMenuOpen}
           pending={actionsMenuPending}
@@ -560,50 +553,45 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
           <div className="grid max-h-72 shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1 bg-app-surface-2/45 p-1">
             <div className="min-w-0 bg-app-surface">
               <CaptureHeader icon={Camera} label={capture.screenshotSize ? `Screenshot ${capture.screenshotSize}` : 'Screenshot'}>
-                <button
+                <IconButton
                   type="button"
                   onClick={sendScreenshotToChat}
                   disabled={!capture.screenshotDataUrl}
-                  className={iconButton()}
-                  title="Send screenshot to chat"
+                  label="Send screenshot to chat"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
                   type="button"
                   onClick={copyScreenshotPath}
                   disabled={!capture.screenshotDataUrl}
-                  className={iconButton()}
-                  title="Copy screenshot path"
+                  label="Copy screenshot path"
                 >
                   <Clipboard className="h-3.5 w-3.5" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
                   type="button"
                   onClick={openScreenshot}
                   disabled={!capture.screenshotDataUrl}
-                  className={iconButton()}
-                  title="Open screenshot"
+                  label="Open screenshot"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
                   type="button"
                   onClick={revealScreenshot}
                   disabled={!capture.screenshotDataUrl}
-                  className={iconButton()}
-                  title="Reveal screenshot in Finder"
+                  label="Reveal screenshot in Finder"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
                   type="button"
                   onClick={() => setCaptureOpen(false)}
-                  className={iconButton()}
-                  title="Close captures"
+                  label="Close captures"
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               </CaptureHeader>
               <div className="h-52 overflow-auto bg-app-bg p-2">
                 {capture.screenshotDataUrl ? (
@@ -615,44 +603,40 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
             </div>
             <div className="min-w-0 bg-app-surface">
               <CaptureHeader icon={inspection ? Crosshair : FileText} label={inspection ? inspection.selector || inspection.tagName : capture.snapshot ? capture.snapshot.title || 'Page snapshot' : 'Page snapshot'}>
-                <button
+                <IconButton
                   type="button"
                   onClick={sendCaptureToChat}
                   disabled={inspection ? false : !capture.snapshot}
-                  className={iconButton()}
-                  title={inspection ? 'Send element context to chat' : 'Send page text to chat'}
+                  label={inspection ? 'Send element context to chat' : 'Send page text to chat'}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
                   type="button"
                   onClick={inspection ? copyInspection : copySnapshot}
                   disabled={inspection ? false : !capture.snapshot?.text}
-                  className={iconButton()}
-                  title={inspection ? 'Copy element context' : 'Copy page context'}
+                  label={inspection ? 'Copy element context' : 'Copy page context'}
                 >
                   <Clipboard className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
                 {inspection && (
                   <>
-                    <button
+                    <IconButton
                       type="button"
                       onClick={copyInspectionSelector}
                       disabled={!inspection.selector && !inspection.tagName}
-                      className={iconButton()}
-                      title="Copy element selector"
+                      label="Copy element selector"
                     >
                       <Crosshair className="h-3.5 w-3.5" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       type="button"
                       onClick={copyInspectionText}
                       disabled={!inspection.text.trim()}
-                      className={iconButton()}
-                      title="Copy element text"
+                      label="Copy element text"
                     >
                       <FileText className="h-3.5 w-3.5" />
-                    </button>
+                    </IconButton>
                   </>
                 )}
               </CaptureHeader>
@@ -783,9 +767,9 @@ function BrowserActionsMenu({
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className={iconButton()} title="Browser actions" aria-label={pending ? 'Cancel opening browser actions' : 'Browser actions'} aria-busy={pending}>
+        <IconButton type="button" label={pending ? 'Cancel opening browser actions' : 'Browser actions'} aria-busy={pending}>
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-        </button>
+        </IconButton>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={6} collisionPadding={8} className={cn(menuSurface, 'z-[1300] w-56 outline-none')}>

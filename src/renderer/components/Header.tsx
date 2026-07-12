@@ -1,8 +1,9 @@
 import { Command, Settings } from 'lucide-react'
 import { useRepos } from '../state/repos'
-import { cn, iconButton } from '../lib/ui'
+import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import appIcon from '../../../buildResources/icon-1024.png'
+import { IconButton } from './ui/IconButton'
 
 interface HeaderProps {
   commandPaletteOpen: boolean
@@ -27,28 +28,26 @@ export function Header({ commandPaletteOpen, onOpenSettings, onOpenCommandPalett
         ) : (
           <span className={cn('header-drag', typeStyle({ role: 'metadata', tone: 'tertiary' }))}>No repo selected</span>
         )}
-        <button
+        <IconButton
           id="command-palette-trigger"
           type="button"
           onClick={onOpenCommandPalette}
-          className={`no-drag ${iconButton()}`}
-          title="Command palette (⌘K)"
-          aria-label="Open command palette"
+          className="no-drag"
+          label="Open command palette"
           aria-haspopup="dialog"
           aria-expanded={commandPaletteOpen}
         >
           <Command className="w-4 h-4" />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           id="settings-trigger"
           type="button"
           onClick={onOpenSettings}
-          className={`no-drag ${iconButton()}`}
-          title="Settings (⌘,)"
-          aria-label="Open settings"
+          className="no-drag"
+          label="Open settings"
         >
           <Settings className="w-4 h-4" />
-        </button>
+        </IconButton>
       </div>
     </header>
   )

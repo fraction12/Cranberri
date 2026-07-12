@@ -2,10 +2,11 @@ import { CheckCircle2, FlaskConical, Plus, ShieldAlert, Trash2 } from 'lucide-re
 import { useEffect, useState } from 'react'
 import type { EnvironmentProfile } from '@/shared/environments'
 import type { Project } from '@/shared/projects'
-import { buttonStyle, cn, compactFieldStyle, iconButton } from '../../lib/ui'
+import { buttonStyle, cn, compactFieldStyle } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import { SettingsDisclosure, SettingsList, SettingsPage, SettingsRow } from './settings-page'
 import { SelectControl } from '../ui/SelectControl'
+import { IconButton } from '../ui/IconButton'
 
 export interface EnvironmentSettingsItem { id: string; projectId: string; profile: EnvironmentProfile; revision: string; trustedRevision: string | null }
 export function EnvironmentsSettings({ projects = [], activeProjectId, environments = [], onProjectChange, onCreate, onUpdate, onTrust, onTest, onDelete, onSetDefault }: {
@@ -27,7 +28,7 @@ function EnvironmentEditor({ item, onUpdate, onTrust, onTest, onDelete }: { item
   const [draft, setDraft] = useState(item.profile)
   useEffect(() => setDraft(item.profile), [item.profile])
   const dirty = JSON.stringify(draft) !== JSON.stringify(item.profile)
-  return <div className="rounded-md bg-app-bg/55 p-3"><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><input aria-label="Environment name" className={cn(compactFieldStyle, 'w-full')} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /><span className={cn('mt-1 flex items-center gap-1', typeStyle({ role: 'metadata', tone: trusted ? 'success' : 'warning' }))}>{trusted ? <CheckCircle2 className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}{trusted ? 'Trusted' : 'Needs review'}</span></div><button type="button" className={iconButton()} aria-label={`Test ${item.profile.name}`} title="Test environment" onClick={() => onTest?.(item)}><FlaskConical className="h-3.5 w-3.5" /></button><button type="button" className={iconButton({ tone: 'danger' })} aria-label={`Delete ${item.profile.name}`} title="Delete environment" onClick={() => onDelete?.(item)}><Trash2 className="h-3.5 w-3.5" /></button></div>
+  return <div className="rounded-md bg-app-bg/55 p-3"><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><input aria-label="Environment name" className={cn(compactFieldStyle, 'w-full')} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /><span className={cn('mt-1 flex items-center gap-1', typeStyle({ role: 'metadata', tone: trusted ? 'success' : 'warning' }))}>{trusted ? <CheckCircle2 className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}{trusted ? 'Trusted' : 'Needs review'}</span></div><IconButton type="button" label={`Test ${item.profile.name}`} onClick={() => onTest?.(item)}><FlaskConical className="h-3.5 w-3.5" /></IconButton><IconButton type="button" tone={'danger'} label={`Delete ${item.profile.name}`} onClick={() => onDelete?.(item)}><Trash2 className="h-3.5 w-3.5" /></IconButton></div>
     <label className="mt-3 block"><span className={typeStyle({ role: 'label', tone: 'secondary' })}>Setup</span><textarea aria-label="Setup script" className={cn(compactFieldStyle, typeStyle({ role: 'code', family: 'mono' }), 'mt-1 h-24 w-full resize-y py-2')} value={draft.setup.script} onChange={(event) => setDraft({ ...draft, setup: { ...draft.setup, script: event.target.value } })} /></label>
     <SettingsDisclosure title="Advanced" description={`${item.profile.inherit.length} variables · ${item.profile.actions.length} actions`}><p className={typeStyle({ role: 'metadata', tone: 'secondary' })}>Platform overrides, inherited variable names, and actions are stored in this profile.</p></SettingsDisclosure>
     <div className="mt-2 flex gap-2">{dirty && <button type="button" className={buttonStyle({ tone: 'primary', size: 'compact' })} onClick={() => onUpdate?.(item, draft)}>Save</button>}{!dirty && !trusted && <button type="button" className={buttonStyle({ tone: 'primary', size: 'compact' })} onClick={() => onTrust?.(item)}>Review and trust</button>}</div>

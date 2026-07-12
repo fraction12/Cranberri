@@ -15,12 +15,13 @@ import { invalidateSessions, sessionInvalidationMatches, subscribeSessionInvalid
 import { UsageMeter } from './UsageMeter'
 import { ConfirmDialog } from './ConfirmDialog'
 import { mergeHydratedPinnedSessions, shouldAutoLoadRepoSessions } from './repo-sessions-state'
-import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton, menuSurface } from '../lib/ui'
+import { buttonStyle, cn, dialogSurface, fieldStyle, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import { NewSessionMenu } from './chat/NewSessionMenu'
 import { RepoPinnedBranchMenu } from './RepoPinnedBranchMenu'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
+import { IconButton } from './ui/IconButton'
 
 function relativeTime(value: number): string {
   const ms = value > 10_000_000_000 ? value : value * 1000
@@ -101,16 +102,15 @@ function SessionRow({
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button
+          <IconButton
             type="button"
             onFocus={(event) => onOptionsTrigger(event.currentTarget)}
             onPointerDown={(event) => onOptionsTrigger(event.currentTarget)}
-            className={cn(iconButton(), 'mr-1 opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100')}
-            title="Session options"
-            aria-label={`Options for ${sessionTitle(session)}`}
+            className="mr-1 opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100"
+            label={`Options for ${sessionTitle(session)}`}
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className={cn(menuSurface, 'z-[1400] w-44')}>
@@ -589,24 +589,22 @@ function LeftRailFooter() {
       )}
       {openPanel === 'health' && <HealthCard />}
       <div className="mt-2 flex h-9 shrink-0 items-center gap-1 px-1">
-        <button
+        <IconButton
           type="button"
           onClick={() => setOpenPanel((panel) => panel === 'usage' ? null : 'usage')}
-          className={iconButton({ tone: openPanel === 'usage' ? 'active' : 'neutral' })}
-          title="Usage remaining"
-          aria-label="Usage remaining"
+          tone={openPanel === 'usage' ? 'active' : 'neutral'}
+          label="Usage remaining"
         >
           <Gauge className="h-4 w-4" />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           type="button"
           onClick={() => setOpenPanel((panel) => panel === 'health' ? null : 'health')}
-          className={iconButton({ tone: openPanel === 'health' ? 'active' : 'neutral' })}
-          title="Cranberri health"
-          aria-label="Cranberri health"
+          tone={openPanel === 'health' ? 'active' : 'neutral'}
+          label="Cranberri health"
         >
           <Stethoscope className="h-4 w-4" />
-        </button>
+        </IconButton>
       </div>
     </>
   )
@@ -694,15 +692,13 @@ export function RepoRail() {
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-surface px-2.5 py-2">
       <div className="mb-2 flex h-7 shrink-0 items-center justify-between px-1">
         <span className={typeStyle({ role: 'panelTitle', tone: 'primary' })}>Repos</span>
-        <button
+        <IconButton
           ref={addRepoButtonRef}
           onClick={addRepo}
-          className={iconButton()}
-          title="Add repo"
-          aria-label="Add repo"
+          label="Add repo"
         >
           <Plus className="h-4 w-4" />
-        </button>
+        </IconButton>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pr-1">

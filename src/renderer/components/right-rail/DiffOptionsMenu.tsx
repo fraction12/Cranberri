@@ -1,7 +1,8 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, Copy, ExternalLink, FileText, FolderOpen, MoreHorizontal, WrapText } from 'lucide-react'
-import { cn, iconButton, menuSurface } from '../../lib/ui'
+import { cn, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 interface DiffOptionsMenuProps {
   wrapContent: boolean
@@ -34,9 +35,9 @@ export function DiffOptionsMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className={iconButton()} title="File options" aria-label="File options">
+        <IconButton type="button" label="File options">
           <MoreHorizontal className="h-4 w-4" />
-        </button>
+        </IconButton>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content

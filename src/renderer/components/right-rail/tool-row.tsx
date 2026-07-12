@@ -1,13 +1,14 @@
 import { useCallback, useId, type ReactNode } from 'react'
 import { ChevronRight, Loader2, Settings2, TestTube2 } from 'lucide-react'
 import type { ToolCatalogEntry, ToolCatalogId } from '@/shared/tools'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import {
   toolAvailability,
   toolAvailabilityLabel,
 } from '../../state/tool-catalog-selectors'
 import { ToolDetails } from './tool-details'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 export interface ToolRowProps {
   entry: ToolCatalogEntry
@@ -72,26 +73,24 @@ export function ToolRow({
         <div className="flex items-center gap-0.5">
           {endAction}
           {probeCapable ? (
-            <button
+            <IconButton
               type="button"
-              className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
+              className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
               disabled={busy}
-              title="Test tool"
-              aria-label={busy ? `Testing ${entry.name}` : `Test ${entry.name}`}
+              label={busy ? `Testing ${entry.name}` : `Test ${entry.name}`}
               onClick={testTool}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TestTube2 className="h-3.5 w-3.5" />}
-            </button>
+            </IconButton>
           ) : (
-            <button
+            <IconButton
               type="button"
-              className={cn(iconButton(), 'opacity-70 group-hover:opacity-100 focus-visible:opacity-100')}
-              title="Open tool settings"
-              aria-label={`Open settings for ${entry.name}`}
+              className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+              label={`Open settings for ${entry.name}`}
               onClick={openSettings}
             >
               <Settings2 className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           )}
         </div>
       </div>

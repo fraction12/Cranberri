@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { AlertTriangle, FolderOpen, Gauge, Goal, Loader2, Package, Plus, RotateCcw } from 'lucide-react'
-import { cn, iconButton, menuSurface } from '../../lib/ui'
+import { cn, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexPluginInfo } from '@/shared/codex'
+import { IconButton } from '../ui/IconButton'
 
 const ITEM_CLASS = [
   'flex min-h-10 w-full select-none items-start gap-2.5 rounded-md px-2 py-2 text-left outline-none',
@@ -38,9 +39,9 @@ export function AddMenu({
   return (
     <DropdownMenu.Root open={open} onOpenChange={handleOpenChange}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className={iconButton()} aria-label="Add context" title="Add context">
+        <IconButton type="button" label="Add context">
           <Plus className="h-4 w-4" />
-        </button>
+        </IconButton>
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>

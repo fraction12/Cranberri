@@ -26,8 +26,9 @@ import {
   type RightRailTab,
 } from './right-rail/RailShell'
 import type { GitFileStatus } from '@/shared/git'
-import { buttonStyle, cn, compactFieldStyle, iconButton } from '../lib/ui'
+import { buttonStyle, cn, compactFieldStyle } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import { IconButton } from './ui/IconButton'
 
 const DiffViewer = lazy(() => import('./right-rail/DiffViewer').then((module) => ({ default: module.DiffViewer })))
 
@@ -390,43 +391,37 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
             {selectedFile ? (
               <div className="flex flex-col h-full">
                 <div className="flex h-10 shrink-0 items-center gap-1.5 bg-app-surface-2/45 px-2 shadow-sm">
-                  <button type="button" onClick={handleBack} className={iconButton()} title="Back to files" aria-label="Back to files">
+                  <IconButton type="button" onClick={handleBack} label="Back to files">
                     <ChevronLeft className="h-4 w-4" />
-                  </button>
+                  </IconButton>
                   <span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata' }))} title={selectedFile.path}>{selectedFile.path}</span>
                   <DiffStats filePath={selectedFile.path} />
                   {selectedFile.status === 'tracked' && (
                     <>
-                      <button
+                      <IconButton
                         type="button"
                         onClick={() => setEditorSearchRequest((request) => request + 1)}
-                        className={iconButton()}
-                        title="Search selected file"
-                        aria-label="Search selected file"
+                        label="Search selected file"
                       >
                         <Search className="h-4 w-4" />
-                      </button>
-                      <button
+                      </IconButton>
+                      <IconButton
                         type="button"
                         onClick={openGoToLineDialog}
-                        className={iconButton()}
-                        title="Go to line in selected file"
-                        aria-label="Go to line in selected file"
+                        label="Go to line in selected file"
                       >
                         <Hash className="h-4 w-4" />
-                      </button>
+                      </IconButton>
                     </>
                   )}
-                  <button
+                  <IconButton
                     type="button"
                     onClick={() => void sendSelectedFileToChat()}
                     disabled={!activeCheckoutPath || contextState.status === 'sending'}
-                    className={iconButton()}
-                    title="Send selected file context to chat"
-                    aria-label="Send selected file context to chat"
+                    label="Send selected file context to chat"
                   >
                     {contextState.status === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
-                  </button>
+                  </IconButton>
                   <DiffOptionsMenu
                     wrapContent={wrapDiffContent}
                     canReadFile={Boolean(activeCheckoutPath)}

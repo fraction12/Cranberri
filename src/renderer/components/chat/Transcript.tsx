@@ -3,9 +3,10 @@ import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
 import { sendChatContextSafely } from '../../state/chat-context-command'
 import { assistantResponseChatContext, stripCodexAppDirectives } from './assistant-response-context'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexMessage, CodexSkillInfo } from '@/shared/codex'
+import { IconButton } from '../ui/IconButton'
 
 type SkillRenderer = (text: string, skills: CodexSkillInfo[]) => ReactNode[]
 const MarkdownContent = lazy(() => import('./MarkdownContent').then((module) => ({ default: module.MarkdownContent })))
@@ -26,24 +27,20 @@ function MessageActions({ text }: { text: string }) {
 
   return (
     <div className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-3 flex items-center gap-1 opacity-75')}>
-      <button
+      <IconButton
         type="button"
         onClick={() => navigator.clipboard.writeText(visibleText).catch((error) => console.error('Failed to copy response:', error))}
-        className={iconButton()}
-        aria-label="Copy response"
-        title="Copy response"
+        label="Copy response"
       >
         <Copy className="h-3.5 w-3.5" />
-      </button>
-      <button
+      </IconButton>
+      <IconButton
         type="button"
         onClick={sendToChat}
-        className={iconButton()}
-        aria-label="Send response to chat"
-        title="Send response to chat"
+        label="Send response to chat"
       >
         <MessageSquarePlus className="h-3.5 w-3.5" />
-      </button>
+      </IconButton>
     </div>
   )
 }

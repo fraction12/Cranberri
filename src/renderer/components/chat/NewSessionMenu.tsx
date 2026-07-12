@@ -1,7 +1,8 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Laptop, MessageSquarePlus, TreePine } from 'lucide-react'
-import { cn, iconButton, menuSurface } from '../../lib/ui'
+import { cn, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 export function NewSessionMenu({ onLocal, onWorktree, label = 'New session', className }: {
   onLocal: () => void
@@ -11,7 +12,7 @@ export function NewSessionMenu({ onLocal, onWorktree, label = 'New session', cla
 }) {
   return <DropdownMenu.Root>
     <DropdownMenu.Trigger asChild>
-      <button type="button" className={cn(iconButton(), className)} title={label} aria-label={label}><MessageSquarePlus className="h-3.5 w-3.5" /></button>
+      <IconButton type="button" className={className} label={label}><MessageSquarePlus className="h-3.5 w-3.5" /></IconButton>
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal>
       <DropdownMenu.Content align="end" sideOffset={5} collisionPadding={8} className={cn(menuSurface, 'z-[1400] w-56')}>

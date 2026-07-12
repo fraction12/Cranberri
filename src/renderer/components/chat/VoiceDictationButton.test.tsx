@@ -8,7 +8,7 @@ describe('VoiceDictationButton', () => {
 
     expect(html).toContain('aria-label="Start voice dictation"')
     expect(html).toContain('aria-pressed="false"')
-    expect(html).toContain('title="Start voice dictation"')
+    expect(html).not.toContain('title=')
   })
 
   it('renders an accessible active mic control', () => {

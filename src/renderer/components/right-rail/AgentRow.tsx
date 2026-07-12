@@ -3,8 +3,9 @@ import { ArrowUpRight, Loader2, MessageSquare, Send, Square } from 'lucide-react
 import type { CodexWorker } from '@/shared/codex'
 import { codexWorkerIsActive } from '@/shared/codex-workers'
 import { AgentStatusIcon, agentDisplayName, agentStatusLabel } from './agent-presentation'
-import { buttonStyle, cn, compactFieldStyle, iconButton } from '../../lib/ui'
+import { buttonStyle, cn, compactFieldStyle } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 interface AgentRowProps {
   agent: CodexWorker
@@ -77,37 +78,32 @@ export function AgentRow({
           <div className="flex justify-end">
             <div className="flex items-center gap-0.5">
               {agent.status !== 'notFound' && (
-                <button
+                <IconButton
                   type="button"
                   onClick={onToggleMessage}
-                  className={iconButton()}
-                  title={active ? 'Steer agent' : 'Resume agent'}
-                  aria-label={active ? `Steer ${name}` : `Resume ${name}`}
+                  label={active ? `Steer ${name}` : `Resume ${name}`}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               )}
               {active && (
-                <button
+                <IconButton
                   type="button"
                   onClick={onStop}
                   disabled={stopping}
-                  className={iconButton({ tone: 'danger' })}
-                  title="Stop agent"
-                  aria-label={`Stop ${name}`}
+                  tone={'danger'}
+                  label={`Stop ${name}`}
                 >
                   <Square className="h-3 w-3 fill-current" />
-                </button>
+                </IconButton>
               )}
-              <button
+              <IconButton
                 type="button"
                 onClick={onOpen}
-                className={iconButton()}
-                title="Open agent task"
-                aria-label={`Open ${name}`}
+                label={`Open ${name}`}
               >
                 <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
+              </IconButton>
             </div>
           </div>
 

@@ -1,7 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { Loader2, Sparkles, X } from 'lucide-react'
-import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton } from '../../lib/ui'
+import { buttonStyle, cn, dialogSurface, fieldStyle } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
+import { IconButton } from '../ui/IconButton'
 
 export interface CommitState {
   status: 'idle' | 'committing' | 'success' | 'error'
@@ -56,9 +57,9 @@ export function CommitDialog({
               <Dialog.Description className={cn('mt-1', typeStyle({ role: 'body', tone: 'secondary' }))}>Stage and commit the current working tree.</Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <button type="button" disabled={busy} className={iconButton()} title="Close" aria-label="Close commit dialog">
+              <IconButton type="button" disabled={busy} label="Close commit dialog">
                 <X className="h-4 w-4" />
-              </button>
+              </IconButton>
             </Dialog.Close>
           </div>
 

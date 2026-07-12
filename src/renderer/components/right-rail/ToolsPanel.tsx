@@ -12,11 +12,12 @@ import {
 } from '../../state/tool-catalog-selectors'
 import { toolDiagnosticDraft } from '../../state/tool-diagnostic'
 import { useToolCatalog } from '../../state/tools'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import { reportSendChatContextError, sendChatContext } from '../../state/chat-context-command'
 import { ToolGroup } from './tool-group'
 import { ToolRow } from './tool-row'
+import { IconButton } from '../ui/IconButton'
 
 interface ToolsPanelProps {
   onOpenSettings: () => void
@@ -79,19 +80,17 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
       <div className={cn('flex h-10 shrink-0 items-center gap-2 px-2.5', typeStyle({ role: 'status', tone: statusTone }))}>
         <Wrench className="h-3.5 w-3.5" />
         <span>{statusLabel}</span>
-        <button type="button" className={`${iconButton()} ml-auto`} title="Manage tools" aria-label="Manage tools" onClick={onOpenSettings}>
+        <IconButton type="button" className="ml-auto" label="Manage tools" onClick={onOpenSettings}>
           <Settings2 className="h-3.5 w-3.5" />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           type="button"
-          className={iconButton()}
-          title="Refresh tool health"
-          aria-label="Refresh tool health"
+          label="Refresh tool health"
           disabled={catalog.refreshing || catalog.isLoading}
           onClick={() => void runAction(catalog.refresh)}
         >
           {catalog.refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        </button>
+        </IconButton>
       </div>
       {(refreshFailure || (catalog.isError && !catalog.data)) && (
         <div className={cn('mx-2 mb-1 shrink-0 rounded-md bg-app-status-danger/8 px-3 py-2 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))} role="alert">

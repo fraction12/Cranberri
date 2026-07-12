@@ -7,7 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { CheckCircle2, ChevronDown, ChevronUp, Loader2, MessageSquare, RotateCcw, Search, Terminal as TerminalIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
 import '@xterm/xterm/css/xterm.css'
-import { buttonStyle, cn, compactFieldStyle, iconButton } from '../lib/ui'
+import { buttonStyle, cn, compactFieldStyle } from '../lib/ui'
 import { createOpenTerminalLinkBrowserEvent } from './terminal-link-events'
 import { TERMINAL_WINDOW_COMMAND_EVENT, terminalWindowCommandFromEvent } from './terminal-window-command-events'
 import { terminalBufferChatContext } from './terminal-chat-context'
@@ -16,6 +16,7 @@ import { terminalTheme, terminalTypographyOptions } from './terminal-theme'
 import { useAppearance } from '../state/appearance-context'
 import { useSettings } from '../state/settings'
 import { typeStyle } from '../lib/typography'
+import { IconButton } from './ui/IconButton'
 
 interface TerminalWindowProps {
   id: string
@@ -295,24 +296,22 @@ export function TerminalWindow({ id, repoPath, taskId, onSendToChat }: TerminalW
       <div className="flex h-9 shrink-0 items-center justify-between bg-app-surface-2/45 px-3 shadow-sm">
         <span className={cn('truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={repoPath}>{repoPath}</span>
         <div className="flex items-center gap-1">
-          <button
+          <IconButton
             type="button"
-            className={cn(iconButton(), 'h-6 w-6')}
-            title="Send terminal context to chat"
-            aria-label="Send terminal context to chat"
+            className="h-6 w-6"
+            label="Send terminal context to chat"
             onClick={sendTerminalContextToChat}
           >
             <MessageSquare className="h-3.5 w-3.5" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
-            className={cn(iconButton({ tone: searchOpen ? 'active' : 'neutral' }), 'h-6 w-6')}
-            title="Search terminal"
-            aria-label="Search terminal"
+            tone={searchOpen ? 'active' : 'neutral'} className="h-6 w-6"
+            label="Search terminal"
             onClick={() => setSearchOpen((open) => !open)}
           >
             <Search className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
           <span className="inline-flex items-center gap-1" role="status">
             {terminalStatus === 'starting' && <span className={cn('inline-flex items-center gap-1', typeStyle({ role: 'status', tone: 'secondary' }))}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting</span>}
             {terminalStatus === 'ready' && <span className={cn('inline-flex items-center gap-1', typeStyle({ role: 'status', tone: 'success' }))}><CheckCircle2 className="h-3.5 w-3.5" /> Ready</span>}
@@ -342,38 +341,35 @@ export function TerminalWindow({ id, repoPath, taskId, onSendToChat }: TerminalW
             aria-label="Search terminal output"
             className={cn(compactFieldStyle, 'flex-1')}
           />
-          <button
+          <IconButton
             type="button"
-            className={cn(iconButton(), 'h-6 w-6')}
-            title="Previous terminal search result"
-            aria-label="Previous terminal search result"
+            className="h-6 w-6"
+            label="Previous terminal search result"
             disabled={!searchTerm.trim()}
             onClick={() => runSearch('previous')}
           >
             <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
-            className={cn(iconButton(), 'h-6 w-6')}
-            title="Next terminal search result"
-            aria-label="Next terminal search result"
+            className="h-6 w-6"
+            label="Next terminal search result"
             disabled={!searchTerm.trim()}
             onClick={() => runSearch('next')}
           >
             <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
-            className={cn(iconButton(), 'h-6 w-6')}
-            title="Close terminal search"
-            aria-label="Close terminal search"
+            className="h-6 w-6"
+            label="Close terminal search"
             onClick={() => {
               setSearchOpen(false)
               termRef.current?.focus()
             }}
           >
             <X className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </div>
       )}
       <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-app-bg">

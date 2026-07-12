@@ -2,7 +2,7 @@ import { Check, Minus, Monitor, Moon, Plus, Sun } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppearance } from '../../state/appearance-context'
 import { useSettings } from '../../state/settings'
-import { cn, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
+import { cn, segmentedControl, segmentedItem, segmentedItemActive } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import { SettingsList, SettingsPage, SettingsSection } from './settings-page'
 import {
@@ -14,6 +14,7 @@ import {
   type AppTheme,
   type AppTypePreset,
 } from '@/shared/settings'
+import { IconButton } from '../ui/IconButton'
 
 const THEMES: Array<{ value: AppTheme; label: string; icon: React.ElementType }> = [
   { value: 'system', label: 'System', icon: Monitor },
@@ -178,25 +179,23 @@ function SizeRow({
     <div className="flex min-h-12 items-center justify-between gap-4 py-1.5">
       <span className={typeStyle({ role: 'body' })}>{label}</span>
       <div className="flex items-center gap-1" role="group" aria-label={label}>
-        <button
+        <IconButton
           type="button"
-          aria-label={`Decrease ${label} font size`}
+          label={`Decrease ${label} font size`}
           disabled={value <= min}
           onClick={() => onChange(Math.max(min, value - 1))}
-          className={iconButton()}
         >
           <Minus className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
         <output className={cn('w-12 text-center', typeStyle({ role: 'code' }))} aria-live="polite">{value}px</output>
-        <button
+        <IconButton
           type="button"
-          aria-label={`Increase ${label} font size`}
+          label={`Increase ${label} font size`}
           disabled={value >= max}
           onClick={() => onChange(Math.min(max, value + 1))}
-          className={iconButton()}
         >
           <Plus className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       </div>
     </div>
   )

@@ -5,8 +5,9 @@ import { diagnosticsPathRows, type DiagnosticsPathRow } from './diagnostics-path
 import { SettingsDisclosure, SettingsPage, SettingsSection } from './settings/settings-page'
 import type { CranberriDiagnosticsReport, CranberriHealthLevel } from '@/shared/health'
 import type { NativeHelperSettingsTarget } from '@/shared/nativeHelpers'
-import { buttonStyle, cn, iconButton } from '../lib/ui'
+import { buttonStyle, cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import { IconButton } from './ui/IconButton'
 
 export function DiagnosticsSection() {
   const [report, setReport] = useState<CranberriDiagnosticsReport | null>(null)
@@ -75,16 +76,14 @@ export function DiagnosticsSection() {
       title="Diagnostics"
       description={report ? `Checked ${new Date(report.checkedAt).toLocaleTimeString()}` : 'Check Cranberri and its local dependencies.'}
       actions={(
-        <button
+        <IconButton
           type="button"
           onClick={() => void refresh(true)}
           disabled={loading}
-          className={iconButton()}
-          aria-label="Refresh diagnostics"
-          title="Refresh diagnostics"
+          label="Refresh diagnostics"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        </IconButton>
       )}
     >
       {loadError && <div role="alert" className={cn('break-words rounded-md bg-app-danger/5 px-3 py-3', typeStyle({ role: 'status', tone: 'danger' }))}>{loadError}</div>}
@@ -113,9 +112,9 @@ export function DiagnosticsSection() {
                     detail={helper.detail}
                     status={helper.availability}
                     action={helper.settingsTarget ? (
-                      <button type="button" onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)} className={iconButton()} aria-label={`Open ${helper.label} settings`} title="Open settings">
+                      <IconButton type="button" onClick={() => void openHelperSettings(helper.settingsTarget!, helper.label)} label={`Open ${helper.label} settings`}>
                         <Settings className="h-3.5 w-3.5" />
-                      </button>
+                      </IconButton>
                     ) : undefined}
                   />
                 ))}
@@ -190,9 +189,9 @@ function PathRow({ row, onAction }: { row: DiagnosticsPathRow; onAction: (action
 
 function PathButton({ label, disabled, onClick, icon: Icon }: { label: string; disabled: boolean; onClick: () => void; icon: React.ElementType }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={cn(iconButton(), 'h-6 w-6')} aria-label={label} title={label}>
+    <IconButton type="button" disabled={disabled} onClick={onClick} className="h-6 w-6" label={label}>
       <Icon className="h-3.5 w-3.5" />
-    </button>
+    </IconButton>
   )
 }
 

@@ -14,7 +14,7 @@ import {
   UploadCloud,
 } from 'lucide-react'
 import type { GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
-import { cn, iconButton } from '../../lib/ui'
+import { cn } from '../../lib/ui'
 import { sendChatContextSafely } from '../../state/chat-context-command'
 import { createGitHubContextCapturedEvent } from '../github-context-events'
 import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
@@ -22,6 +22,7 @@ import { githubPanelBadges } from './github-panel-model'
 import { loadGitHubPanelData, loadGitHubSummary } from './github-panel-route'
 import { typeStyle } from '../../lib/typography'
 import { handleTabListKeyDown } from '../../lib/tab-navigation'
+import { IconButton } from '../ui/IconButton'
 
 interface GitHubPanelProps {
   repoPath: string | null
@@ -136,12 +137,12 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
             <span>{summary.behind} behind</span>
           </div>
         </div>
-        <button type="button" onClick={() => void window.cranberri.openExternal(summary.webUrl!)} className={iconButton()} title="Open repo on GitHub" aria-label="Open repo on GitHub">
+        <IconButton type="button" onClick={() => void window.cranberri.openExternal(summary.webUrl!)} label="Open repo on GitHub">
           <ExternalLink className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={() => sendPanelContext()} className={iconButton()} title="Send GitHub repo context to chat" aria-label="Send GitHub repo context to chat">
+        </IconButton>
+        <IconButton type="button" onClick={() => sendPanelContext()} label="Send GitHub repo context to chat">
           <MessageSquare className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       </div>
 
       <div className="grid grid-cols-7 gap-1 py-1" role="tablist" aria-label="GitHub view" onKeyDown={handleTabListKeyDown}>
@@ -170,12 +171,12 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
         <div className="flex h-9 items-center gap-2 px-1">
           <span className={typeStyle({ role: 'panelTitle' })}>{activeLabel}</span>
           {dataBadges.map((badge) => <span key={badge.id} className={typeStyle({ role: 'metadata', tone: 'secondary' })} title={badge.title}>{badge.label}</span>)}
-          <button type="button" onClick={() => setReloadKey((key) => key + 1)} className={cn(iconButton(), 'ml-auto')} title="Refresh GitHub" aria-label="Refresh GitHub">
+          <IconButton type="button" onClick={() => setReloadKey((key) => key + 1)} className="ml-auto" label="Refresh GitHub">
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-          </button>
-          <button type="button" onClick={() => sendPanelContext(data)} disabled={!data} className={iconButton()} title="Send GitHub panel context to chat" aria-label="Send GitHub panel context to chat">
+          </IconButton>
+          <IconButton type="button" onClick={() => sendPanelContext(data)} disabled={!data} label="Send GitHub panel context to chat">
             <MessageSquare className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </div>
 
         {loading && !data && <PanelLoading label={`Loading ${activeLabel.toLowerCase()}`} />}
@@ -190,9 +191,9 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
                   {item.subtitle && <span className={cn('mt-0.5 block truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))} title={item.subtitle}>{item.subtitle}</span>}
                 </button>
                 {item.state && <span className={cn('shrink-0 capitalize', typeStyle({ role: 'status', tone: githubStateTone(item.state) }))}>{item.state}</span>}
-                <button type="button" onClick={() => sendItemContext(item)} className={iconButton()} title="Send GitHub item context to chat" aria-label="Send GitHub item context to chat">
+                <IconButton type="button" onClick={() => sendItemContext(item)} label="Send GitHub item context to chat">
                   <MessageSquare className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               </div>
               <div className={cn('mt-1 flex flex-wrap gap-x-2', typeStyle({ role: 'micro', tone: 'secondary' }))}>
                 {item.author && <span>@{item.author}</span>}

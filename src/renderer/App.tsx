@@ -10,6 +10,7 @@ import { UpdateResultToast } from './components/UpdateResultToast'
 import { useRepoWatchInvalidation } from './state/search'
 import { RecoveryProvider } from './state/recovery'
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
+import { TooltipProvider } from './components/ui/Tooltip'
 
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((module) => ({ default: module.CommandPalette })))
@@ -280,10 +281,12 @@ function AppShell() {
 
 export function App() {
   return (
-    <AppStateProvider>
-      <RecoveryProvider>
-        <AppShell />
-      </RecoveryProvider>
-    </AppStateProvider>
+    <TooltipProvider>
+      <AppStateProvider>
+        <RecoveryProvider>
+          <AppShell />
+        </RecoveryProvider>
+      </AppStateProvider>
+    </TooltipProvider>
   )
 }

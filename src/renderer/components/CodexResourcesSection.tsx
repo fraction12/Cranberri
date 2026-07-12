@@ -19,8 +19,9 @@ import {
 } from './codex-resources'
 import { createCodexResourceContextCapturedEvent } from './codex-resource-context-events'
 import { SettingsPage, SettingsSection } from './settings/settings-page'
-import { buttonStyle, cn, fieldStyle, iconButton, segmentedControl, segmentedItem, segmentedItemActive } from '../lib/ui'
+import { buttonStyle, cn, fieldStyle, segmentedControl, segmentedItem, segmentedItemActive } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import { IconButton } from './ui/IconButton'
 
 type ExtensionView = 'installed' | 'browse' | 'connections' | 'skills'
 
@@ -134,16 +135,14 @@ export function CodexResourcesSection() {
             <Download className="h-3.5 w-3.5" />
             Update plugins
           </button>
-          <button
+          <IconButton
             type="button"
             onClick={() => void refreshResources(true)}
             disabled={refreshing}
-            className={iconButton()}
-            aria-label="Refresh extensions"
-            title="Refresh extensions"
+            label="Refresh extensions"
           >
             {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          </button>
+          </IconButton>
         </>
       )}
     >
@@ -245,9 +244,9 @@ function ExtensionViewContent({
                 <div className={cn('truncate', typeStyle({ role: 'body', tone: 'primary' }))}>{skill.displayName}</div>
                 <div className={cn('mt-0.5 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{skill.description || skillSourceLabel(skill)}</div>
               </div>
-              <button type="button" onClick={() => onSendSkill(skill)} className={iconButton()} aria-label={`Add ${skill.displayName} to chat`} title="Add to chat">
+              <IconButton type="button" onClick={() => onSendSkill(skill)} label={`Add ${skill.displayName} to chat`}>
                 <MessageSquare className="h-3.5 w-3.5" />
-              </button>
+              </IconButton>
             </div>
           ))}
           {skills.length === 0 && <EmptyRow label="No skills match this search." />}
@@ -386,9 +385,9 @@ function ConnectionRow({ name, detail, status, tone, onSend }: {
       </div>
       <span className={cn('shrink-0', typeStyle({ role: 'status', tone }))}>{status}</span>
       {onSend && (
-        <button type="button" onClick={onSend} className={iconButton()} aria-label={`Add ${name} to chat`} title="Add to chat">
+        <IconButton type="button" onClick={onSend} label={`Add ${name} to chat`}>
           <MessageSquare className="h-3.5 w-3.5" />
-        </button>
+        </IconButton>
       )}
     </div>
   )

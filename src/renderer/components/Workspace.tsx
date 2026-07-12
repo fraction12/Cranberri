@@ -16,13 +16,14 @@ import {
 import { OPEN_PROCESS_BROWSER_EVENT, processBrowserDetailFromEvent } from './process-browser-events'
 import { OPEN_TERMINAL_LINK_BROWSER_EVENT, terminalLinkBrowserDetailFromEvent } from './terminal-link-events'
 import { ConfirmDialog } from './ConfirmDialog'
-import { cn, iconButton } from '../lib/ui'
+import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 import { useOptionalTasks } from '../state/tasks'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, codexThreadIdForActiveWindow } from '../state/workspace-model'
 import { registerChatContextWorkspace, sendChatContextSafely } from '../state/chat-context-command'
 import { handleTabListKeyDown } from '../lib/tab-navigation'
+import { IconButton } from './ui/IconButton'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -345,24 +346,20 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
             onLocal={() => openChat(undefined, 'New local session', activeRepoId, undefined, 'local')}
             onWorktree={() => openChat(undefined, 'New worktree session', activeRepoId, undefined, 'worktree')}
           />}
-          <button
+          <IconButton
             type="button"
             onClick={() => openTerminal()}
-            className={iconButton()}
-            title="New terminal"
-            aria-label="New terminal"
+            label="New terminal"
           >
             <SquareTerminal className="h-3.5 w-3.5" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
             onClick={() => openBrowser()}
-            className={iconButton()}
-            title="New browser"
-            aria-label="New browser"
+            label="New browser"
           >
             <Globe className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </div>
       </div>
 

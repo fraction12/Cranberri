@@ -1,8 +1,9 @@
 import { useCallback } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import type { ToolCatalogEntry, ToolCatalogId } from '@/shared/tools'
-import { iconButton } from '../../lib/ui'
+import {  } from '../../lib/ui'
 import { ToolRow } from '../right-rail/tool-row'
+import { IconButton } from '../ui/IconButton'
 
 interface CatalogToolRowProps {
   entry: ToolCatalogEntry
@@ -30,19 +31,18 @@ export function CatalogToolRow({
   const togglePin = useCallback(() => onPinChange(entry.id, !entry.inRail), [entry.id, entry.inRail, onPinChange])
   const pinLabel = entry.inRail ? `Hide ${entry.name} from Tools rail` : `Show ${entry.name} in Tools rail`
   const pinAction = (
-    <button
+    <IconButton
       type="button"
-      className={iconButton({ tone: entry.inRail ? 'active' : 'neutral' })}
+      tone={entry.inRail ? 'active' : 'neutral'}
       disabled={pinning}
-      aria-label={pinning ? `${pinLabel} in progress` : pinLabel}
+      label={pinning ? `${pinLabel} in progress` : pinLabel}
       aria-pressed={entry.inRail}
-      title={pinLabel}
       onClick={togglePin}
     >
       {pinning
         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
         : entry.inRail ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-    </button>
+    </IconButton>
   )
   return (
     <ToolRow
