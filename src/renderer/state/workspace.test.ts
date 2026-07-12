@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { codexThreadIdForActiveWindow, createBoundWorkspaceWindow, renameWorkspaceWindow } from './workspace-model'
+import { codexThreadIdForActiveWindow, createBoundWorkspaceWindow, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -61,5 +61,30 @@ describe('workspace execution identity', () => {
       },
     )
     expect(window).toMatchObject({ projectId: 'project', taskId: 'task', checkoutId: 'checkout' })
+  })
+
+  it('repairs deleted Local control bindings without touching managed or valid tasks', () => {
+    const workspaces = {
+      project: {
+        windows: [
+          { id: 'control', type: 'chat' as const, title: 'Local control', projectId: 'project', taskId: 'deleted-control', checkoutId: 'local' },
+          { id: 'valid', type: 'chat' as const, title: 'Valid session', projectId: 'project', taskId: 'valid-task', checkoutId: 'local' },
+          { id: 'managed', type: 'terminal' as const, title: 'Managed terminal', projectId: 'project', taskId: 'deleted-managed', checkoutId: 'managed' },
+        ],
+        activeWindowId: 'control',
+      },
+    }
+
+    const repaired = repairStaleLocalWorkspaceBindings(
+      workspaces,
+      [{ id: 'project', localCheckoutId: 'local' }],
+      new Set(['valid-task']),
+    )
+
+    expect(repaired.project.windows).toEqual([
+      expect.objectContaining({ id: 'control', title: 'New local session', taskId: null, checkoutId: 'local', sessionTarget: 'local' }),
+      expect.objectContaining({ id: 'valid', taskId: 'valid-task', checkoutId: 'local' }),
+      expect.objectContaining({ id: 'managed', taskId: 'deleted-managed', checkoutId: 'managed' }),
+    ])
   })
 })

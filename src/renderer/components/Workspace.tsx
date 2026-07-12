@@ -89,30 +89,41 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         toast.error('That session\'s repo is no longer available.')
         return
       }
-      const existingWindow = windows.find((item) => item.type === 'chat' && getThreadForWindow(item.id) === session.id)
-      if (existingWindow) {
-        setActiveWindow(existingWindow.id)
-        if (targetRepo && targetRepo.id !== activeRepoId) void setActiveRepo(targetRepo.id)
-        return
-      }
-      const windowId = `session-${session.id}`
-      const open = async () => {
-        const taskResult = targetRepo
-          ? await window.cranberri.tasks.adoptLocalThread({ projectId: targetRepo.id, threadId: session.id, archived })
-          : null
-        const snapshot = taskResult ? await window.cranberri.tasks.snapshot() : null
-        const task = taskResult?.task
-        const checkout = task && snapshot
-          ? snapshot.checkouts.find((candidate) => candidate.id === task.checkoutId)
-            ?? snapshot.managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
-          : null
-        const context = task && checkout ? {
+      const adoptSessionTask = async () => {
+        if (!targetRepo) return { task: null, context: undefined }
+        const task = (await window.cranberri.tasks.adoptLocalThread({ projectId: targetRepo.id, threadId: session.id, archived })).task
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const checkout = snapshot.checkouts.find((candidate) => candidate.id === task.checkoutId)
+          ?? snapshot.managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
+        const context = checkout ? {
           projectId: task.projectId,
           taskId: task.id,
           checkoutId: task.checkoutId,
           worktreeId: task.worktreeId,
           checkoutPath: 'canonicalPath' in checkout ? checkout.canonicalPath : checkout.path,
         } : undefined
+        return { task, context }
+      }
+      const existingWindow = windows.find((item) => item.type === 'chat' && getThreadForWindow(item.id) === session.id)
+      if (existingWindow) {
+        setActiveWindow(existingWindow.id)
+        if (targetRepo && targetRepo.id !== activeRepoId) void setActiveRepo(targetRepo.id)
+        const boundTask = tasksApi?.tasks.find((task) => (
+          task.id === existingWindow.taskId
+          && task.threadId === session.id
+          && task.checkoutId === existingWindow.checkoutId
+        ))
+        if (!boundTask && targetRepo) {
+          void adoptSessionTask().then(async ({ context }) => {
+            if (context) bindWindowToTask(existingWindow.id, context)
+            await tasksApi?.refresh()
+          }).catch((error) => console.error('Failed to repair existing session task binding:', error))
+        }
+        return
+      }
+      const windowId = `session-${session.id}`
+      const open = async () => {
+        const { task, context } = await adoptSessionTask()
         const thread = await openSession(windowId, session, archived, targetRepo ?? undefined)
         openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId, context, task?.location)
         if (context) bindWindowToTask(windowId, context)

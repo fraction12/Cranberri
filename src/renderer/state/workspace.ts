@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useRepos } from './repos'
 import { useAppState } from './appState'
-import { createBoundWorkspaceWindow, renameWorkspaceWindow } from './workspace-model'
+import { createBoundWorkspaceWindow, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 import { useOptionalTasks } from './tasks'
 import { resolveTaskExecutionContext, type ExecutionContextResolution, type TaskExecutionContext } from './execution-context'
 import type { SessionExecutionTarget, WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
@@ -82,6 +82,17 @@ export function useWorkspace(): WorkspaceApi {
       }
     })
   }, [activeProjectId, contextForProject, state.workspacesByProjectId, updateAppState])
+
+  useEffect(() => {
+    if (!tasks || tasks.loading || projects.length === 0) return
+    const taskIds = new Set(tasks.tasks.map((task) => task.id))
+    updateAppState((current) => {
+      const workspacesByProjectId = repairStaleLocalWorkspaceBindings(current.workspacesByProjectId, projects, taskIds)
+      const workspacesByRepoId = repairStaleLocalWorkspaceBindings(current.workspacesByRepoId, projects, taskIds)
+      if (workspacesByProjectId === current.workspacesByProjectId && workspacesByRepoId === current.workspacesByRepoId) return current
+      return { ...current, workspacesByProjectId, workspacesByRepoId }
+    })
+  }, [projects, tasks, updateAppState])
 
   const mutateWorkspace = useCallback((projectId: string | null | undefined, mutator: (windows: WorkspaceWindow[], activeWindowId: string | null) => { windows: WorkspaceWindow[]; activeWindowId: string | null }) => {
     const targetProjectId = projectId ?? activeProjectId
@@ -216,11 +227,13 @@ export function useWorkspace(): WorkspaceApi {
   }, [mutateWorkspace])
 
   const activeWindow = workspace.windows.find((window) => window.id === workspace.activeWindowId) ?? null
-  const activeExecutionResolution = activeWindow && tasks
-    ? resolveTaskExecutionContext(activeWindow, tasks)
-    : activeWindow && activeProject
-      ? { status: 'available' as const, context: localExecutionContext(activeProject) }
-      : null
+  const activeExecutionResolution = activeWindow && tasks?.loading
+    ? null
+    : activeWindow && tasks
+      ? resolveTaskExecutionContext(activeWindow, tasks)
+      : activeWindow && activeProject
+        ? { status: 'available' as const, context: localExecutionContext(activeProject) }
+        : null
   const activeExecutionContext = activeExecutionResolution?.status === 'available'
     ? activeExecutionResolution.context
     : null
@@ -229,7 +242,11 @@ export function useWorkspace(): WorkspaceApi {
     windows: workspace.windows,
     activeWindowId: workspace.activeWindowId,
     activeRepoId: activeProjectId,
-    activeRepoPath: activeExecutionContext?.checkoutPath ?? activeProject?.path ?? null,
+    activeRepoPath: activeWindow && activeExecutionResolution === null
+      ? null
+      : activeExecutionResolution?.status === 'unavailable'
+      ? null
+      : activeExecutionContext?.checkoutPath ?? activeProject?.path ?? null,
     activeProjectId,
     activeCheckoutPath: activeExecutionContext?.checkoutPath ?? null,
     activeExecutionContext,

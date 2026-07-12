@@ -24,6 +24,16 @@ const checkout: Checkout = {
   available: true,
 }
 
+const localCheckout: Checkout = {
+  id: project.localCheckoutId,
+  projectId: project.id,
+  kind: 'local',
+  canonicalPath: '/repo',
+  gitCommonDir: project.gitCommonDir,
+  ownership: 'user',
+  available: true,
+}
+
 const task: Task = {
   id: 'task-1',
   projectId: project.id,
@@ -75,6 +85,22 @@ describe('task execution context', () => {
       { projectId: project.id, taskId: task.id, checkoutId: 'checkout-local' },
       { projects: [project], checkouts: [checkout], tasks: [task] },
     )).toMatchObject({ status: 'unavailable', reason: 'task-mismatch' })
+  })
+
+  it('falls back to Local when a deleted task was bound to the Local checkout', () => {
+    expect(resolveTaskExecutionContext(
+      { projectId: project.id, taskId: 'deleted-control-task', checkoutId: localCheckout.id },
+      { projects: [project], checkouts: [localCheckout], tasks: [] },
+    )).toEqual({
+      status: 'available',
+      context: {
+        projectId: project.id,
+        taskId: null,
+        checkoutId: localCheckout.id,
+        worktreeId: null,
+        checkoutPath: localCheckout.canonicalPath,
+      },
+    })
   })
 
   it('binds identity at creation without retaining a mutable context object', () => {

@@ -42,7 +42,6 @@ export function resolveTaskExecutionContext(
   if (!project) return { status: 'unavailable', reason: 'project-missing', projectId, taskId, checkoutId }
 
   const task = taskId ? catalog.tasks.find((candidate) => candidate.id === taskId) : null
-  if (taskId && !task) return { status: 'unavailable', reason: 'task-missing', projectId, taskId, checkoutId }
   if (task && (task.projectId !== projectId || task.checkoutId !== checkoutId)) {
     return { status: 'unavailable', reason: 'task-mismatch', projectId, taskId, checkoutId }
   }
@@ -51,11 +50,15 @@ export function resolveTaskExecutionContext(
   if (!checkout) return { status: 'unavailable', reason: 'checkout-missing', projectId, taskId, checkoutId }
   if (!checkout.available) return { status: 'unavailable', reason: 'checkout-unavailable', projectId, taskId, checkoutId }
 
+  if (taskId && !task && checkout.id !== project.localCheckoutId) {
+    return { status: 'unavailable', reason: 'task-missing', projectId, taskId, checkoutId }
+  }
+
   return {
     status: 'available',
     context: {
       projectId,
-      taskId,
+      taskId: task?.id ?? null,
       checkoutId: checkout.id,
       worktreeId: task?.worktreeId ?? null,
       checkoutPath: checkout.canonicalPath,

@@ -58,8 +58,13 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const { data: status, isLoading: statusLoading, isError: statusFailed, error: statusError, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
   const { data: allFiles, isLoading: filesLoading, isError: filesFailed, error: filesError } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
-  const { windows, activeWindowId } = useWorkspace()
-  const activeTaskId = windows.find((window) => window.id === activeWindowId)?.taskId ?? null
+  const { activeWindowId, activeExecutionContext, activeExecutionResolution } = useWorkspace()
+  const activeTaskId = activeExecutionContext?.taskId ?? null
+  const executionPending = Boolean(activeWindowId) && activeExecutionResolution === null
+  const executionUnavailable = activeExecutionResolution?.status === 'unavailable'
+  const activeCheckoutPath = executionPending || executionUnavailable
+    ? null
+    : activeExecutionContext?.checkoutPath ?? activeRepo?.path ?? null
   const { activeThread } = useCodexThreads()
   const agentCount = activeThread?.workers?.length ?? 0
 
@@ -69,7 +74,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     setEditorSearchRequest(0)
     setLineDialogOpen(false)
     setActiveTab('files')
-  }, [activeRepo?.id])
+  }, [activeExecutionContext?.checkoutId, activeRepo?.id])
 
   const handleSelectFile = useCallback((file: GitFileStatus, line?: number) => {
     preloadDiffRenderer()
@@ -99,7 +104,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   }
 
   const sendSelectedFileToChat = useCallback(async () => {
-    if (!activeRepo || !selectedFile || contextState.status === 'sending') return
+    if (!activeCheckoutPath || !selectedFile || contextState.status === 'sending') return
     setContextState({ status: 'sending', message: 'Sending file context…' })
     try {
       const shouldReadWorking = selectedFile.status !== 'deleted'
@@ -107,16 +112,22 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       const [diff, workingContent, headContent] = await Promise.all([
         selectedFile.status === 'tracked'
           ? Promise.resolve(null)
-          : window.cranberri.git.diffFile(activeRepo.path, selectedFile.path),
+          : activeTaskId
+            ? window.cranberri.git.taskDiffFile(activeTaskId, selectedFile.path)
+            : window.cranberri.git.diffFile(activeCheckoutPath, selectedFile.path),
         shouldReadWorking
-          ? window.cranberri.git.rawContent(activeRepo.path, selectedFile.path, 'WORKING')
+          ? activeTaskId
+            ? window.cranberri.git.taskRawContent(activeTaskId, selectedFile.path, 'WORKING')
+            : window.cranberri.git.rawContent(activeCheckoutPath, selectedFile.path, 'WORKING')
           : Promise.resolve(''),
         shouldReadHead
-          ? window.cranberri.git.rawContent(activeRepo.path, selectedFile.path, 'HEAD')
+          ? activeTaskId
+            ? window.cranberri.git.taskRawContent(activeTaskId, selectedFile.path, 'HEAD')
+            : window.cranberri.git.rawContent(activeCheckoutPath, selectedFile.path, 'HEAD')
           : Promise.resolve(''),
       ])
       const context = {
-        repoPath: activeRepo.path,
+        repoPath: activeCheckoutPath,
         file: selectedFile,
         workingContent,
         headContent,
@@ -133,13 +144,15 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
       setContextState({ status: 'error', message: null })
       toast.error(message)
     }
-  }, [activeRepo, contextState.status, selectedFile])
+  }, [activeCheckoutPath, activeTaskId, contextState.status, selectedFile])
 
   const handleCommit = async () => {
-    if (!activeRepo || commitState.status === 'committing') return
+    if (!activeCheckoutPath || commitState.status === 'committing') return
     setCommitState({ status: 'committing', message: 'Committing changes…' })
     try {
-      const result = await window.cranberri.git.commit(activeRepo.path, commitTitle, commitSummary)
+      const result = activeTaskId
+        ? await window.cranberri.git.taskCommit(activeTaskId, commitTitle, commitSummary)
+        : await window.cranberri.git.commit(activeCheckoutPath, commitTitle, commitSummary)
       setCommitState({ status: 'success', message: `Committed ${result.hash.slice(0, 7)} · ${result.title}` })
       toast.success(`Committed ${result.hash.slice(0, 7)}`)
       setCommitDialogOpen(false)
@@ -159,12 +172,12 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   }, [])
 
   const draftCommitMessage = useCallback(async () => {
-    if (!activeRepo || commitDraftState.status === 'drafting' || commitState.status === 'committing') return
+    if (!activeCheckoutPath || commitDraftState.status === 'drafting' || commitState.status === 'committing') return
     setCommitDialogOpen(true)
     setCommitDraftState({ status: 'drafting', message: 'Drafting commit message…' })
     setCommitState({ status: 'idle', message: null })
     try {
-      const draft = await window.cranberri.git.draftCommitMessage(activeRepo.path)
+      const draft = await window.cranberri.git.draftCommitMessage(activeCheckoutPath)
       setCommitTitle(draft.title)
       setCommitSummary(draft.summary)
       setCommitDraftState({ status: 'idle', message: null })
@@ -172,7 +185,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     } catch (error) {
       setCommitDraftState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to draft commit message' })
     }
-  }, [activeRepo, commitDraftState.status, commitState.status])
+  }, [activeCheckoutPath, commitDraftState.status, commitState.status])
 
   const copySelectedFilePath = useCallback(async () => {
     if (!selectedFile) return
@@ -185,16 +198,18 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   }, [selectedFile])
 
   const copySelectedFileContent = useCallback(async () => {
-    if (!activeRepo || !selectedFile) return
+    if (!activeCheckoutPath || !selectedFile) return
     try {
       const ref = selectedFile.status === 'deleted' ? 'HEAD' : 'WORKING'
-      const content = await window.cranberri.git.rawContent(activeRepo.path, selectedFile.path, ref)
+      const content = activeTaskId
+        ? await window.cranberri.git.taskRawContent(activeTaskId, selectedFile.path, ref)
+        : await window.cranberri.git.rawContent(activeCheckoutPath, selectedFile.path, ref)
       await navigator.clipboard.writeText(content)
       toast.success('File contents copied')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to copy file contents')
     }
-  }, [activeRepo, selectedFile])
+  }, [activeCheckoutPath, activeTaskId, selectedFile])
 
   const focusSelectedFileLine = useCallback((line: number) => {
     if (!selectedFile || selectedFile.status !== 'tracked') return
@@ -225,34 +240,34 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   }, [focusSelectedFileLine, lineInput])
 
   const copySelectedFileAbsolutePath = useCallback(async () => {
-    if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
+    if (!activeCheckoutPath || !selectedFile || selectedFile.status === 'deleted') return
     try {
-      await navigator.clipboard.writeText(repoAbsolutePath(activeRepo.path, selectedFile.path))
+      await navigator.clipboard.writeText(repoAbsolutePath(activeCheckoutPath, selectedFile.path))
       toast.success('Absolute path copied')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to copy the absolute path')
     }
-  }, [activeRepo, selectedFile])
+  }, [activeCheckoutPath, selectedFile])
 
   const openSelectedFileExternal = useCallback(async () => {
-    if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
+    if (!activeCheckoutPath || !selectedFile || selectedFile.status === 'deleted') return
     try {
-      await window.cranberri.openPath(repoAbsolutePath(activeRepo.path, selectedFile.path))
+      await window.cranberri.openPath(repoAbsolutePath(activeCheckoutPath, selectedFile.path))
       toast.success('File opened')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to open the file')
     }
-  }, [activeRepo, selectedFile])
+  }, [activeCheckoutPath, selectedFile])
 
   const revealSelectedFile = useCallback(async () => {
-    if (!activeRepo || !selectedFile || selectedFile.status === 'deleted') return
+    if (!activeCheckoutPath || !selectedFile || selectedFile.status === 'deleted') return
     try {
-      await window.cranberri.revealPath(repoAbsolutePath(activeRepo.path, selectedFile.path))
+      await window.cranberri.revealPath(repoAbsolutePath(activeCheckoutPath, selectedFile.path))
       toast.success('Revealed in Finder')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to reveal the file')
     }
-  }, [activeRepo, selectedFile])
+  }, [activeCheckoutPath, selectedFile])
 
   useEffect(() => {
     window.dispatchEvent(createRightRailActiveFileEvent(selectedFile))
@@ -311,7 +326,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
           summary={commitSummary}
           commitState={commitState}
           draftState={commitDraftState}
-          canDraft={Boolean(activeRepo && status?.length)}
+          canDraft={Boolean(activeCheckoutPath && status?.length)}
           onClose={() => setCommitDialogOpen(false)}
           onTitleChange={setCommitTitle}
           onSummaryChange={setCommitSummary}
@@ -331,7 +346,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                   <button
                     type="button"
                     onClick={openCommitDialog}
-                    disabled={!activeRepo || !status?.length || commitState.status === 'committing'}
+                    disabled={!activeCheckoutPath || !status?.length || commitState.status === 'committing'}
                     className={buttonStyle({ tone: 'secondary', size: 'compact' })}
                     title="Write a commit message and commit these changes"
                   >
@@ -405,7 +420,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                   <button
                     type="button"
                     onClick={() => void sendSelectedFileToChat()}
-                    disabled={!activeRepo || contextState.status === 'sending'}
+                    disabled={!activeCheckoutPath || contextState.status === 'sending'}
                     className={iconButton()}
                     title="Send selected file context to chat"
                     aria-label="Send selected file context to chat"
@@ -414,8 +429,8 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                   </button>
                   <DiffOptionsMenu
                     wrapContent={wrapDiffContent}
-                    canReadFile={Boolean(activeRepo)}
-                    canOpenFile={Boolean(activeRepo && selectedFile.status !== 'deleted')}
+                    canReadFile={Boolean(activeCheckoutPath)}
+                    canOpenFile={Boolean(activeCheckoutPath && selectedFile.status !== 'deleted')}
                     onToggleWrapContent={() => setWrapDiffContent((value) => !value)}
                     onCopyPath={() => void copySelectedFilePath()}
                     onCopyAbsolutePath={() => void copySelectedFileAbsolutePath()}
@@ -490,7 +505,12 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         )}
 
       </div>
-      {bottomPanel && <BottomPanelContent bottomPanel={bottomPanel} repoPath={activeRepo?.path ?? null} taskId={activeTaskId} onOpenToolsSettings={onOpenToolsSettings} />}
+      {bottomPanel && <BottomPanelContent
+        bottomPanel={bottomPanel}
+        repoPath={activeCheckoutPath}
+        taskId={activeTaskId}
+        onOpenToolsSettings={onOpenToolsSettings}
+      />}
       <BottomPanelNav bottomPanel={bottomPanel} onTogglePanel={(panel) => setBottomPanel((current) => current === panel ? null : panel)} />
     </div>
   )

@@ -762,15 +762,22 @@ async function runSessionWorkspaceSmoke() {
   const repoPath = createFixtureRepo(fixtureRoot, 'cranberri-session-repo', false)
   fs.writeFileSync(path.join(repoPath, 'local-draft.txt'), 'carry this Local change\n')
   seedRegisteredRepo(userDataDir, repoPath)
+  const staleWorkspace = {
+    activeWindowId: 'legacy-local-window',
+    windows: [{
+      id: 'legacy-local-window', type: 'chat', title: 'Local control', projectId: 'smoke-repo',
+      taskId: 'control-smoke-repo', checkoutId: 'local-smoke-repo',
+    }],
+  }
   fs.writeFileSync(path.join(userDataDir, 'app-state.json'), JSON.stringify({
-    version: 1,
+    version: 2,
+    expandedProjectIds: { 'smoke-repo': true },
+    workspacesByProjectId: { 'smoke-repo': staleWorkspace },
+    pinnedCodexSessionsByProjectId: {},
     expandedRepoIds: { 'smoke-repo': true },
-    workspacesByRepoId: {
-      'smoke-repo': {
-        activeWindowId: 'legacy-local-window',
-        windows: [{ id: 'legacy-local-window', type: 'chat', title: 'Legacy local session' }],
-      },
-    },
+    workspacesByRepoId: { 'smoke-repo': staleWorkspace },
+    pinnedCodexSessionIdsByRepoPath: {},
+    pinnedCodexSessionsByRepoPath: {},
   }, null, 2))
   fs.writeFileSync(path.join(userDataDir, 'tasks.json'), JSON.stringify({
     version: 1,
@@ -791,9 +798,16 @@ async function runSessionWorkspaceSmoke() {
           window.cranberri.appState.read(),
           window.cranberri.tasks.snapshot(),
         ])
-        const migrated = appState.workspacesByProjectId['smoke-repo']?.windows.find((windowState) => windowState.id === 'legacy-local-window')
-        return migrated?.taskId === null && migrated.sessionTarget === 'local' && tasks.tasks.every((task) => task.role !== 'control')
+        const repaired = appState.workspacesByProjectId['smoke-repo']?.windows.find((windowState) => windowState.id === 'legacy-local-window')
+        return repaired?.taskId === null
+          && repaired.title === 'New local session'
+          && repaired.sessionTarget === 'local'
+          && tasks.tasks.every((task) => task.role !== 'control')
       }, undefined, { timeout: 10_000 })
+      await page.getByText('local-draft.txt', { exact: true }).waitFor({ timeout: 10_000 })
+      if (await page.getByText('Changes could not be loaded', { exact: true }).count()) {
+        throw new Error('Stale Local task binding still poisoned the right rail')
+      }
       const repoName = path.basename(repoPath)
       const repo = page.locator('[data-repo-id="smoke-repo"]')
       await repo.hover()
@@ -812,6 +826,35 @@ async function runSessionWorkspaceSmoke() {
         return task ? { taskId: task.id, threadId: task.threadId } : null
       })
       if (!identity?.threadId) throw new Error('Local session did not persist a task and thread identity')
+      const restoredWindowId = `session-${identity.threadId}`
+      await page.evaluate(async ({ taskId, restoredWindowId }) => {
+        const state = await window.cranberri.appState.read()
+        const workspace = state.workspacesByProjectId['smoke-repo']
+        if (!workspace) throw new Error('Smoke workspace is unavailable')
+        const activeWindow = workspace.windows.find((candidate) => candidate.id === workspace.activeWindowId)
+        if (!activeWindow) throw new Error('Smoke chat window is unavailable')
+        const restoredWindow = { ...activeWindow, id: restoredWindowId, taskId: `deleted-${taskId}` }
+        await window.cranberri.appState.write({
+          ...state,
+          workspacesByProjectId: {
+            ...state.workspacesByProjectId,
+            'smoke-repo': { windows: [restoredWindow], activeWindowId: restoredWindowId },
+          },
+        })
+      }, { taskId: identity.taskId, restoredWindowId })
+      await page.reload()
+      await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 20_000 })
+      await page.waitForFunction(async (windowId) => {
+        const state = await window.cranberri.appState.read()
+        return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === null
+      }, restoredWindowId, { timeout: 10_000 })
+      const localSessionRow = page.locator(`[data-session-id="${identity.threadId}"][data-session-location="local"]`)
+      await localSessionRow.waitFor({ timeout: 10_000 })
+      await localSessionRow.locator('button').first().click()
+      await page.waitForFunction(async ({ windowId, taskId }) => {
+        const state = await window.cranberri.appState.read()
+        return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === taskId
+      }, { windowId: restoredWindowId, taskId: identity.taskId }, { timeout: 10_000 })
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Continue in worktree' }).click()
       await page.waitForFunction(async ({ taskId, threadId }) => {
