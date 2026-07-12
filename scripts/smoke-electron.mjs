@@ -658,6 +658,22 @@ async function runFreshStartupSmoke() {
       await page.getByRole('button', { name: 'Installed' }).waitFor({ timeout: 10_000 })
       await page.getByText('Loading extensions', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
       await captureSmokeScreenshot(page, 'settings-extensions-light')
+      await page.getByRole('button', { name: 'Connections', exact: true }).click()
+      await page.getByRole('heading', { name: 'Available apps', exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByRole('heading', { name: 'App directory', exact: true }).waitFor({ timeout: 10_000 })
+      if (await page.getByRole('heading', { name: 'Connected apps', exact: true }).count()) {
+        throw new Error('Connections still labels Codex directory entries as connected apps')
+      }
+      const appDirectory = page.locator('[data-app-directory="true"]')
+      const showUnavailableApps = appDirectory.getByRole('button', { name: 'Show unavailable' })
+      if (await showUnavailableApps.count()) {
+        await showUnavailableApps.click()
+        await appDirectory.getByText('Unavailable', { exact: true }).first().waitFor({ timeout: 10_000 })
+        if (await appDirectory.getByTitle('Add to chat').count()) {
+          throw new Error('Unavailable directory apps still expose an add-to-chat action')
+        }
+      }
+      await captureSmokeScreenshot(page, 'settings-connections-light')
       const settingsContent = page.locator('main[aria-live="polite"]')
       await settingsContent.evaluate((element) => { element.scrollTop = element.scrollHeight })
       await page.getByRole('button', { name: 'Updates' }).click()
@@ -910,6 +926,9 @@ async function runSessionWorkspaceSmoke() {
         const state = await window.cranberri.appState.read()
         return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === taskId
       }, { windowId: restoredWindowId, taskId: identity.taskId }, { timeout: 10_000 })
+      await page.getByTitle('GitHub').click()
+      const githubPanel = page.locator('[data-bottom-panel="github"]')
+      await githubPanel.getByText('fraction12/Cranberri', { exact: true }).first().waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Continue in worktree' }).click()
       await page.waitForFunction(async ({ taskId, threadId }) => {
@@ -929,6 +948,21 @@ async function runSessionWorkspaceSmoke() {
       const promotedStatus = await page.evaluate((taskId) => window.cranberri.tasks.status(taskId), identity.taskId)
       if (!promotedStatus.worktree || !fs.existsSync(path.join(promotedStatus.worktree.path, 'local-draft.txt'))) {
         throw new Error('Continue in worktree did not carry the dirty Local checkout')
+      }
+      fs.writeFileSync(path.join(promotedStatus.worktree.path, 'worktree-right-rail-proof.txt'), 'active worktree\n')
+      await page.getByText('worktree-right-rail-proof.txt', { exact: true }).waitFor({ timeout: 10_000 })
+      await page.waitForTimeout(250)
+      if (await page.getByText(/Repo is not registered/).count()) {
+        throw new Error('GitHub panel kept the registered-repo route after the session moved into a worktree')
+      }
+      await githubPanel.getByText('fraction12/Cranberri', { exact: true }).first().waitFor({ timeout: 10_000 })
+      const worktreeGitHub = await page.evaluate(async (taskId) => ({
+        summary: await window.cranberri.git.taskGithubSummary(taskId),
+        branches: await window.cranberri.github.taskPanelData(taskId, 'branches'),
+      }), identity.taskId)
+      if (worktreeGitHub.summary.webUrl !== 'https://github.com/fraction12/Cranberri'
+        || worktreeGitHub.branches.kind !== 'branches') {
+        throw new Error(`Worktree GitHub route returned the wrong checkout data: ${JSON.stringify(worktreeGitHub)}`)
       }
       const expandSessions = repo.getByRole('button', { name: `Expand sessions for ${repoName}` })
       if (await expandSessions.count()) await expandSessions.click()

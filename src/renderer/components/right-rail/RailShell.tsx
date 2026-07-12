@@ -57,7 +57,7 @@ export function RightRailTabs({ activeTab, agentCount, onSelectTab }: RightRailT
 
 export function BottomPanelContent({ bottomPanel, repoPath, taskId, onOpenToolsSettings }: BottomPanelContentProps) {
   return (
-    <div className="flex basis-1/2 min-h-0 flex-col bg-app-bg">
+    <div className="flex basis-1/2 min-h-0 flex-col bg-app-bg" data-bottom-panel={bottomPanel}>
       <div className="flex h-9 shrink-0 items-center bg-app-surface px-3 pt-1">
         <div className={cn('flex items-center gap-2', typeStyle({ role: 'panelTitle' }))}>
           {bottomPanel === 'issue' && <Ticket className="h-3.5 w-3.5 text-app-text-muted" />}
@@ -75,7 +75,7 @@ export function BottomPanelContent({ bottomPanel, repoPath, taskId, onOpenToolsS
         ) : bottomPanel === 'processes' ? (
           <ProcessesPanel repoPath={repoPath} taskId={taskId} />
         ) : bottomPanel === 'github' ? (
-          <GitHubPanel repoPath={repoPath} />
+          <GitHubPanel repoPath={repoPath} taskId={taskId} />
         ) : (
           <ToolsPanel onOpenSettings={onOpenToolsSettings} />
         )}

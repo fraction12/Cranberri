@@ -60,12 +60,14 @@ declare global {
         taskStatus: (taskId: string) => Promise<GitFileStatus[]>
         taskFiles: (taskId: string) => Promise<FileTreeNode[]>
         taskDiff: (taskId: string) => Promise<DiffResult>
+        taskGithubSummary: (taskId: string) => Promise<GitHubRepoSummary>
         taskDiffFile: (taskId: string, filePath: string) => Promise<DiffResult>
         taskRawContent: (taskId: string, filePath: string, ref: 'HEAD' | 'WORKING') => Promise<string>
         taskCommit: (taskId: string, title: string, summary: string) => Promise<GitCommitResult>
       }
       github: {
         panelData: (repoPath: string, kind: GitHubPanelKind) => Promise<GitHubPanelData>
+        taskPanelData: (taskId: string, kind: GitHubPanelKind) => Promise<GitHubPanelData>
       }
       search: {
         repo: (repoPath: string, options: import('@/shared/search').RepoSearchOptions) => Promise<import('@/shared/search').RepoSearchResult>

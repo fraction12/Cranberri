@@ -55,6 +55,28 @@ function githubWebUrl(remoteUrl: string | undefined): Pick<GitHubRepoSummary, 'w
   return { webUrl: `https://github.com/${owner}/${repo}`, owner, repo, isGitHub: true }
 }
 
+async function readGitHubSummary(repoPath: string): Promise<GitHubRepoSummary> {
+  const git = simpleGit(repoPath)
+  const [remotes, status] = await Promise.all([
+    git.getRemotes(true),
+    git.status(),
+  ])
+  const origin = remotes.find((remote) => remote.name === 'origin') ?? remotes[0]
+  const remoteUrl = origin?.refs?.push || origin?.refs?.fetch || null
+  const parsed = githubWebUrl(remoteUrl ?? undefined)
+  return {
+    remoteUrl,
+    webUrl: parsed.webUrl,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    branch: status.current || null,
+    tracking: status.tracking || null,
+    ahead: status.ahead,
+    behind: status.behind,
+    isGitHub: parsed.isGitHub,
+  }
+}
+
 export type Diff = z.infer<typeof diffSchema>
 export type DiffResult = Diff
 
@@ -146,25 +168,7 @@ export function initGitIpc(): void {
 
   ipcMain.handle('git:github-summary', async (_, repoPath: string): Promise<GitHubRepoSummary> => {
     const safeRepoPath = validateRepoPath(repoPath, getRegisteredRepoPaths())
-    const git = simpleGit(safeRepoPath)
-    const [remotes, status] = await Promise.all([
-      git.getRemotes(true),
-      git.status(),
-    ])
-    const origin = remotes.find((remote) => remote.name === 'origin') ?? remotes[0]
-    const remoteUrl = origin?.refs?.push || origin?.refs?.fetch || null
-    const parsed = githubWebUrl(remoteUrl ?? undefined)
-    return {
-      remoteUrl,
-      webUrl: parsed.webUrl,
-      owner: parsed.owner,
-      repo: parsed.repo,
-      branch: status.current || null,
-      tracking: status.tracking || null,
-      ahead: status.ahead,
-      behind: status.behind,
-      isGitHub: parsed.isGitHub,
-    }
+    return readGitHubSummary(safeRepoPath)
   })
 
   ipcMain.handle('git:commit', async (_, repoPath: string, title: string, summary: string) => {
@@ -200,6 +204,10 @@ export function initGitIpc(): void {
   ipcMain.handle('git:task:status', async (_, request: unknown) => readStatus(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd))
   ipcMain.handle('git:task:files', async (_, request: unknown) => readFiles(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd))
   ipcMain.handle('git:task:diff', async (_, request: unknown) => parseGitDiff(await simpleGit(resolveExecutionContext(executionRequestSchema.parse(request).taskId).cwd).diff()))
+  ipcMain.handle('git:task:github-summary', async (_, request: unknown) => {
+    const context = resolveExecutionContext(executionRequestSchema.parse(request).taskId)
+    return readGitHubSummary(context.cwd)
+  })
   ipcMain.handle('git:task:diff-file', async (_, request: unknown) => {
     const parsed = executionFileRequestSchema.parse(request)
     const context = resolveExecutionContext(parsed.taskId)

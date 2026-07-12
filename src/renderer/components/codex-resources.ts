@@ -24,6 +24,23 @@ export interface CodexResourceSummary {
   registryErrors: number
 }
 
+export type CodexAppStatus = 'ready' | 'unavailable' | 'disabled'
+
+export function codexAppStatus(app: ToolRegistryApp): CodexAppStatus {
+  if (!app.enabled) return 'disabled'
+  return app.accessible ? 'ready' : 'unavailable'
+}
+
+export function groupCodexApps(apps: ToolRegistryApp[]): {
+  ready: ToolRegistryApp[]
+  directory: ToolRegistryApp[]
+} {
+  return {
+    ready: apps.filter((app) => codexAppStatus(app) === 'ready'),
+    directory: apps.filter((app) => codexAppStatus(app) !== 'ready'),
+  }
+}
+
 export function summarizeCodexResources({
   plugins,
   skills,
@@ -69,10 +86,10 @@ export function skillChatContext(skill: CodexSkillInfo): string {
 
 export function appChatContext(app: ToolRegistryApp): string {
   return [
-    'Connected app context:',
+    'Codex app context:',
     `App: ${app.name}`,
     `ID: ${app.id}`,
-    `Status: ${app.accessible ? 'accessible' : app.enabled ? 'needs access' : 'disabled'}`,
+    `Status: ${codexAppStatus(app)}`,
     app.distributionChannel ? `Distribution: ${app.distributionChannel}` : null,
     app.pluginDisplayNames.length ? `Plugins: ${app.pluginDisplayNames.join(', ')}` : null,
     app.description ? `Description: ${app.description}` : null,

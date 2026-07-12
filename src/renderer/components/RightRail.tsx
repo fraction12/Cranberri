@@ -506,6 +506,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
 
       </div>
       {bottomPanel && <BottomPanelContent
+        key={activeExecutionContext?.checkoutId ?? `window:${activeWindowId ?? 'none'}`}
         bottomPanel={bottomPanel}
         repoPath={activeCheckoutPath}
         taskId={activeTaskId}

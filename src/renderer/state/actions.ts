@@ -1958,7 +1958,7 @@ export function buildAppActions({
 
   if (registry && (sendAppContext || copyAppContext || sendMcpServerContext || copyMcpServerContext || sendMcpToolContext || copyMcpToolContext)) {
     if (sendAppContext || copyAppContext) {
-      for (const app of registry.apps) {
+      for (const app of registry.apps.filter((candidate) => candidate.enabled && candidate.accessible)) {
         const keywords = ['app', 'connected app', 'connector', 'chat', 'context', app.id, app.name, app.description, app.distributionChannel, ...app.pluginDisplayNames].filter((value): value is string => Boolean(value))
         if (sendAppContext) actions.push({
           id: `app:${app.id}:context`,

@@ -19,10 +19,12 @@ import { createSendChatContextEvent } from '../chat/chat-context-events'
 import { createGitHubContextCapturedEvent } from '../github-context-events'
 import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
 import { githubPanelBadges } from './github-panel-model'
+import { loadGitHubPanelData, loadGitHubSummary } from './github-panel-route'
 import { typeStyle } from '../../lib/typography'
 
 interface GitHubPanelProps {
   repoPath: string | null
+  taskId?: string | null
 }
 
 const panelKinds: Array<{ kind: GitHubPanelKind; label: string; icon: ReactNode }> = [
@@ -43,7 +45,7 @@ function githubStateTone(state: string): 'success' | 'warning' | 'info' | 'dange
   return 'info'
 }
 
-export function GitHubPanel({ repoPath }: GitHubPanelProps) {
+export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
   const [summary, setSummary] = useState<GitHubRepoSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [activeKind, setActiveKind] = useState<GitHubPanelKind>('repo')
@@ -64,7 +66,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
     setSummary(null)
     setData(null)
     setError(null)
-    window.cranberri.git.githubSummary(repoPath)
+    loadGitHubSummary(window.cranberri, { repoPath, taskId })
       .then((result) => {
         if (!cancelled) setSummary(result)
       })
@@ -75,7 +77,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
         if (!cancelled) setSummaryLoading(false)
       })
     return () => { cancelled = true }
-  }, [reloadKey, repoPath])
+  }, [reloadKey, repoPath, taskId])
 
   useEffect(() => {
     if (!repoPath || !summary?.isGitHub) return
@@ -83,7 +85,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
     setLoading(true)
     setData(null)
     setError(null)
-    window.cranberri.github.panelData(repoPath, activeKind)
+    loadGitHubPanelData(window.cranberri, { repoPath, taskId }, activeKind)
       .then((result) => {
         if (!cancelled) setData(result)
       })
@@ -94,7 +96,7 @@ export function GitHubPanel({ repoPath }: GitHubPanelProps) {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [activeKind, reloadKey, repoPath, summary?.isGitHub])
+  }, [activeKind, reloadKey, repoPath, summary?.isGitHub, taskId])
 
   const sendPanelContext = (panelData?: GitHubPanelData | null) => {
     if (!summary || !repoPath) return

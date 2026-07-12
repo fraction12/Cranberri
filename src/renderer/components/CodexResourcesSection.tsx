@@ -9,7 +9,9 @@ import { refreshToolCatalogQueries } from '../state/tools'
 import { createSendChatContextEvent } from './chat/chat-context-events'
 import {
   appChatContext,
+  codexAppStatus,
   filterCodexPlugins,
+  groupCodexApps,
   mcpServerChatContext,
   skillChatContext,
   skillSourceLabel,
@@ -288,23 +290,71 @@ function ConnectionsView({ registry, search, onSend }: {
   search: string
   onSend: (kind: 'app' | 'mcp-server', label: string, text: string) => void
 }) {
+  const [showDirectory, setShowDirectory] = useState(false)
   const query = search.trim().toLowerCase()
   const apps = (registry?.apps ?? []).filter((app) => !query || [app.name, app.description].filter(Boolean).join(' ').toLowerCase().includes(query))
   const servers = (registry?.mcpServers ?? []).filter((server) => !query || server.name.toLowerCase().includes(query))
+  const { ready: readyApps, directory: directoryApps } = groupCodexApps(apps)
+  const directoryOpen = Boolean(query) || showDirectory
+  const visibleDirectoryApps = directoryApps.slice(0, 40)
   return (
     <div className="space-y-6">
-      <SettingsSection title="Connected apps">
-        <div className="space-y-1">
-          {apps.map((app) => (
-            <ConnectionRow key={app.id} name={app.name} detail={app.description || (app.accessible ? 'Ready to use' : 'Needs access')} ready={app.accessible} onSend={() => onSend('app', app.name, appChatContext(app))} />
+      <SettingsSection title="Available apps">
+        <div className="space-y-1" data-available-apps="true">
+          {readyApps.map((app) => (
+            <ConnectionRow key={app.id} name={app.name} detail={app.description || 'Codex app'} status="Ready" tone="success" onSend={() => onSend('app', app.name, appChatContext(app))} />
           ))}
-          {apps.length === 0 && <EmptyRow label="No connected apps found." />}
+          {readyApps.length === 0 && <EmptyRow label={query ? 'No available apps match this search.' : 'No apps are currently available to Codex.'} />}
+        </div>
+      </SettingsSection>
+      <SettingsSection title="App directory" description="Catalog entries reported by Codex. These are not connected.">
+        <div className="space-y-1" data-app-directory="true">
+          {directoryApps.length === 0 ? (
+            <EmptyRow label={query ? 'No directory apps match this search.' : 'No unavailable apps found.'} />
+          ) : directoryOpen ? (
+            <>
+              {visibleDirectoryApps.map((app) => {
+                const status = codexAppStatus(app)
+                return (
+                  <ConnectionRow
+                    key={app.id}
+                    name={app.name}
+                    detail={app.description || 'Codex ecosystem app'}
+                    status={status === 'disabled' ? 'Disabled' : 'Unavailable'}
+                    tone={status === 'disabled' ? 'secondary' : 'warning'}
+                  />
+                )
+              })}
+              {directoryApps.length > visibleDirectoryApps.length && (
+                <p className={typeStyle({ role: 'metadata', tone: 'secondary' })}>Showing {visibleDirectoryApps.length} of {directoryApps.length}. Search to narrow the list.</p>
+              )}
+              {!query && (
+                <button type="button" onClick={() => setShowDirectory(false)} className={buttonStyle({ tone: 'secondary', size: 'compact' })}>
+                  Hide unavailable
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
+              <span className={typeStyle({ role: 'metadata', tone: 'secondary' })}>{directoryApps.length} unavailable app{directoryApps.length === 1 ? '' : 's'}</span>
+              <button type="button" onClick={() => setShowDirectory(true)} className={buttonStyle({ tone: 'secondary', size: 'compact' })}>
+                Show unavailable
+              </button>
+            </div>
+          )}
         </div>
       </SettingsSection>
       <SettingsSection title="MCP servers">
         <div className="space-y-1">
           {servers.map((server) => (
-            <ConnectionRow key={server.name} name={server.name} detail={`${server.toolCount} tool${server.toolCount === 1 ? '' : 's'} available`} ready={server.toolCount > 0} onSend={() => onSend('mcp-server', server.name, mcpServerChatContext(server))} />
+            <ConnectionRow
+              key={server.name}
+              name={server.name}
+              detail={`${server.toolCount} tool${server.toolCount === 1 ? '' : 's'} available`}
+              status={server.toolCount > 0 ? 'Ready' : 'No tools'}
+              tone={server.toolCount > 0 ? 'success' : 'secondary'}
+              onSend={() => onSend('mcp-server', server.name, mcpServerChatContext(server))}
+            />
           ))}
           {servers.length === 0 && <EmptyRow label="No MCP servers found." />}
         </div>
@@ -313,17 +363,25 @@ function ConnectionsView({ registry, search, onSend }: {
   )
 }
 
-function ConnectionRow({ name, detail, ready, onSend }: { name: string; detail: string; ready: boolean; onSend: () => void }) {
+function ConnectionRow({ name, detail, status, tone, onSend }: {
+  name: string
+  detail: string
+  status: string
+  tone: 'success' | 'warning' | 'secondary'
+  onSend?: () => void
+}) {
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-app-bg">
-      <div className={`h-2 w-2 shrink-0 rounded-full ${ready ? 'bg-app-status-success' : 'bg-app-status-warning'}`} />
       <div className="min-w-0 flex-1">
         <div className={cn('truncate', typeStyle({ role: 'body', tone: 'primary' }))}>{name}</div>
         <div className={cn('mt-0.5 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{detail}</div>
       </div>
-      <button type="button" onClick={onSend} className={iconButton()} aria-label={`Add ${name} to chat`} title="Add to chat">
-        <MessageSquare className="h-3.5 w-3.5" />
-      </button>
+      <span className={cn('shrink-0', typeStyle({ role: 'status', tone }))}>{status}</span>
+      {onSend && (
+        <button type="button" onClick={onSend} className={iconButton()} aria-label={`Add ${name} to chat`} title="Add to chat">
+          <MessageSquare className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   )
 }
