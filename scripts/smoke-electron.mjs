@@ -1999,7 +1999,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Fake Codex received: Active chat context:').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('fake codex smoke')
-      await page.locator('[cmdk-item]').filter({ hasText: 'Send session match: Smoke Codex Thread' }).first().click()
+      await page.locator('[cmdk-item]').filter({ hasText: 'Send session match:' }).first().click()
       await page.waitForFunction(() => {
         return [...document.querySelectorAll('[data-composer-input="true"]')]
           .some((textarea) => (textarea.textContent ?? '').includes('Codex session context:') && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
