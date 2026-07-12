@@ -1,12 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import type { ProjectWithLocalCheckout } from '@/shared/projects'
 
-export interface Project {
-  id: string
-  name: string
-  path: string
-  localCheckoutId?: string
-  pinnedLocalBranch?: string | null
-}
+export type Project = Pick<ProjectWithLocalCheckout, 'id' | 'name' | 'path'>
+  & Partial<Omit<ProjectWithLocalCheckout, 'id' | 'name' | 'path'>>
 
 /** Compatibility alias while repo-oriented UI migrates to project language. */
 export type Repo = Project

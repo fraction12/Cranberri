@@ -1249,11 +1249,16 @@ async function runRepoWorkspaceSmoke() {
       await page.getByLabel('Add context').click()
       await page.getByText('Add to chat', { exact: true }).waitFor({ timeout: 10_000 })
       await captureSmokeScreenshot(page, 'dropdown-add-context-light-standard')
+      await page.waitForTimeout(50)
       await page.keyboard.press('Escape')
+      await page.getByText('Add to chat', { exact: true }).waitFor({ state: 'detached', timeout: 10_000 })
       await page.getByRole('button', { name: /Approval policy:/ }).click()
-      await page.getByText('Approval policy', { exact: true }).last().waitFor({ timeout: 10_000 })
+      const approvalMenuTitle = page.getByText('Approval policy', { exact: true }).last()
+      await approvalMenuTitle.waitFor({ timeout: 10_000 })
       await captureSmokeScreenshot(page, 'dropdown-approval-light-standard')
+      await page.waitForTimeout(50)
       await page.keyboard.press('Escape')
+      await approvalMenuTitle.waitFor({ state: 'detached', timeout: 10_000 })
       await modelSelector.click()
       await page.getByRole('menuitemradio', { name: 'Ultra', exact: true }).click()
       await modelSelector.click()
@@ -1490,7 +1495,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Fake Codex received: cranberri-chat-trail-smoke').waitFor({ timeout: 10_000 })
       await composer.fill('cranberri-smoke-reject-turn')
       await page.getByLabel('Send message').click()
-      await page.getByText('Error: Fake Codex rejected turn').waitFor({ timeout: 10_000 })
+      const transcript = page.locator('[data-chat-transcript-end="true"]').locator('..')
+      await transcript.getByText('Error: Fake Codex rejected turn').waitFor({ timeout: 10_000 })
       await composer.fill('cranberri fake codex smoke')
       if (await page.getByLabel('Send message').isDisabled()) {
         throw new Error('Rejected Codex turn left the chat running')
@@ -1876,6 +1882,13 @@ async function runRepoWorkspaceSmoke() {
         return [...document.querySelectorAll('[data-composer-input="true"]')]
           .some((textarea) => (textarea.textContent ?? '').includes('cranberri dictated smoke text'))
       }, { timeout: 10_000 })
+      await page.waitForTimeout(200)
+      await page.waitForFunction(() => {
+        const composer = [...document.querySelectorAll('[data-composer-input="true"]')]
+          .find((textarea) => (textarea.textContent ?? '').includes('cranberri dictated smoke text'))
+        const send = document.querySelector('button[aria-label="Send message"]')
+        return Boolean(composer && send instanceof HTMLButtonElement && !send.disabled)
+      }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: cranberri dictated smoke text').waitFor({ timeout: 10_000 }).catch(async (error) => {
         const diagnostics = await page.evaluate(async () => ({
@@ -1998,7 +2011,23 @@ async function runRepoWorkspaceSmoke() {
       await workerRow.getByText(/Direction sent through parent|Steered:/).waitFor({ timeout: 10_000 })
 
       await page.getByLabel('Open Euclid').click()
-      await page.getByLabel('Open parent task').waitFor({ timeout: 10_000 })
+      const workerTab = page.getByRole('tab', { name: 'Switch to Inspect worker smoke fixture' })
+      await workerTab.waitFor({ timeout: 10_000 })
+      await page.waitForFunction(() => document.querySelector('[role="tab"][aria-label="Switch to Inspect worker smoke fixture"]')?.getAttribute('aria-selected') === 'true')
+      await page.getByRole('tab', { name: /Agents/ }).click()
+      await page.getByLabel('Open parent task').waitFor({ timeout: 10_000 }).catch(async (error) => {
+        const diagnostics = await page.evaluate(async () => ({
+          workspace: await window.cranberri.appState.read().catch((reason) => ({ error: String(reason) })),
+          tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
+          tabs: [...document.querySelectorAll('[role="tab"]')].map((tab) => ({
+            label: tab.getAttribute('aria-label'),
+            selected: tab.getAttribute('aria-selected'),
+          })),
+          agentsPanel: document.querySelector('[data-agents-panel="true"]')?.textContent,
+          notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
+        }))
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nWorker open diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
+      })
       await page.getByText('Inspect the fake worker smoke fixture.').waitFor({ timeout: 10_000 })
       await page.getByRole('textbox', { name: 'Chat message' }).fill('Steer from the opened worker transcript.')
       await page.getByRole('button', { name: 'Send message' }).click()

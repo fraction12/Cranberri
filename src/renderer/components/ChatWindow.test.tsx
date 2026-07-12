@@ -4,6 +4,7 @@ import {
   NEW_THREAD_EMPTY_STATE,
   didReaderMoveTranscriptUp,
   isTranscriptNearBottom,
+  projectWithFreshLocalSettings,
   sessionThreadIdFromWindowId,
   shouldSendComposerOnEnter,
 } from './chat/chat-window-state'
@@ -62,6 +63,32 @@ describe('ChatWindow composer rendering', () => {
       { scrollTop: 420, clientHeight: 500 },
       { scrollTop: 500, clientHeight: 500 },
     )).toBe(false)
+  })
+
+  it('projects fresh repo settings over a stale task catalog project', () => {
+    const catalogProject = {
+      id: 'project-1',
+      name: 'Cranberri',
+      gitCommonDir: '/repo/.git',
+      localCheckoutId: 'checkout-1',
+      pinnedLocalBranch: 'old-branch',
+      defaultEnvironmentId: 'old-environment',
+      controlTaskId: 'control-1',
+      localLeaseTaskId: null,
+    }
+    const activeProject = {
+      ...catalogProject,
+      path: '/repo',
+      pinnedLocalBranch: 'main',
+      defaultEnvironmentId: null,
+    }
+
+    expect(projectWithFreshLocalSettings(catalogProject, activeProject)).toEqual({
+      ...catalogProject,
+      pinnedLocalBranch: 'main',
+      defaultEnvironmentId: null,
+    })
+    expect(projectWithFreshLocalSettings(catalogProject, { ...activeProject, id: 'project-2' })).toBe(catalogProject)
   })
 
 })

@@ -24,6 +24,7 @@ import {
   NEW_THREAD_EMPTY_STATE,
   didReaderMoveTranscriptUp,
   isTranscriptNearBottom,
+  projectWithFreshLocalSettings,
   sessionThreadIdFromWindowId,
 } from './chat/chat-window-state'
 import {
@@ -152,7 +153,11 @@ export function ChatWindow({ id }: { id: string }) {
   const thread = threadId ? getThread(threadId) : undefined
   const boundTaskId = workspaceWindow?.taskId ?? null
   const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
-  const taskProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
+  const catalogProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
+  const taskProject = useMemo(
+    () => projectWithFreshLocalSettings(catalogProject, activeProject),
+    [activeProject, catalogProject],
+  )
   const taskTarget = activeTask?.location ?? workspaceWindow?.sessionTarget ?? 'local'
   const activeTaskContext = activeTask ? tasks?.executionContextForTask(activeTask.id) ?? null : null
   const recordedWorktreeBranch = activeTask?.worktreeId
