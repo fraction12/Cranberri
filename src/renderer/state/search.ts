@@ -4,6 +4,11 @@ import { repoWatchEventSchema, type FilePreviewResult, type RepoSearchOptions, t
 import { useRepos } from './repos'
 import { useWorkspace } from './workspace'
 
+export function repoWatcherStartErrorIsBenign(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /Task (?:worktree )?checkout not found|Task not found/i.test(message)
+}
+
 export function useRepoSearch(options: RepoSearchOptions, enabled = true) {
   const { activeRepo } = useRepos()
   return useQuery<RepoSearchResult>({
@@ -56,7 +61,7 @@ export function useRepoWatchInvalidation(): void {
       ? window.cranberri.search.taskWatchStart(activeTaskId)
       : window.cranberri.search.watchStart(activeRepoPath)
     start.catch((error) => {
-      if (mounted) console.error('Failed to start repo watcher:', error)
+      if (mounted && !repoWatcherStartErrorIsBenign(error)) console.error('Failed to start repo watcher:', error)
     })
 
     return () => {
