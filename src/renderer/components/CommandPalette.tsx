@@ -1282,7 +1282,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     await navigator.clipboard.writeText(context.text)
   }, [activeRepo])
 
-  const actions = useMemo(() => buildAppActions({
+  const actions = useMemo(() => open ? buildAppActions({
     repos,
     activeRepoId,
     windows,
@@ -1458,16 +1458,16 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     openRightRail: (command) => window.dispatchEvent(createOpenRightRailCommandEvent(command)),
     setActiveRepo,
     setActiveWindow,
-  }), [abort, activeRepoId, activeThread, activeWindowId, approve, archiveSessionFromCommand, attachFilesToActiveChat, attachRepoFileToActiveChat, changedFileCount, clearDiagnosticsTelemetryFromCommand, compactThread, controlActiveBrowser, controlActiveTerminal, copyActiveChatContext, copyActiveThreadMarkdown, copyActiveWindowContext, copyCodexResourceContext, copyDiagnosticsContext, copyDiagnosticsPath, copyGitHubContext, copyLatestAppContext, copyLatestAssistantResponse, copyLatestBrowserInspection, copyLatestBrowserScreenshotPath, copyLatestBrowserSnapshot, copyLatestCodexResourceContext, copyLatestGitHubContext, copyLatestProcessContext, copyLatestRepoChangesContext, copyLatestRepoFileContext, copyLatestSessionContext, copyLatestTerminalContext, copyLatestToolEventContext, copyLatestUserPrompt, copyRepoChangesContext, copySelectedFileAbsolutePath, copySessionContext, copyUsageContext, copyWorkspaceBrief, deleteSessionFromCommand, draftPullRequestContext, explainRepoChangesContext, exportActiveThreadMarkdown, installPluginFromCommand, latestAppContext, latestBrowserInspection, latestBrowserScreenshot, latestBrowserSnapshot, latestCodexResourceContext, latestGitHubContext, latestProcessContext, latestRepoChangesContext, latestRepoFileContext, latestSessionContext, latestTerminalContext, latestToolEventContext, onOpenSettings, openBrowser, openChat, openDiagnosticsPath, openLatestBrowserScreenshot, openNativeHelperSettings, openSelectedFileExternal, openTerminal, openThreadIds, pinnedSessionIds, plugins, processes, registry, renameSessionFromCommand, repos, revealDiagnosticsPath, revealLatestBrowserScreenshot, revealSelectedFileInFolder, reviewRepoChangesContext, selectedRightRailFile, sendActiveChatContext, sendActiveWindowContext, sendCodexResourceContext, sendLatestAppContextToChat, sendLatestAssistantResponseToChat, sendLatestBrowserInspectionToChat, sendLatestBrowserScreenshotToChat, sendLatestBrowserSnapshotToChat, sendLatestCodexResourceContextToChat, sendLatestGitHubContextToChat, sendLatestProcessContextToChat, sendLatestRepoChangesContextToChat, sendLatestRepoFileContextToChat, sendLatestSessionContextToChat, sendLatestTerminalContextToChat, sendLatestToolEventContextToChat, sendLatestUserPromptToChat, sendProcessContext, sendToolEventContext, setActiveBrowserViewport, sendDiagnosticsContext, sendGitHubContext, sendRepoChangesContext, sendSessionContext, sendUsageContext, sendWorkspaceBrief, sessions, setActiveRepo, setActiveWindow, skills, testRepoChangesContext, toggleSessionPinnedFromCommand, toolEvents, unarchiveSession, upgradePluginMarketplaces, windows])
+  }) : [], [abort, activeRepoId, activeThread, activeWindowId, approve, archiveSessionFromCommand, attachFilesToActiveChat, attachRepoFileToActiveChat, changedFileCount, clearDiagnosticsTelemetryFromCommand, compactThread, controlActiveBrowser, controlActiveTerminal, copyActiveChatContext, copyActiveThreadMarkdown, copyActiveWindowContext, copyCodexResourceContext, copyDiagnosticsContext, copyDiagnosticsPath, copyGitHubContext, copyLatestAppContext, copyLatestAssistantResponse, copyLatestBrowserInspection, copyLatestBrowserScreenshotPath, copyLatestBrowserSnapshot, copyLatestCodexResourceContext, copyLatestGitHubContext, copyLatestProcessContext, copyLatestRepoChangesContext, copyLatestRepoFileContext, copyLatestSessionContext, copyLatestTerminalContext, copyLatestToolEventContext, copyLatestUserPrompt, copyRepoChangesContext, copySelectedFileAbsolutePath, copySessionContext, copyUsageContext, copyWorkspaceBrief, deleteSessionFromCommand, draftPullRequestContext, explainRepoChangesContext, exportActiveThreadMarkdown, installPluginFromCommand, latestAppContext, latestBrowserInspection, latestBrowserScreenshot, latestBrowserSnapshot, latestCodexResourceContext, latestGitHubContext, latestProcessContext, latestRepoChangesContext, latestRepoFileContext, latestSessionContext, latestTerminalContext, latestToolEventContext, onOpenSettings, open, openBrowser, openChat, openDiagnosticsPath, openLatestBrowserScreenshot, openNativeHelperSettings, openSelectedFileExternal, openTerminal, openThreadIds, pinnedSessionIds, plugins, processes, registry, renameSessionFromCommand, repos, revealDiagnosticsPath, revealLatestBrowserScreenshot, revealSelectedFileInFolder, reviewRepoChangesContext, selectedRightRailFile, sendActiveChatContext, sendActiveWindowContext, sendCodexResourceContext, sendLatestAppContextToChat, sendLatestAssistantResponseToChat, sendLatestBrowserInspectionToChat, sendLatestBrowserScreenshotToChat, sendLatestBrowserSnapshotToChat, sendLatestCodexResourceContextToChat, sendLatestGitHubContextToChat, sendLatestProcessContextToChat, sendLatestRepoChangesContextToChat, sendLatestRepoFileContextToChat, sendLatestSessionContextToChat, sendLatestTerminalContextToChat, sendLatestToolEventContextToChat, sendLatestUserPromptToChat, sendProcessContext, sendToolEventContext, setActiveBrowserViewport, sendDiagnosticsContext, sendGitHubContext, sendRepoChangesContext, sendSessionContext, sendUsageContext, sendWorkspaceBrief, sessions, setActiveRepo, setActiveWindow, skills, testRepoChangesContext, toggleSessionPinnedFromCommand, toolEvents, unarchiveSession, upgradePluginMarketplaces, windows])
 
-  const activeThreadMessageActions = useMemo(() => buildActiveThreadMessageActions({
+  const activeThreadMessageActions = useMemo(() => open ? buildActiveThreadMessageActions({
     activeThread,
     query: trimmedQuery,
     sendMessageContext: sendTranscriptMessageToChat,
     copyMessageText: copyTranscriptMessage,
-  }), [activeThread, copyTranscriptMessage, sendTranscriptMessageToChat, trimmedQuery])
+  }) : [], [activeThread, copyTranscriptMessage, open, sendTranscriptMessageToChat, trimmedQuery])
 
-  const fileActions = useMemo(() => buildFileSearchActions({
+  const fileActions = useMemo(() => open ? buildFileSearchActions({
     fileMatches: repoFileSearchQuery.data ?? [],
     contentMatches: repoContentSearchQuery.data ?? [],
     openFile: (path, line) => {
@@ -1476,12 +1476,12 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     sendFileContext,
     copyFileContext,
     attachFile: attachRepoFileToActiveChat,
-  }), [attachRepoFileToActiveChat, copyFileContext, repoContentSearchQuery.data, repoFileSearchQuery.data, sendFileContext])
-  const githubItemActions = useMemo(() => buildGitHubItemActions({
+  }) : [], [attachRepoFileToActiveChat, copyFileContext, open, repoContentSearchQuery.data, repoFileSearchQuery.data, sendFileContext])
+  const githubItemActions = useMemo(() => open ? buildGitHubItemActions({
     panels: githubItemPanelsQuery.data ?? [],
     sendGitHubItemContext,
     copyGitHubItemContext,
-  }), [copyGitHubItemContext, githubItemPanelsQuery.data, sendGitHubItemContext])
+  }) : [], [copyGitHubItemContext, githubItemPanelsQuery.data, open, sendGitHubItemContext])
 
   const filteredActions = [
     ...filterAppActions(actions, query),
