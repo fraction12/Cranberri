@@ -976,15 +976,21 @@ async function runSessionWorkspaceSmoke() {
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Archive session' }).click()
       await page.waitForFunction(async (taskId) => (await window.cranberri.tasks.status(taskId)).task.state === 'archived', identity.taskId, { timeout: 10_000 })
+      await page.waitForFunction(async (threadId) => {
+        const state = await window.cranberri.appState.read()
+        return Object.values(state.workspacesByProjectId)
+          .every((workspace) => workspace.windows.every((windowState) => windowState.threadId !== threadId))
+      }, identity.threadId, { timeout: 10_000 })
+      const showArchived = repo.getByRole('button', { name: /Show archived/ })
+      await showArchived.waitFor({ timeout: 10_000 })
+      await showArchived.click()
+      await promotedRow.waitFor({ timeout: 10_000 })
+      await promotedRow.getByRole('button', { name: /worktree session/i }).click()
       await composer.waitFor({ state: 'visible' })
       await page.waitForFunction(() => {
         const input = document.querySelector('[aria-label="Chat message"]')
         return input instanceof HTMLElement && input.getAttribute('contenteditable') === 'false'
       }, undefined, { timeout: 10_000 })
-      const showArchived = repo.getByRole('button', { name: /Show archived/ })
-      await showArchived.waitFor({ timeout: 10_000 })
-      await showArchived.click()
-      await promotedRow.waitFor({ timeout: 10_000 })
 
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Restore session' }).click()
