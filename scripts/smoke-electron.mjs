@@ -554,16 +554,16 @@ async function runFreshStartupSmoke() {
       await page.locator('[data-sonner-toast][data-type="success"] [data-title]')
         .filter({ hasText: 'Update installed successfully' })
         .waitFor({ timeout: 10_000 })
-      const pendingResultDeadline = Date.now() + 10_000
-      while (fs.existsSync(pendingUpdateResultPath) && Date.now() < pendingResultDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 50))
+      if (!fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update diagnostics were cleared before acknowledgement')
+      const retainedResult = JSON.parse(fs.readFileSync(pendingUpdateResultPath, 'utf8'))
+      if (!retainedResult.success || retainedResult.phase !== 'relaunching') {
+        throw new Error(`Pending update diagnostics were corrupted: ${JSON.stringify(retainedResult)}`)
       }
-      if (fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update result was not cleared after its toast')
       await page.getByText('No repo selected').waitFor({ timeout: 10_000 })
       await waitForVisibleToastsToClear(page)
 
       await page.getByLabel('Open settings').click()
-      await page.getByText('Settings').waitFor({ timeout: 10_000 })
+      await page.getByRole('heading', { name: 'Settings' }).waitFor({ timeout: 10_000 })
       await page.getByText('Checking Codex connection...', { exact: true }).waitFor({ state: 'detached', timeout: 15_000 })
       await captureSmokeScreenshot(page, 'settings-general-light')
       const defaultModel = page.getByLabel('Default model')
