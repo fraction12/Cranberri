@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "budgets": {
+    "launchToUsableMs": { "statistic": "p95", "maximum": 3000 },
+    "workspaceCoherentMs": { "statistic": "p95", "maximum": 500 },
+    "windowSwitchCoherentMs": { "statistic": "p95", "maximum": 250 },
+    "rightRailRefreshMs": { "statistic": "p95", "maximum": 500 },
+    "composerKeyToPaintMs": { "statistic": "p95", "maximum": 50 },
+    "longTaskMs": { "statistic": "maximum", "maximum": 100 },
+    "idleCpuPercent": { "statistic": "p95", "maximum": 2 },
+    "retainedMemoryGrowthPercent": { "statistic": "maximum", "maximum": 15 }
+  }
+}
