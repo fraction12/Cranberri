@@ -34,7 +34,7 @@ export function createBoundWorkspaceWindow(
     projectId: context.projectId,
     taskId: context.taskId,
     checkoutId: context.checkoutId,
-    ...(context.sessionTarget ? { sessionTarget: context.sessionTarget } : {}),
+    sessionTarget: window.sessionTarget ?? context.sessionTarget,
     bindingRevision: 0,
   }
 }

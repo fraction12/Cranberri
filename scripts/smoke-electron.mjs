@@ -554,13 +554,10 @@ async function runFreshStartupSmoke() {
       await page.locator('[data-sonner-toast][data-type="success"] [data-title]')
         .filter({ hasText: 'Update installed successfully' })
         .waitFor({ timeout: 10_000 })
-      if (!fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update diagnostics were cleared before acknowledgement')
-      const retainedResult = JSON.parse(fs.readFileSync(pendingUpdateResultPath, 'utf8'))
-      if (!retainedResult.success || retainedResult.phase !== 'relaunching') {
-        throw new Error(`Pending update diagnostics were corrupted: ${JSON.stringify(retainedResult)}`)
-      }
+      if (fs.existsSync(pendingUpdateResultPath)) throw new Error('Pending update diagnostics were not consumed before display')
       await page.getByText('No repo selected').waitFor({ timeout: 10_000 })
       await waitForVisibleToastsToClear(page)
+      if (fs.existsSync(`${pendingUpdateResultPath}.consumed`)) throw new Error('Consumed update diagnostics were not cleared after display')
 
       await page.getByLabel('Open settings').click()
       await page.getByRole('heading', { name: 'Settings' }).waitFor({ timeout: 10_000 })

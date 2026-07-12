@@ -83,6 +83,18 @@ describe('workspace execution identity', () => {
     expect(window.bindingRevision).toBe(0)
   })
 
+  it('keeps the requested Worktree target while a draft still uses Local context', () => {
+    const window = createBoundWorkspaceWindow(
+      { id: 'draft', type: 'chat', title: 'New worktree session', sessionTarget: 'worktree' },
+      {
+        projectId: 'project', taskId: null, checkoutId: 'local', worktreeId: null,
+        checkoutPath: '/repo', sessionTarget: 'local',
+      },
+    )
+
+    expect(window.sessionTarget).toBe('worktree')
+  })
+
   it('persists a thread binding and increments the window revision on every rebind', () => {
     const created = createBoundWorkspaceWindow(
       { id: 'chat', type: 'chat', title: 'Chat' },
