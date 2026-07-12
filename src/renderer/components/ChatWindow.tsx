@@ -52,7 +52,7 @@ export function ChatWindow({ id }: { id: string }) {
   const { settings } = useSettings()
   const tasks = useOptionalTasks()
   const { activeProject } = useRepos()
-  const { windows, renameWindow, bindWindowToTask, openTerminal, closeSessionWindows } = useWorkspace()
+  const { windows, renameWindow, bindWindowToTask, openTerminal, closeWindow, closeSessionWindows } = useWorkspace()
   const workspaceWindow = windows.find((window) => window.id === id)
   const recovery = useRecovery()
   const recoveryNotice = recovery.noticeForWindow(workspaceWindow?.projectId ?? activeProject?.id, id)
@@ -510,7 +510,11 @@ export function ChatWindow({ id }: { id: string }) {
             .finally(() => setHandoffBusy(false))
         }}
       />}
-      {recoveryNotice && <StartupRecoveryNotice notice={recoveryNotice} />}
+      {recoveryNotice && <StartupRecoveryNotice
+        notice={recoveryNotice}
+        onRetry={() => { void recovery.retry().catch((error) => toast.error(errorMessage(error))) }}
+        onClose={recoveryNotice.outcome ? () => closeWindow(id) : undefined}
+      />}
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollContainerRef}

@@ -48,6 +48,7 @@ declare global {
       }
       recovery: {
         read: () => Promise<import('@/shared/recovery').StartupRecoveryReport | null>
+        retry: () => Promise<import('@/shared/recovery').StartupRecoveryReport>
       }
       repos: {
         list: () => Promise<import('@/shared/projects').ProjectRegistryView>

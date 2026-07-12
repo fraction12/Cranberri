@@ -26,6 +26,7 @@ const api = {
   },
   recovery: {
     read: () => ipcRenderer.invoke('recovery:read') as Promise<import('@/shared/recovery').StartupRecoveryReport | null>,
+    retry: () => ipcRenderer.invoke('recovery:retry') as Promise<import('@/shared/recovery').StartupRecoveryReport>,
   },
   repos: {
     list: () => ipcRenderer.invoke('repos:list'),

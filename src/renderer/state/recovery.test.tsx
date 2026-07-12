@@ -79,12 +79,14 @@ describe('startup recovery window mapping', () => {
   it('renders product copy without exposing internal recovery details', () => {
     const notice = windowRecoveryNotice(reportWith(BASE_WINDOW), 'project-1', 'chat-1')
     expect(notice).not.toBeNull()
-    const html = renderToStaticMarkup(<StartupRecoveryNotice notice={notice!} />)
+    const html = renderToStaticMarkup(<StartupRecoveryNotice notice={notice!} onRetry={() => undefined} onClose={() => undefined} />)
 
     expect(html).toContain('Worktree unavailable')
     expect(html).toContain('Restore this worktree before continuing the session.')
     expect(html).toContain('role="alert"')
     expect(html).not.toContain('internal recovery detail')
+    expect(html).toContain('Retry')
+    expect(html).toContain('Close tab')
   })
 
   it('summarizes repairs and attention without counting quiet verification', () => {

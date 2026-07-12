@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { RecoveryReason, StartupRecoveryReport, WindowRecoveryOutcome } from '@/shared/recovery'
 
@@ -14,6 +14,7 @@ interface RecoveryApi {
   report: StartupRecoveryReport | null
   loaded: boolean
   noticeForWindow: (workspaceProjectId: string | undefined, windowId: string) => WindowRecoveryNotice | null
+  retry: () => Promise<void>
 }
 
 export interface StartupRecoverySummary {
@@ -128,6 +129,14 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const [report, setReport] = useState<StartupRecoveryReport | null>(null)
   const [loaded, setLoaded] = useState(false)
 
+  const retry = useCallback(async () => {
+    const next = await window.cranberri.recovery.retry()
+    setReport(next)
+    const summary = startupRecoverySummary(next)
+    if (summary?.tone === 'warning') toast.warning(summary.title, { description: summary.description })
+    else toast.success('Recovery check complete')
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     window.cranberri.recovery.read()
@@ -153,7 +162,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     report,
     loaded,
     noticeForWindow: (workspaceProjectId, windowId) => windowRecoveryNotice(report, workspaceProjectId, windowId),
-  }), [loaded, report])
+    retry,
+  }), [loaded, report, retry])
 
   return <RecoveryContext.Provider value={value}>{children}</RecoveryContext.Provider>
 }

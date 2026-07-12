@@ -336,4 +336,5 @@ export function getStartupRecoveryReport(): StartupRecoveryReport | null {
 
 export function initStartupRecoveryIpc(): void {
   ipcMain.handle('recovery:read', () => latestReport)
+  ipcMain.handle('recovery:retry', () => reconcileStartup())
 }
