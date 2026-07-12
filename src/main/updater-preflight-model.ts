@@ -31,6 +31,7 @@ export type UpdateSignatureStatus = 'developerId' | 'adHoc' | 'other' | 'unsigne
 export function signatureStatusFromCodesign(output: string | null): UpdateSignatureStatus {
   if (!output) return 'unsigned'
   if (/not signed at all|code object is not signed/i.test(output)) return 'unsigned'
+  if (/Info\.plist=not bound/i.test(output) || /Sealed Resources=none/i.test(output)) return 'unsigned'
   if (/Authority=Developer ID Application:/i.test(output)) return 'developerId'
   if (/Signature=adhoc/i.test(output)) return 'adHoc'
   return 'other'

@@ -26,7 +26,7 @@ if (!executableDescription.includes('arm64')) throw new Error(`Packaged executab
 
 const codesign = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', appPath], { encoding: 'utf8' })
 const signatureOutput = `${codesign.stdout ?? ''}\n${codesign.stderr ?? ''}`.trim()
-const signature = /not signed at all|code object is not signed/i.test(signatureOutput) || !signatureOutput
+const signature = /not signed at all|code object is not signed|Info\.plist=not bound|Sealed Resources=none/i.test(signatureOutput) || !signatureOutput
   ? 'unsigned'
   : /Authority=Developer ID Application:/i.test(signatureOutput)
     ? 'developerId'

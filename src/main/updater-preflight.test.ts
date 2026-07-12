@@ -71,6 +71,7 @@ describe('updater release provenance', () => {
   it('classifies packaged signature policy', () => {
     expect(signatureStatusFromCodesign(null)).toBe('unsigned')
     expect(signatureStatusFromCodesign('code object is not signed at all')).toBe('unsigned')
+    expect(signatureStatusFromCodesign('Signature=adhoc\nInfo.plist=not bound\nSealed Resources=none')).toBe('unsigned')
     expect(signatureStatusFromCodesign('Signature=adhoc')).toBe('adHoc')
     expect(signatureStatusFromCodesign('Authority=Developer ID Application: Example')).toBe('developerId')
     expect(signatureStatusFromCodesign('Authority=Apple Development: Example')).toBe('other')
