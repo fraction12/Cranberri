@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react'
 import { Loader2, RefreshCw, Settings2, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ToolCatalogId } from '@/shared/tools'
-import { useCodexWindows } from '../../state/codex'
 import { useSettings } from '../../state/settings'
 import { useWorkspace } from '../../state/workspace'
 import { codexThreadIdForActiveWindow } from '../../state/workspace-model'
@@ -24,10 +23,9 @@ interface ToolsPanelProps {
 }
 
 export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
-  const { activeThreadId } = useCodexWindows()
   const { windows, activeWindowId } = useWorkspace()
   const { settings } = useSettings()
-  const catalogThreadId = codexThreadIdForActiveWindow(windows, activeWindowId, activeThreadId)
+  const catalogThreadId = codexThreadIdForActiveWindow(windows, activeWindowId)
   const catalog = useToolCatalog(catalogThreadId)
   const [expandedToolId, setExpandedToolId] = useState<ToolCatalogId | null>(null)
   const entries = useMemo(

@@ -1,32 +1,27 @@
 import type { CranberriAppState, PinnedCodexSessionRecord } from '@/shared/appState'
 import type { CodexSessionSummary } from '@/shared/codex'
 
-export function pinnedSessionRecords(state: CranberriAppState, repoPath: string): PinnedCodexSessionRecord[] {
-  const records = state.pinnedCodexSessionsByRepoPath[repoPath] ?? []
-  const recordIds = new Set(records.map((record) => record.id))
-  const legacyRecords = (state.pinnedCodexSessionIdsByRepoPath[repoPath] ?? [])
-    .filter((id) => !recordIds.has(id))
-    .map((id) => ({ id }))
-  return [...records, ...legacyRecords]
+export function pinnedSessionRecords(state: CranberriAppState, projectId: string): PinnedCodexSessionRecord[] {
+  return state.pinnedCodexSessionsByProjectId[projectId] ?? []
 }
 
-export function pinnedSessionIds(state: CranberriAppState, repoPath: string): string[] {
-  return pinnedSessionRecords(state, repoPath).map((record) => record.id)
+export function pinnedSessionIds(state: CranberriAppState, projectId: string): string[] {
+  return pinnedSessionRecords(state, projectId).map((record) => record.id)
 }
 
-export function togglePinnedSession(state: CranberriAppState, repoPath: string, session: CodexSessionSummary): CranberriAppState {
-  const records = pinnedSessionRecords(state, repoPath)
+export function togglePinnedSession(state: CranberriAppState, projectId: string, session: CodexSessionSummary): CranberriAppState {
+  const records = pinnedSessionRecords(state, projectId)
   const nextRecords = records.some((record) => record.id === session.id)
     ? records.filter((record) => record.id !== session.id)
     : [pinnedRecordFromSession(session), ...records]
-  return writePinnedSessionRecords(state, repoPath, nextRecords)
+  return writePinnedSessionRecords(state, projectId, nextRecords)
 }
 
-export function removePinnedSessions(state: CranberriAppState, repoPath: string, ids: string[]): CranberriAppState {
+export function removePinnedSessions(state: CranberriAppState, projectId: string, ids: string[]): CranberriAppState {
   if (ids.length === 0) return state
   const idSet = new Set(ids)
-  const nextRecords = pinnedSessionRecords(state, repoPath).filter((record) => !idSet.has(record.id))
-  return writePinnedSessionRecords(state, repoPath, nextRecords)
+  const nextRecords = pinnedSessionRecords(state, projectId).filter((record) => !idSet.has(record.id))
+  return writePinnedSessionRecords(state, projectId, nextRecords)
 }
 
 function pinnedRecordFromSession(session: CodexSessionSummary): PinnedCodexSessionRecord {
@@ -38,22 +33,18 @@ function pinnedRecordFromSession(session: CodexSessionSummary): PinnedCodexSessi
   }
 }
 
-function writePinnedSessionRecords(state: CranberriAppState, repoPath: string, records: PinnedCodexSessionRecord[]): CranberriAppState {
+function writePinnedSessionRecords(state: CranberriAppState, projectId: string, records: PinnedCodexSessionRecord[]): CranberriAppState {
   const uniqueRecords = records.filter((record, index) => records.findIndex((item) => item.id === record.id) === index)
-  const nextRecordMap = { ...state.pinnedCodexSessionsByRepoPath }
-  const nextIdMap = { ...state.pinnedCodexSessionIdsByRepoPath }
+  const nextRecordMap = { ...state.pinnedCodexSessionsByProjectId }
 
   if (uniqueRecords.length) {
-    nextRecordMap[repoPath] = uniqueRecords
-    nextIdMap[repoPath] = uniqueRecords.map((record) => record.id)
+    nextRecordMap[projectId] = uniqueRecords
   } else {
-    delete nextRecordMap[repoPath]
-    delete nextIdMap[repoPath]
+    delete nextRecordMap[projectId]
   }
 
   return {
     ...state,
-    pinnedCodexSessionsByRepoPath: nextRecordMap,
-    pinnedCodexSessionIdsByRepoPath: nextIdMap,
+    pinnedCodexSessionsByProjectId: nextRecordMap,
   }
 }

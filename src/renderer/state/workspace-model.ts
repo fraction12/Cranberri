@@ -1,6 +1,16 @@
 import type { RepoWorkspaceState, WorkspaceWindowState } from '../../shared/appState'
 import type { TaskExecutionContext } from './execution-context'
 
+export const BIND_WORKSPACE_WINDOW_THREAD_EVENT = 'cranberri:bind-workspace-window-thread'
+
+function nextBindingRevision(window: Pick<WorkspaceWindowState, 'bindingRevision'>): number {
+  const revision = window.bindingRevision ?? 0
+  if (!Number.isSafeInteger(revision) || revision < 0 || revision >= Number.MAX_SAFE_INTEGER) {
+    throw new Error('Cannot increment binding revision')
+  }
+  return revision + 1
+}
+
 export function renameWorkspaceWindow(
   windows: WorkspaceWindowState[],
   id: string,
@@ -23,6 +33,31 @@ export function createBoundWorkspaceWindow(
     projectId: context.projectId,
     taskId: context.taskId,
     checkoutId: context.checkoutId,
+    bindingRevision: 0,
+  }
+}
+
+export function bindWorkspaceWindowThread(
+  window: WorkspaceWindowState,
+  threadId: string,
+): WorkspaceWindowState {
+  return {
+    ...window,
+    threadId,
+    bindingRevision: nextBindingRevision(window),
+  }
+}
+
+export function rebindWorkspaceWindowExecutionContext(
+  window: WorkspaceWindowState,
+  context: TaskExecutionContext,
+): WorkspaceWindowState {
+  return {
+    ...window,
+    projectId: context.projectId,
+    taskId: context.taskId,
+    checkoutId: context.checkoutId,
+    bindingRevision: nextBindingRevision(window),
   }
 }
 
@@ -34,6 +69,14 @@ export function localProjectExecutionContext(project: { id: string; path: string
     worktreeId: null,
     checkoutPath: project.path,
   }
+}
+
+export function executionContextForNewToolWindow(
+  explicitContext: TaskExecutionContext | undefined,
+  activeContext: TaskExecutionContext | null,
+  localContext: TaskExecutionContext | null,
+): TaskExecutionContext | null {
+  return explicitContext ?? activeContext ?? localContext
 }
 
 export function repairStaleLocalWorkspaceBindings(
@@ -55,6 +98,7 @@ export function repairStaleLocalWorkspaceBindings(
         title: window.title === 'Local control' ? 'New local session' : window.title,
         taskId: null,
         sessionTarget: window.type === 'chat' ? 'local' as const : window.sessionTarget,
+        bindingRevision: nextBindingRevision(window),
       }
     })
     if (!workspaceChanged) return [projectId, workspace]
@@ -68,9 +112,9 @@ export function closeSessionChatWindows(
   workspace: RepoWorkspaceState,
   identity: { threadId: string; taskId?: string | null },
 ): RepoWorkspaceState {
-  const sessionWindowId = `session-${identity.threadId}`
   const shouldClose = (window: WorkspaceWindowState) => window.type === 'chat' && (
-    window.id === sessionWindowId
+    window.threadId === identity.threadId
+    || window.id === `session-${identity.threadId}`
     || Boolean(identity.taskId && window.taskId === identity.taskId)
   )
   const closingIds = new Set(workspace.windows.filter(shouldClose).map((window) => window.id))
@@ -90,9 +134,7 @@ export function closeSessionChatWindows(
 export function codexThreadIdForActiveWindow(
   windows: WorkspaceWindowState[],
   activeWindowId: string | null,
-  activeThreadId: string | null,
 ): string | null {
-  return windows.find((window) => window.id === activeWindowId)?.type === 'chat'
-    ? activeThreadId
-    : null
+  const activeWindow = windows.find((window) => window.id === activeWindowId)
+  return activeWindow?.type === 'chat' ? activeWindow.threadId ?? null : null
 }

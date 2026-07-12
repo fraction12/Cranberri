@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { bindWorkspaceWindowThread, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -30,16 +30,16 @@ describe('renameWorkspaceWindow', () => {
 
 describe('codexThreadIdForActiveWindow', () => {
   const windows: WorkspaceWindowState[] = [
-    { id: 'chat-1', type: 'chat', title: 'Chat' },
+    { id: 'chat-1', type: 'chat', title: 'Chat', threadId: 'persisted-thread' },
     { id: 'terminal-1', type: 'terminal', title: 'Terminal' },
     { id: 'browser-1', type: 'browser', title: 'Browser', browser: { url: 'about:blank', profileId: 'default' } },
   ]
 
-  it('scopes tool evidence to a thread only while a chat window is active', () => {
-    expect(codexThreadIdForActiveWindow(windows, 'chat-1', 'thread-1')).toBe('thread-1')
-    expect(codexThreadIdForActiveWindow(windows, 'terminal-1', 'thread-1')).toBeNull()
-    expect(codexThreadIdForActiveWindow(windows, 'browser-1', 'thread-1')).toBeNull()
-    expect(codexThreadIdForActiveWindow(windows, null, 'thread-1')).toBeNull()
+  it('reads the persisted chat binding and ignores any unrelated global thread', () => {
+    expect(codexThreadIdForActiveWindow(windows, 'chat-1')).toBe('persisted-thread')
+    expect(codexThreadIdForActiveWindow(windows, 'terminal-1')).toBeNull()
+    expect(codexThreadIdForActiveWindow(windows, 'browser-1')).toBeNull()
+    expect(codexThreadIdForActiveWindow(windows, null)).toBeNull()
   })
 })
 
@@ -61,6 +61,26 @@ describe('workspace execution identity', () => {
       },
     )
     expect(window).toMatchObject({ projectId: 'project', taskId: 'task', checkoutId: 'checkout' })
+    expect(window.bindingRevision).toBe(0)
+  })
+
+  it('persists a thread binding and increments the window revision on every rebind', () => {
+    const created = createBoundWorkspaceWindow(
+      { id: 'chat', type: 'chat', title: 'Chat' },
+      {
+        projectId: 'project',
+        taskId: null,
+        checkoutId: 'checkout',
+        worktreeId: null,
+        checkoutPath: '/repo',
+      },
+    )
+
+    const first = bindWorkspaceWindowThread(created, 'thread-1')
+    const rebound = bindWorkspaceWindowThread(first, 'thread-2')
+
+    expect(first).toMatchObject({ threadId: 'thread-1', bindingRevision: 1 })
+    expect(rebound).toMatchObject({ threadId: 'thread-2', bindingRevision: 2 })
   })
 
   it('creates an unbound local context for a new session', () => {
@@ -71,6 +91,19 @@ describe('workspace execution identity', () => {
       worktreeId: null,
       checkoutPath: '/repo',
     })
+  })
+
+  it('uses the active window checkout for new terminal and browser tools', () => {
+    const local = localProjectExecutionContext({ id: 'project', path: '/repo', localCheckoutId: 'local' })
+    const active = {
+      projectId: 'project',
+      taskId: 'task',
+      checkoutId: 'worktree',
+      worktreeId: 'worktree',
+      checkoutPath: '/worktrees/task',
+    }
+
+    expect(executionContextForNewToolWindow(undefined, active, local)).toBe(active)
   })
 
   it('repairs deleted Local control bindings without touching managed or valid tasks', () => {
@@ -105,7 +138,7 @@ describe('closeSessionChatWindows', () => {
       windows: [
         { id: 'before', type: 'browser' as const, title: 'Browser' },
         { id: 'task-chat', type: 'chat' as const, title: 'Task chat', taskId: 'task-1' },
-        { id: 'session-thread-1', type: 'chat' as const, title: 'Restored chat' },
+        { id: 'restored-chat', type: 'chat' as const, title: 'Restored chat', threadId: 'thread-1' },
         { id: 'task-terminal', type: 'terminal' as const, title: 'Terminal', taskId: 'task-1' },
         { id: 'after', type: 'chat' as const, title: 'Another chat', taskId: 'task-2' },
       ],

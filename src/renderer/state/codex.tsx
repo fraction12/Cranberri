@@ -22,6 +22,7 @@ import {
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
 import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
 import type { Task } from '@/shared/tasks'
+import { BIND_WORKSPACE_WINDOW_THREAD_EVENT } from './workspace-model'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
@@ -112,6 +113,12 @@ function logRendererTelemetry(type: string, payload: unknown): void {
   window.cranberri.telemetry.log('renderer', type, payload).catch((err) => {
     console.warn('Failed to write telemetry:', err)
   })
+}
+
+function publishWindowThreadBinding(windowId: string, threadId: string, projectId: string): void {
+  window.dispatchEvent(new CustomEvent(BIND_WORKSPACE_WINDOW_THREAD_EVENT, {
+    detail: { windowId, threadId, projectId },
+  }))
 }
 
 export function CodexProvider({ children }: { children: React.ReactNode }) {
@@ -416,8 +423,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (closedThreadId) clearToolActivityEvents(closedThreadId)
     setWindowToThread((prev) => {
       if (!prev[windowId]) return prev
-      const { [windowId]: closedThreadId, ...next } = prev
-      setActiveThreadId((current) => current === closedThreadId ? (Object.values(next)[0] ?? null) : current)
+      const { [windowId]: removedThreadId, ...next } = prev
+      void removedThreadId
       return next
     })
   }, [windowToThread])
@@ -458,8 +465,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       workers: [],
     }
     setThreads((prev) => [...prev, thread])
-    setActiveThreadId(threadId)
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
+    publishWindowThreadBinding(windowId, threadId, activeRepo.id)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: activeRepo.path, threadId } }))
     if (initialContent) {
       try {
@@ -706,8 +713,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     }
     setWorkersByParent((current) => hydrateSessionWorkerGraph(current, thread, hydrated.workers ?? []))
     setThreads((prev) => [...prev.filter((item) => item.id !== hydrated.id), hydrated])
-    setActiveThreadId(hydrated.id)
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
+    publishWindowThreadBinding(windowId, hydrated.id, repo.id)
     return hydrated
   }, [activeRepo])
 
@@ -716,6 +723,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const existing = threadsRef.current.find((thread) => thread.id === threadId && thread.repoId === activeRepo.id)
     if (existing) {
       setWindowToThread((prev) => ({ ...prev, [windowId]: existing.id }))
+      publishWindowThreadBinding(windowId, existing.id, activeRepo.id)
       return existing
     }
 
@@ -735,6 +743,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWorkersByParent((current) => hydrateSessionWorkerGraph(current, restored, hydrated.workers ?? []))
     setThreads((prev) => [...prev.filter((thread) => thread.id !== hydrated.id), hydrated])
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
+    publishWindowThreadBinding(windowId, hydrated.id, activeRepo.id)
     return hydrated
   }, [activeRepo])
 
@@ -772,8 +781,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const nextThreads = [...threadsRef.current.filter((candidate) => candidate.id !== hydrated.id), hydrated]
     threadsRef.current = nextThreads
     setThreads(nextThreads)
-    setActiveThreadId(hydrated.id)
     setWindowToThread((current) => ({ ...current, [windowId]: hydrated.id }))
+    publishWindowThreadBinding(windowId, hydrated.id, task.projectId)
     return hydrated
   }, [])
 

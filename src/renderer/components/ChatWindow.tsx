@@ -124,7 +124,6 @@ export function ChatWindow({ id }: { id: string }) {
     abort,
     messageWorker,
     restoreSessionWindow,
-    switchThread,
     bindTaskWindow,
     markThreadSendFailed,
   } = useCodexActions()
@@ -133,10 +132,12 @@ export function ChatWindow({ id }: { id: string }) {
   const { settings } = useSettings()
   const tasks = useOptionalTasks()
   const { activeProject } = useRepos()
-  const { windows, activeWindowId, renameWindow, bindWindowToTask, openTerminal } = useWorkspace()
-  const threadId = getThreadForWindow(id)
-  const thread = threadId ? getThread(threadId) : undefined
+  const { windows, renameWindow, bindWindowToTask, openTerminal } = useWorkspace()
   const workspaceWindow = windows.find((window) => window.id === id)
+  const mappedThreadId = getThreadForWindow(id)
+  const persistedThreadId = workspaceWindow?.threadId ?? sessionThreadIdFromWindowId(id)
+  const threadId = persistedThreadId ?? mappedThreadId
+  const thread = threadId ? getThread(threadId) : undefined
   const boundTaskId = workspaceWindow?.taskId ?? null
   const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
   const taskProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
@@ -234,8 +235,7 @@ export function ChatWindow({ id }: { id: string }) {
   useEffect(() => { void loadTaskTargets(false) }, [loadTaskTargets])
 
   useEffect(() => {
-    const persistedThreadId = sessionThreadIdFromWindowId(id)
-    if (threadId || !persistedThreadId || restoredSessionRef.current === persistedThreadId) return
+    if (mappedThreadId || !persistedThreadId || restoredSessionRef.current === persistedThreadId) return
     restoredSessionRef.current = persistedThreadId
     let cancelled = false
 
@@ -251,11 +251,7 @@ export function ChatWindow({ id }: { id: string }) {
     return () => {
       cancelled = true
     }
-  }, [id, renameWindow, restoreSessionWindow, threadId])
-
-  useEffect(() => {
-    if (activeWindowId === id) switchThread(threadId ?? null)
-  }, [activeWindowId, id, switchThread, threadId])
+  }, [id, mappedThreadId, persistedThreadId, renameWindow, restoreSessionWindow])
 
   const scrollTranscriptToBottom = useCallback(() => {
     const container = scrollContainerRef.current

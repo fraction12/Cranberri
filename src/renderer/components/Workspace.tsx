@@ -25,6 +25,7 @@ import { cn, iconButton } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 import { useOptionalTasks } from '../state/tasks'
+import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, codexThreadIdForActiveWindow } from '../state/workspace-model'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -33,14 +34,36 @@ interface WorkspaceProps {
 }
 
 export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
-  const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask } = useWorkspace()
+  const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask, bindWindowToThread } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
-  const { openSession, closeThreadWindow } = useCodexActions()
+  const { openSession, closeThreadWindow, switchThread } = useCodexActions()
   const { getThreadForWindow } = useCodexWindows()
   const tasksApi = useOptionalTasks()
   const [terminalCloseTarget, setTerminalCloseTarget] = useState<{ windowId: string; termId: string } | null>(null)
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const tabStripRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onBindWindowThread = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        windowId?: unknown
+        threadId?: unknown
+        projectId?: unknown
+      } | undefined
+      if (
+        typeof detail?.windowId !== 'string'
+        || typeof detail.threadId !== 'string'
+        || (detail.projectId !== undefined && typeof detail.projectId !== 'string')
+      ) return
+      bindWindowToThread(detail.windowId, detail.threadId, detail.projectId)
+    }
+    window.addEventListener(BIND_WORKSPACE_WINDOW_THREAD_EVENT, onBindWindowThread)
+    return () => window.removeEventListener(BIND_WORKSPACE_WINDOW_THREAD_EVENT, onBindWindowThread)
+  }, [bindWindowToThread])
+
+  useEffect(() => {
+    switchThread(codexThreadIdForActiveWindow(windows, activeWindowId))
+  }, [activeWindowId, switchThread, windows])
 
   const syncTabOverflow = useCallback(() => {
     const strip = tabStripRef.current
@@ -104,7 +127,9 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         } : undefined
         return { task, context }
       }
-      const existingWindow = windows.find((item) => item.type === 'chat' && getThreadForWindow(item.id) === session.id)
+      const existingWindow = windows.find((item) => item.type === 'chat' && (
+        item.threadId === session.id || (!item.threadId && getThreadForWindow(item.id) === session.id)
+      ))
       if (existingWindow) {
         setActiveWindow(existingWindow.id)
         if (targetRepo && targetRepo.id !== activeRepoId) void setActiveRepo(targetRepo.id)
@@ -126,6 +151,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         const { task, context } = await adoptSessionTask()
         const thread = await openSession(windowId, session, archived, targetRepo ?? undefined)
         openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId, context, task?.location)
+        bindWindowToThread(windowId, thread.id, targetRepo?.id ?? activeRepoId)
         if (context) bindWindowToTask(windowId, context)
         await tasksApi?.refresh()
         if (targetRepo && targetRepo.id !== activeRepoId) return setActiveRepo(targetRepo.id)
@@ -135,7 +161,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
     }
     window.addEventListener('cranberri:open-codex-session', onOpenSession)
     return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
-  }, [activeRepoId, bindWindowToTask, getThreadForWindow, openChat, openSession, repos, setActiveRepo, setActiveWindow, tasksApi, windows])
+  }, [activeRepoId, bindWindowToTask, bindWindowToThread, getThreadForWindow, openChat, openSession, repos, setActiveRepo, setActiveWindow, tasksApi, windows])
 
   useEffect(() => {
     const onOpenProcessTerminal = (event: Event) => {

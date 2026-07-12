@@ -13,6 +13,8 @@ export interface WorkspaceWindowState {
   id: string
   type: WorkspaceWindowType
   title: string
+  threadId?: string
+  bindingRevision?: number
   browser?: BrowserWindowState
   projectId?: string
   taskId?: string | null
@@ -33,23 +35,15 @@ export interface PinnedCodexSessionRecord {
 }
 
 export interface CranberriAppState {
-  version: 2
+  version: 3
   expandedProjectIds: Record<string, boolean>
   workspacesByProjectId: Record<string, RepoWorkspaceState>
   pinnedCodexSessionsByProjectId: Record<string, PinnedCodexSessionRecord[]>
-  expandedRepoIds: Record<string, boolean>
-  workspacesByRepoId: Record<string, RepoWorkspaceState>
-  pinnedCodexSessionIdsByRepoPath: Record<string, string[]>
-  pinnedCodexSessionsByRepoPath: Record<string, PinnedCodexSessionRecord[]>
 }
 
 export const DEFAULT_APP_STATE: CranberriAppState = {
-  version: 2,
+  version: 3,
   expandedProjectIds: {},
   workspacesByProjectId: {},
   pinnedCodexSessionsByProjectId: {},
-  expandedRepoIds: {},
-  workspacesByRepoId: {},
-  pinnedCodexSessionIdsByRepoPath: {},
-  pinnedCodexSessionsByRepoPath: {},
 }

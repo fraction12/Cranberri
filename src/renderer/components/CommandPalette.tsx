@@ -206,10 +206,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     })
   }, [])
   const pinnedRecords = useMemo(() => (
-    activeRepo ? pinnedSessionRecords(appState, activeRepo.path) : []
+    activeRepo ? pinnedSessionRecords(appState, activeRepo.id) : []
   ), [activeRepo, appState])
   const pinnedSessionIds = useMemo(() => (
-    activeRepo ? pinnedIdsFromState(appState, activeRepo.path) : []
+    activeRepo ? pinnedIdsFromState(appState, activeRepo.id) : []
   ), [activeRepo, appState])
   const pinnedSessionCacheKey = useMemo(() => (
     pinnedRecords.map((record) => `${record.id}:${record.archived ? 'archived' : 'recent'}`).join('|')
@@ -977,7 +977,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       danger: true,
       onConfirm: async () => {
         await deleteSession(threadId)
-        if (activeRepo) updateAppState((current) => removePinnedSessions(current, activeRepo.path, [threadId]))
+        if (activeRepo) updateAppState((current) => removePinnedSessions(current, activeRepo.id, [threadId]))
       },
     })
     setConfirmationError(null)
@@ -986,7 +986,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   const toggleSessionPinnedFromCommand = useCallback((session: CodexSessionSummary) => {
     if (!activeRepo) throw new Error('Select a repo first')
-    updateAppState((current) => togglePinnedSession(current, activeRepo.path, session))
+    updateAppState((current) => togglePinnedSession(current, activeRepo.id, session))
   }, [activeRepo, updateAppState])
 
   const refreshPluginQueries = useCallback(async () => {

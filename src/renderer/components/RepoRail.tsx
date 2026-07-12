@@ -155,7 +155,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const dialogReturnFocusRef = useRef<HTMLButtonElement | null>(null)
-  const pinnedRecords = useMemo(() => pinnedSessionRecords(appState, repoPath), [appState, repoPath])
+  const pinnedRecords = useMemo(() => pinnedSessionRecords(appState, projectId), [appState, projectId])
   const pinnedIds = useMemo(() => pinnedRecords.map((record) => record.id), [pinnedRecords])
   const pinnedIdSet = new Set(pinnedIds)
   const pinnedSessions = pinnedIds
@@ -183,8 +183,8 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   }, [])
 
   const removePinnedIds = useCallback((ids: string[]) => {
-    updateAppState((current) => removePinnedSessions(current, repoPath, ids))
-  }, [repoPath, updateAppState])
+    updateAppState((current) => removePinnedSessions(current, projectId, ids))
+  }, [projectId, updateAppState])
 
   const taskForSession = useCallback(async (threadId: string) => {
     const cached = tasksApi?.tasks.find((candidate) => candidate.threadId === threadId)
@@ -336,7 +336,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   }
 
   const togglePinned = (session: CodexSessionSummary) => {
-    updateAppState((current) => togglePinnedSession(current, repoPath, session))
+    updateAppState((current) => togglePinnedSession(current, projectId, session))
   }
 
   const submitRename = async () => {
@@ -624,7 +624,7 @@ export function RepoRail() {
   const tasksApi = useOptionalTasks()
   const { openChat, bindWindowToTask, closeSessionWindows } = useWorkspace()
   const { bindTaskWindow } = useCodexActions()
-  const expandedRepoIds = appState.expandedRepoIds
+  const expandedProjectIds = appState.expandedProjectIds
   const [removeRepoTarget, setRemoveRepoTarget] = useState<{ id: string; name: string } | null>(null)
   const [removingRepo, setRemovingRepo] = useState(false)
   const [removeRepoError, setRemoveRepoError] = useState<string | null>(null)
@@ -643,7 +643,7 @@ export function RepoRail() {
   const toggleRepoSessions = (repoId: string) => {
     updateAppState((current) => ({
       ...current,
-      expandedRepoIds: { ...current.expandedRepoIds, [repoId]: !current.expandedRepoIds[repoId] },
+      expandedProjectIds: { ...current.expandedProjectIds, [repoId]: !current.expandedProjectIds[repoId] },
     }))
   }
 
@@ -781,14 +781,14 @@ export function RepoRail() {
                   toggleRepoSessions(repo.id)
                 }}
                 className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-app-text-subtle hover:bg-app-border/70 hover:text-app-text"
-                title={expandedRepoIds[repo.id] ? 'Collapse sessions' : 'Expand sessions'}
-                aria-label={`${expandedRepoIds[repo.id] ? 'Collapse' : 'Expand'} sessions for ${repo.name}`}
+                title={expandedProjectIds[repo.id] ? 'Collapse sessions' : 'Expand sessions'}
+                aria-label={`${expandedProjectIds[repo.id] ? 'Collapse' : 'Expand'} sessions for ${repo.name}`}
               >
-                <ChevronRight className={`w-3 h-3 transition-transform ${expandedRepoIds[repo.id] ? 'rotate-90' : ''}`} />
+                <ChevronRight className={`w-3 h-3 transition-transform ${expandedProjectIds[repo.id] ? 'rotate-90' : ''}`} />
               </button>
             </div>
-            {expandedRepoIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} closeSessionWindows={closeSessionWindows} />}
-            {expandedRepoIds[repo.id] && tasksApi && (
+            {expandedProjectIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} closeSessionWindows={closeSessionWindows} />}
+            {expandedProjectIds[repo.id] && tasksApi && (
               <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id && !task.threadId && task.role !== 'control')} onOpen={(taskId) => { void openTask(taskId) }} />
             )}
           </div>
