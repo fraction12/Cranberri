@@ -42,10 +42,11 @@ declare global {
         write: (state: CranberriAppState) => Promise<CranberriAppState>
       }
       repos: {
-        list: () => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
-        add: (path: string) => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
-        remove: (id: string) => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
-        setActive: (id: string) => Promise<{ repos: Array<{ id: string; name: string; path: string }>; activeRepoId: string | null }>
+        list: () => Promise<import('@/shared/projects').ProjectRegistryView>
+        add: (path: string) => Promise<import('@/shared/projects').ProjectRegistryView>
+        remove: (id: string) => Promise<import('@/shared/projects').ProjectRegistryView>
+        setActive: (id: string) => Promise<import('@/shared/projects').ProjectRegistryView>
+        setPinnedBranch: (projectId: string, branch: string) => Promise<import('@/shared/projects').ProjectRegistryView>
         pickDirectory: () => Promise<string | null>
       }
       git: {

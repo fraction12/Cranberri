@@ -17,6 +17,7 @@ import { mergeHydratedPinnedSessions, shouldAutoLoadRepoSessions } from './repo-
 import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import { NewSessionMenu } from './chat/NewSessionMenu'
+import { RepoPinnedBranchMenu } from './RepoPinnedBranchMenu'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
 
@@ -618,7 +619,7 @@ function LeftRailFooter() {
 }
 
 export function RepoRail() {
-  const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo } = useRepos()
+  const { repos, activeRepoId, addRepo, removeRepo, setActiveRepo, setPinnedBranch } = useRepos()
   const { state: appState, updateAppState } = useAppState()
   const tasksApi = useOptionalTasks()
   const { openChat, bindWindowToTask, closeSessionWindows } = useWorkspace()
@@ -760,7 +761,8 @@ export function RepoRail() {
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className={cn(menuSurface, 'z-[1400] w-44')}>
+                  <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className={cn(menuSurface, 'z-[1400] w-60')}>
+                    <RepoPinnedBranchMenu projectId={repo.id} repoPath={repo.path} pinnedBranch={repo.pinnedLocalBranch} onPin={(branch) => setPinnedBranch(repo.id, branch)} />
                     <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => {
                       afterMenuCloses(() => {
                         setRemoveRepoTarget({ id: repo.id, name: repo.name })

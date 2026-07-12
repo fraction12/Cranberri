@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const electron = vi.hoisted(() => ({ userDataPath: '' }))
 vi.mock('electron', () => ({ app: { getPath: () => electron.userDataPath }, dialog: { showOpenDialog: vi.fn() }, ipcMain: { handle: vi.fn() } }))
-import { readProjectRegistry } from './repos'
+import { readProjectRegistry, setPinnedLocalBranch } from './repos'
 
 const tempDirs: string[] = []
 function git(cwd: string, ...args: string[]): string { return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim() }
@@ -36,5 +36,27 @@ describe('project registry migration', () => {
   it('fails closed and preserves corrupt source bytes', () => {
     const target = path.join(electron.userDataPath, 'repos.json'); const bytes = '{ definitely not json'; fs.writeFileSync(target, bytes)
     expect(() => readProjectRegistry()).toThrow(/project registry/i); expect(fs.readFileSync(target, 'utf8')).toBe(bytes)
+  })
+})
+
+describe('pinned local branch', () => {
+  it('persists an existing local branch and rejects an unknown branch', () => {
+    const repoPath = path.join(electron.userDataPath, 'repo')
+    fs.mkdirSync(repoPath)
+    git(repoPath, 'init', '-b', 'main')
+    fs.writeFileSync(path.join(repoPath, 'file.txt'), 'one')
+    git(repoPath, 'add', '.')
+    git(repoPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'init')
+    git(repoPath, 'branch', 'release')
+    fs.writeFileSync(path.join(electron.userDataPath, 'repos.json'), JSON.stringify({
+      repos: [{ id: 'project', name: 'Cranberri', path: repoPath }],
+      activeRepoId: 'project',
+    }))
+    readProjectRegistry()
+
+    expect(setPinnedLocalBranch({ projectId: 'project', branch: 'release' }).projects[0].pinnedLocalBranch).toBe('release')
+    expect(readProjectRegistry().projects[0].pinnedLocalBranch).toBe('release')
+    expect(() => setPinnedLocalBranch({ projectId: 'project', branch: 'missing' })).toThrow('Local branch not found')
+    expect(readProjectRegistry().projects[0].pinnedLocalBranch).toBe('release')
   })
 })

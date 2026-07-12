@@ -5,10 +5,12 @@ import path from 'node:path'
 import { z } from 'zod'
 import {
   projectRegistrySchema,
+  setPinnedLocalBranchRequestSchema,
   type Checkout,
   type Project,
   type ProjectRegistry,
   type ProjectRegistryView,
+  type SetPinnedLocalBranchRequest,
 } from '../shared/projects'
 
 const legacyReposSchema = z.object({
@@ -171,6 +173,34 @@ export function projectRegistryView(registry: ProjectRegistry): ProjectRegistryV
   }
 }
 
+export function setPinnedLocalBranch(request: SetPinnedLocalBranchRequest): ProjectRegistryView {
+  const parsed = setPinnedLocalBranchRequestSchema.parse(request)
+  const state = readProjectRegistry()
+  const project = state.projects.find((candidate) => candidate.id === parsed.projectId)
+  if (!project) throw new Error('Project not found')
+  const checkout = state.checkouts.find((candidate) => candidate.id === project.localCheckoutId)
+  if (!checkout?.available) throw new Error('Local checkout unavailable')
+
+  try {
+    execFileSync('git', ['check-ref-format', '--branch', parsed.branch], { cwd: checkout.canonicalPath, stdio: 'ignore' })
+  } catch {
+    throw new Error(`Invalid local branch: ${parsed.branch}`)
+  }
+  try {
+    execFileSync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${parsed.branch}`], { cwd: checkout.canonicalPath, stdio: 'ignore' })
+  } catch {
+    throw new Error(`Local branch not found: ${parsed.branch}`)
+  }
+
+  if (project.pinnedLocalBranch === parsed.branch) return projectRegistryView(state)
+  return projectRegistryView(writeProjectRegistry({
+    ...state,
+    projects: state.projects.map((candidate) => candidate.id === project.id
+      ? { ...candidate, pinnedLocalBranch: parsed.branch }
+      : candidate),
+  }))
+}
+
 export function getRegisteredRepoPaths(): string[] {
   return readProjectRegistry()
     .checkouts.filter((checkout) => checkout.available)
@@ -244,6 +274,10 @@ export function initRepoIpc(): void {
       throw new Error('Project not found')
     }
     return projectRegistryView(writeProjectRegistry({ ...state, activeProjectId: id }))
+  })
+
+  ipcMain.handle('repos:set-pinned-branch', (_, raw: unknown) => {
+    return setPinnedLocalBranch(setPinnedLocalBranchRequestSchema.parse(raw))
   })
 
   ipcMain.handle('repos:pick-directory', async () => {

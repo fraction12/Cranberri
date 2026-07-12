@@ -24,6 +24,7 @@ const api = {
     add: (path: string) => ipcRenderer.invoke('repos:add', path),
     remove: (id: string) => ipcRenderer.invoke('repos:remove', id),
     setActive: (id: string) => ipcRenderer.invoke('repos:set-active', id),
+    setPinnedBranch: (projectId: string, branch: string): Promise<import('@/shared/projects').ProjectRegistryView> => ipcRenderer.invoke('repos:set-pinned-branch', { projectId, branch }),
     pickDirectory: () => ipcRenderer.invoke('repos:pick-directory'),
   },
   git: {

@@ -5,6 +5,7 @@ export interface Project {
   name: string
   path: string
   localCheckoutId?: string
+  pinnedLocalBranch?: string | null
 }
 
 /** Compatibility alias while repo-oriented UI migrates to project language. */
@@ -23,6 +24,7 @@ interface ReposApi extends ReposState {
   addRepo: () => Promise<void>
   removeRepo: (id: string) => Promise<void>
   setActiveRepo: (id: string) => Promise<void>
+  setPinnedBranch: (id: string, branch: string) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -67,12 +69,18 @@ export function ReposProvider({ children }: { children: React.ReactNode }) {
     await refresh()
   }
 
+  const setPinnedBranch = async (id: string, branch: string) => {
+    await window.cranberri.repos.setPinnedBranch(id, branch)
+    window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
+    await refresh()
+  }
+
   useEffect(() => {
     refresh()
   }, [])
 
   return (
-    <ReposContext.Provider value={{ ...state, addRepo, removeRepo, setActiveRepo, refresh }}>
+    <ReposContext.Provider value={{ ...state, addRepo, removeRepo, setActiveRepo, setPinnedBranch, refresh }}>
       {children}
     </ReposContext.Provider>
   )

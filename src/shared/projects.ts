@@ -28,9 +28,15 @@ export const projectRegistrySchema = z.object({
   activeProjectId: z.string().nullable(),
 })
 
+export const setPinnedLocalBranchRequestSchema = z.object({
+  projectId: z.string().min(1),
+  branch: z.string().trim().min(1).max(255),
+}).strict()
+
 export type Checkout = z.infer<typeof checkoutSchema>
 export type Project = z.infer<typeof projectSchema>
 export type ProjectRegistry = z.infer<typeof projectRegistrySchema>
+export type SetPinnedLocalBranchRequest = z.infer<typeof setPinnedLocalBranchRequestSchema>
 
 export interface ProjectWithLocalCheckout extends Project {
   path: string
