@@ -938,7 +938,6 @@ export function ChatWindow({ id }: { id: string }) {
         baseRef={baseRef}
         branches={branchOptions}
         environments={environmentOptions}
-        defaultEnvironmentId={taskProject.defaultEnvironmentId}
         environmentId={environmentId}
         loading={loadingTargets}
         partialFallback={partialRefFallback}

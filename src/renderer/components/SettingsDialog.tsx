@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Activity, Command, Download, FileText, GitBranch, Keyboard, Loader2, PackageOpen, Palette, PlugZap, Wrench, X } from 'lucide-react'
+import { Activity, AlertTriangle, Command, Download, FileText, GitBranch, Keyboard, Loader2, PackageOpen, Palette, PlugZap, RotateCcw, Wrench, X } from 'lucide-react'
 import { useSettings } from '../state/settings'
 import { useUpdate } from '../state/update'
 import { cn, dialogSurface, iconButton } from '../lib/ui'
@@ -41,7 +41,7 @@ const TABS: Array<{ value: SettingsTabValue; label: string; icon: React.ElementT
 ]
 
 export function SettingsDialog({ open, onClose, initialTab = 'general' }: SettingsDialogProps) {
-  const { settings, loading, updateSection } = useSettings()
+  const { settings, loading, status, error, retry, updateSection } = useSettings()
   const update = useUpdate()
   const [activeTab, setActiveTab] = useState<SettingsTabValue>(initialTab)
   const [version, setVersion] = useState('...')
@@ -89,6 +89,24 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                 <div className={cn('flex items-center gap-2', typeStyle({ role: 'status', tone: 'secondary' }))}>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading settings
+                </div>
+              ) : status === 'error' ? (
+                <div role="alert" className="flex max-w-md items-start gap-3 rounded-md bg-app-status-warning/10 px-3 py-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-app-status-warning" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className={typeStyle({ role: 'status', tone: 'warning' })}>Settings unavailable</div>
+                    <div className={cn('mt-1', typeStyle({ role: 'metadata', tone: 'secondary' }))}>
+                      {error ?? 'Cranberri could not safely load your settings.'}
+                    </div>
+                    <button
+                      type="button"
+                      className={cn('mt-3 inline-flex items-center gap-1.5 rounded-md bg-app-surface-2 px-2.5 py-1.5 hover:bg-app-surface-3', typeStyle({ role: 'control' }))}
+                      onClick={() => { void retry() }}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Retry
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <SettingsContent

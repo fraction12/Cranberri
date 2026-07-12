@@ -7,13 +7,12 @@ import { EnvironmentSelector } from './EnvironmentSelector'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 
-export function DraftSessionHeader({ target, pinnedBranch, baseRef, branches, environments, defaultEnvironmentId, environmentId, loading, partialFallback, includeLocalChanges, onBaseRefChange, onEnvironmentChange, onIncludeLocalChanges, onRetry }: {
+export function DraftSessionHeader({ target, pinnedBranch, baseRef, branches, environments, environmentId, loading, partialFallback, includeLocalChanges, onBaseRefChange, onEnvironmentChange, onIncludeLocalChanges, onRetry }: {
   target: SessionExecutionTarget
   pinnedBranch?: string | null
   baseRef: string
   branches: readonly BranchOption[]
   environments: readonly EnvironmentRecord[]
-  defaultEnvironmentId?: string | null
   environmentId: string | null
   loading?: boolean
   partialFallback?: boolean
@@ -30,6 +29,6 @@ export function DraftSessionHeader({ target, pinnedBranch, baseRef, branches, en
     <TreePine className="mr-1 h-3.5 w-3.5 text-app-text-muted" />
     <span className={cn('mr-1', typeStyle({ role: 'control', tone: 'secondary' }))}>New worktree</span>
     <BranchSelector value={baseRef} options={branches} loading={loading} partialFallback={partialFallback} includeLocalEligible={baseRef === `refs/heads/${pinnedBranch}`} includeLocalChanges={includeLocalChanges} side="bottom" onIncludeLocalChanges={onIncludeLocalChanges} onRetry={onRetry} onChange={onBaseRefChange} />
-    <EnvironmentSelector value={environmentId} options={environments.map((record) => ({ id: record.manifest.environmentId, name: record.manifest.name, trusted: record.manifest.trustedRevision === record.manifest.currentRevision }))} defaultId={defaultEnvironmentId} side="bottom" onChange={onEnvironmentChange} />
+    <EnvironmentSelector value={environmentId} options={environments.map((record) => ({ id: record.manifest.environmentId, name: record.manifest.name, trusted: record.manifest.trustedRevision === record.manifest.currentRevision }))} side="bottom" onChange={onEnvironmentChange} />
   </header>
 }

@@ -3,6 +3,18 @@ import { DEFAULT_APP_SETTINGS, type AppSettings } from '../../shared/settings'
 import { SettingsWriteQueue } from './settings-write-queue'
 
 describe('SettingsWriteQueue', () => {
+  it('rejects writes until the persisted snapshot has loaded', async () => {
+    const persist = vi.fn(async (settings: AppSettings) => settings)
+    const queue = new SettingsWriteQueue(DEFAULT_APP_SETTINGS, persist, vi.fn(), false)
+
+    await expect(queue.enqueue((current) => current)).rejects.toThrow('Settings must load')
+    expect(persist).not.toHaveBeenCalled()
+
+    queue.replace(DEFAULT_APP_SETTINGS)
+    await queue.enqueue((current) => current)
+    expect(persist).toHaveBeenCalledOnce()
+  })
+
   it('serializes rapid updates against the latest saved settings', async () => {
     const writes: AppSettings[] = []
     const persist = vi.fn(async (settings: AppSettings) => {

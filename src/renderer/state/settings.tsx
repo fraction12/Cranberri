@@ -7,6 +7,9 @@ import { SettingsWriteQueue } from './settings-write-queue'
 interface SettingsApi {
   settings: AppSettings
   loading: boolean
+  status: 'loading' | 'ready' | 'error'
+  error: string | null
+  retry: () => Promise<void>
   update: (next: Partial<AppSettings>) => Promise<void>
   updateSection: <Section extends keyof AppSettings>(
     section: Section,
@@ -28,7 +31,9 @@ function currentSystemAppearance(): { dark: boolean; reducedMotion: boolean } {
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
-  const [loading, setLoading] = useState(true)
+  const [status, setStatus] = useState<SettingsApi['status']>('loading')
+  const [error, setError] = useState<string | null>(null)
+  const statusRef = useRef<SettingsApi['status']>('loading')
   const [systemAppearance, setSystemAppearance] = useState(currentSystemAppearance)
   const writeQueueRef = useRef<SettingsWriteQueue | null>(null)
   if (!writeQueueRef.current) {
@@ -36,18 +41,30 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       DEFAULT_APP_SETTINGS,
       async (next) => (await window.cranberri.settings.set(next)).settings,
       setSettings,
+      false,
     )
   }
 
-  useEffect(() => {
-    window.cranberri.settings.get()
-      .then(({ settings: data }) => {
-        writeQueueRef.current?.replace(data)
-        setSettings(data)
-      })
-      .catch((err) => console.error('Failed to load settings:', err))
-      .finally(() => setLoading(false))
+  const loadSettings = useCallback(async () => {
+    statusRef.current = 'loading'
+    setStatus('loading')
+    setError(null)
+    try {
+      const { settings: data } = await window.cranberri.settings.get()
+      writeQueueRef.current?.replace(data)
+      setSettings(data)
+      statusRef.current = 'ready'
+      setStatus('ready')
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : 'Settings could not be loaded'
+      console.error('Failed to load settings:', loadError)
+      statusRef.current = 'error'
+      setStatus('error')
+      setError(message)
+    }
   }, [])
+
+  useEffect(() => { void loadSettings() }, [loadSettings])
 
   useEffect(() => {
     const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -74,6 +91,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, [appearance, settings])
 
   const update = useCallback(async (next: Partial<AppSettings>) => {
+    if (statusRef.current !== 'ready') throw new Error('Settings are unavailable. Retry loading before making changes.')
     await writeQueueRef.current?.enqueue((current) => ({ ...current, ...next }))
   }, [])
 
@@ -81,6 +99,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     section: Section,
     update: Partial<AppSettings[Section]> | ((current: AppSettings[Section]) => Partial<AppSettings[Section]>),
   ) => {
+    if (statusRef.current !== 'ready') throw new Error('Settings are unavailable. Retry loading before making changes.')
     await writeQueueRef.current?.enqueue((current) => {
       const values = typeof update === 'function' ? update(current[section]) : update
       return {
@@ -91,7 +110,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <SettingsContext.Provider value={{ settings, loading, update, updateSection }}>
+    <SettingsContext.Provider value={{
+      settings,
+      loading: status === 'loading',
+      status,
+      error,
+      retry: loadSettings,
+      update,
+      updateSection,
+    }}>
       <AppearanceProvider value={appearance}>
         {children}
       </AppearanceProvider>
