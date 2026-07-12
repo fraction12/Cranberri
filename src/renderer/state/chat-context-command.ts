@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import type { CodexUserInput } from '@/shared/codex'
+import type { WorkspaceWindowState } from '@/shared/appState'
 
 export interface ChatContextPayload {
   text: string
@@ -11,6 +12,45 @@ export interface SendChatContextAcknowledgment {
   windowId: string
 }
 
+export interface ChatContextDeliveryOptions {
+  targetWindowId?: string
+  isCurrent?: () => boolean
+}
+
+export interface ChatContextExecutionBinding {
+  windowId: string
+  projectId: string | null
+  taskId: string | null
+  checkoutId: string | null
+  threadId: string | null
+  bindingRevision: number
+}
+
+export function captureChatContextExecutionBinding(window: WorkspaceWindowState): ChatContextExecutionBinding {
+  return {
+    windowId: window.id,
+    projectId: window.projectId ?? null,
+    taskId: window.taskId ?? null,
+    checkoutId: window.checkoutId ?? null,
+    threadId: window.threadId ?? null,
+    bindingRevision: window.bindingRevision ?? 0,
+  }
+}
+
+export function isChatContextExecutionBindingCurrent(
+  binding: ChatContextExecutionBinding,
+  windows: ReadonlyArray<WorkspaceWindowState>,
+): boolean {
+  const current = windows.find((window) => window.id === binding.windowId)
+  if (!current) return false
+  const currentBinding = captureChatContextExecutionBinding(current)
+  return currentBinding.projectId === binding.projectId
+    && currentBinding.taskId === binding.taskId
+    && currentBinding.checkoutId === binding.checkoutId
+    && currentBinding.threadId === binding.threadId
+    && currentBinding.bindingRevision === binding.bindingRevision
+}
+
 export type ChatContextWorkspaceHandler = (payload: ChatContextPayload) => string | Promise<string>
 export type ChatContextTargetHandler = (payload: ChatContextPayload) => void | Promise<void>
 
@@ -19,11 +59,12 @@ interface PendingDelivery {
   payload: ChatContextPayload
   resolve: (acknowledgment: SendChatContextAcknowledgment) => void
   reject: (error: Error) => void
+  isCurrent: () => boolean
   timeout: ReturnType<typeof setTimeout>
 }
 
 export interface ChatContextCommandController {
-  sendChatContext: (payload: ChatContextPayload) => Promise<SendChatContextAcknowledgment>
+  sendChatContext: (payload: ChatContextPayload, delivery?: ChatContextDeliveryOptions) => Promise<SendChatContextAcknowledgment>
   registerWorkspaceHandler: (handler: ChatContextWorkspaceHandler) => () => void
   registerTarget: (windowId: string, handler: ChatContextTargetHandler) => () => void
 }
@@ -35,6 +76,8 @@ export function createChatContextCommandController(
   let nextDeliveryId = 1
   const targets = new Map<string, ChatContextTargetHandler>()
   const pendingByWindow = new Map<string, Map<number, PendingDelivery>>()
+
+  const staleTargetError = () => new Error('Chat context target is stale')
 
   const removePending = (windowId: string, deliveryId: number): PendingDelivery | null => {
     const pendingForWindow = pendingByWindow.get(windowId)
@@ -49,6 +92,10 @@ export function createChatContextCommandController(
   const deliver = (windowId: string, deliveryId: number, handler: ChatContextTargetHandler) => {
     const pending = removePending(windowId, deliveryId)
     if (!pending) return
+    if (!pending.isCurrent()) {
+      pending.reject(staleTargetError())
+      return
+    }
     let acceptance: void | Promise<void>
     try {
       acceptance = handler(pending.payload)
@@ -64,10 +111,13 @@ export function createChatContextCommandController(
   }
 
   return {
-    async sendChatContext(payload) {
+    async sendChatContext(payload, delivery) {
       const normalizedPayload = normalizeChatContextPayload(payload)
-      if (!workspaceHandler) throw new Error('Chat workspace is unavailable')
-      const windowId = await workspaceHandler(normalizedPayload)
+      const isCurrent = delivery?.isCurrent ?? (() => true)
+      if (!isCurrent()) throw staleTargetError()
+      if (!delivery?.targetWindowId && !workspaceHandler) throw new Error('Chat workspace is unavailable')
+      const windowId = delivery?.targetWindowId ?? await workspaceHandler!(normalizedPayload)
+      if (!isCurrent()) throw staleTargetError()
       if (!windowId) throw new Error('Chat workspace did not select a target')
 
       return new Promise<SendChatContextAcknowledgment>((resolve, reject) => {
@@ -77,7 +127,7 @@ export function createChatContextCommandController(
           const expired = removePending(windowId, id)
           expired?.reject(new Error(`Timed out waiting for chat ${windowId}`))
         }, deliveryTimeoutMs)
-        pendingForWindow.set(id, { id, payload: normalizedPayload, resolve, reject, timeout })
+        pendingForWindow.set(id, { id, payload: normalizedPayload, resolve, reject, isCurrent, timeout })
         pendingByWindow.set(windowId, pendingForWindow)
 
         const target = targets.get(windowId)

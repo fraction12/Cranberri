@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createChatContextCommandController } from './chat-context-command'
+import {
+  captureChatContextExecutionBinding,
+  createChatContextCommandController,
+  isChatContextExecutionBindingCurrent,
+} from './chat-context-command'
 
 describe('chat context command controller', () => {
   afterEach(() => {
@@ -86,5 +90,89 @@ describe('chat context command controller', () => {
     await expect(acknowledgment).resolves.toEqual({ windowId: 'chat-new' })
     expect(firstInsert).toHaveBeenCalledOnce()
     expect(secondInsert).not.toHaveBeenCalled()
+  })
+
+  it('delivers to the captured target instead of whichever workspace is active later', async () => {
+    const controller = createChatContextCommandController()
+    const originatingInsert = vi.fn()
+    const activeInsert = vi.fn()
+    controller.registerWorkspaceHandler(() => 'chat-b')
+    controller.registerTarget('chat-a', originatingInsert)
+    controller.registerTarget('chat-b', activeInsert)
+
+    await expect(controller.sendChatContext(
+      { text: 'Context from checkout A' },
+      { targetWindowId: 'chat-a' },
+    )).resolves.toEqual({ windowId: 'chat-a' })
+    expect(originatingInsert).toHaveBeenCalledWith({ text: 'Context from checkout A' })
+    expect(activeInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects a delayed read after the originating binding switches', async () => {
+    const controller = createChatContextCommandController()
+    const originatingInsert = vi.fn()
+    const activeInsert = vi.fn()
+    let resolveRead: ((payload: { text: string }) => void) | undefined
+    const read = new Promise<{ text: string }>((resolve) => {
+      resolveRead = resolve
+    })
+    let activeWindowId = 'source-a'
+    let currentWindows = [{
+      id: 'source-a',
+      type: 'browser' as const,
+      title: 'Checkout A',
+      projectId: 'project',
+      taskId: 'task-a',
+      checkoutId: 'checkout-a',
+      bindingRevision: 4,
+    }]
+    const capturedBinding = captureChatContextExecutionBinding(currentWindows[0])
+    controller.registerWorkspaceHandler(() => 'chat-b')
+    controller.registerTarget('chat-a', originatingInsert)
+    controller.registerTarget('chat-b', activeInsert)
+
+    const delivery = read.then((payload) => controller.sendChatContext(payload, {
+      targetWindowId: 'chat-a',
+      isCurrent: () => activeWindowId === capturedBinding.windowId
+        && isChatContextExecutionBindingCurrent(capturedBinding, currentWindows),
+    }))
+    activeWindowId = 'source-b'
+    currentWindows = [{
+      id: 'source-b',
+      type: 'browser' as const,
+      title: 'Checkout B',
+      projectId: 'project',
+      taskId: 'task-b',
+      checkoutId: 'checkout-b',
+      bindingRevision: 0,
+    }]
+    resolveRead?.({ text: 'Delayed context from checkout A' })
+
+    await expect(delivery).rejects.toThrow('Chat context target is stale')
+    expect(originatingInsert).not.toHaveBeenCalled()
+    expect(activeInsert).not.toHaveBeenCalled()
+  })
+
+  it('treats a same-window execution rebind as stale', () => {
+    const capturedWindow = {
+      id: 'source-a',
+      type: 'chat' as const,
+      title: 'Checkout A',
+      projectId: 'project',
+      taskId: 'task-a',
+      checkoutId: 'checkout-a',
+      threadId: 'thread-a',
+      bindingRevision: 4,
+    }
+    const binding = captureChatContextExecutionBinding(capturedWindow)
+
+    expect(isChatContextExecutionBindingCurrent(binding, [capturedWindow])).toBe(true)
+    expect(isChatContextExecutionBindingCurrent(binding, [{
+      ...capturedWindow,
+      taskId: 'task-b',
+      checkoutId: 'checkout-b',
+      threadId: 'thread-b',
+      bindingRevision: 5,
+    }])).toBe(false)
   })
 })

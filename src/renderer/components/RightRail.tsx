@@ -1,10 +1,11 @@
-import { lazy, Suspense, type FormEvent, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronLeft, FileDiff, GitCommitHorizontal, Hash, Loader2, MessageSquare, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useGitStatus, useGitFiles } from '../state/git'
 import { useCodexThreads } from '../state/codex'
 import { useRepos } from '../state/repos'
-import { useWorkspace } from '../state/workspace'
+import { useWorkspace, type WorkspaceWindow } from '../state/workspace'
+import { chatWindowForExecutionContext } from '../state/workspace-model'
 import { ChangeList } from './right-rail/ChangeList'
 import { AgentsPanel } from './right-rail/AgentsPanel'
 import { CommitDialog, type CommitDraftState, type CommitState } from './right-rail/CommitDialog'
@@ -14,7 +15,11 @@ import { FileTree } from './right-rail/FileTree'
 import { createRightRailActiveFileEvent } from './right-rail/right-rail-active-file-events'
 import { OPEN_RIGHT_RAIL_COMMAND_EVENT, rightRailCommandFromEvent } from './right-rail/right-rail-command-events'
 import { OPEN_RIGHT_RAIL_FILE_EVENT, rightRailFileFromEvent } from './right-rail/right-rail-file-events'
-import { sendChatContext } from '../state/chat-context-command'
+import {
+  captureChatContextExecutionBinding,
+  isChatContextExecutionBindingCurrent,
+  sendChatContext,
+} from '../state/chat-context-command'
 import { createRepoFileContextCapturedEvent } from './repo-file-context-events'
 import { repoFileChatContext } from './repo-chat-context'
 import { repoAbsolutePath } from '../lib/repo-path'
@@ -31,6 +36,12 @@ import { typeStyle } from '../lib/typography'
 import { IconButton } from './ui/IconButton'
 
 const DiffViewer = lazy(() => import('./right-rail/DiffViewer').then((module) => ({ default: module.DiffViewer })))
+
+interface ContextDeliveryWorkspace {
+  activeRepoId: string | null
+  activeWindowId: string | null
+  windows: WorkspaceWindow[]
+}
 
 function preloadDiffRenderer(): void {
   void import('./right-rail/DiffViewer').then((module) => module.preloadDiffRenderer())
@@ -59,7 +70,18 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
   const { data: status, isLoading: statusLoading, isError: statusFailed, error: statusError, refetch: refetchStatus } = useGitStatus(showChanges || commitDialogOpen)
   const { data: allFiles, isLoading: filesLoading, isError: filesFailed, error: filesError } = useGitFiles(showAllFiles)
   const { activeRepo } = useRepos()
-  const { activeWindowId, activeExecutionContext, activeExecutionResolution } = useWorkspace()
+  const { windows, activeWindowId, activeExecutionContext, activeExecutionResolution, setActiveWindow } = useWorkspace()
+  const activeWindow = windows.find((window) => window.id === activeWindowId) ?? null
+  const deliveryWorkspaceRef = useRef<ContextDeliveryWorkspace>({
+    activeRepoId: activeRepo?.id ?? null,
+    activeWindowId,
+    windows,
+  })
+  deliveryWorkspaceRef.current = {
+    activeRepoId: activeRepo?.id ?? null,
+    activeWindowId,
+    windows,
+  }
   const activeTaskId = activeExecutionContext?.taskId ?? null
   const executionPending = Boolean(activeWindowId) && activeExecutionResolution === null
   const executionUnavailable = activeExecutionResolution?.status === 'unavailable'
@@ -76,6 +98,10 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     setLineDialogOpen(false)
     setActiveTab('files')
   }, [activeExecutionContext?.checkoutId, activeRepo?.id])
+
+  useEffect(() => {
+    setContextState({ status: 'idle', message: null })
+  }, [activeWindow?.bindingRevision, activeWindowId])
 
   const handleSelectFile = useCallback((file: GitFileStatus, line?: number) => {
     preloadDiffRenderer()
@@ -106,6 +132,18 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
 
   const sendSelectedFileToChat = useCallback(async () => {
     if (!activeCheckoutPath || !selectedFile || contextState.status === 'sending') return
+    const sourceBinding = activeWindow ? captureChatContextExecutionBinding(activeWindow) : null
+    const targetWindow = chatWindowForExecutionContext(windows, activeWindowId)
+    const targetBinding = targetWindow ? captureChatContextExecutionBinding(targetWindow) : null
+    const originatingRepoId = activeRepo?.id ?? null
+    const originatingWindowId = activeWindowId
+    const isCurrent = () => {
+      const current = deliveryWorkspaceRef.current
+      if (current.activeRepoId !== originatingRepoId || current.activeWindowId !== originatingWindowId) return false
+      if (sourceBinding && !isChatContextExecutionBindingCurrent(sourceBinding, current.windows)) return false
+      if (targetBinding && !isChatContextExecutionBindingCurrent(targetBinding, current.windows)) return false
+      return sourceBinding !== null || current.activeWindowId === null
+    }
     setContextState({ status: 'sending', message: 'Sending file context…' })
     try {
       const shouldReadWorking = selectedFile.status !== 'deleted'
@@ -134,18 +172,24 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         headContent,
         diff,
       }
+      if (!isCurrent()) throw new Error('Chat context target is stale')
       window.dispatchEvent(createRepoFileContextCapturedEvent(context))
       await sendChatContext({
         text: repoFileChatContext(context),
+      }, {
+        targetWindowId: targetBinding?.windowId,
+        isCurrent,
       })
+      if (targetBinding) setActiveWindow(targetBinding.windowId)
       setContextState({ status: 'idle', message: null })
       toast.success('File context added to chat')
     } catch (error) {
+      if (!isCurrent()) return
       const message = error instanceof Error ? error.message : 'Failed to send file context'
       setContextState({ status: 'error', message: null })
       toast.error(message)
     }
-  }, [activeCheckoutPath, activeTaskId, contextState.status, selectedFile])
+  }, [activeCheckoutPath, activeRepo?.id, activeTaskId, activeWindow, activeWindowId, contextState.status, selectedFile, setActiveWindow, windows])
 
   const handleCommit = async () => {
     if (!activeCheckoutPath || commitState.status === 'committing') return
