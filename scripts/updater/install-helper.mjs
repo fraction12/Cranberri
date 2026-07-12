@@ -101,10 +101,20 @@ function rollback(manifest, cause) {
   return rollbackError
 }
 
+export function relaunchEnvironment(environment = process.env) {
+  const launchEnvironment = { ...environment }
+  delete launchEnvironment.ELECTRON_RUN_AS_NODE
+  return launchEnvironment
+}
+
 function relaunch(appPath) {
   const executable = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
   if (!fs.existsSync(executable)) throw new Error(`Executable not found at ${executable}`)
-  const child = spawn('/usr/bin/open', ['-n', appPath], { detached: true, stdio: 'ignore' })
+  const child = spawn('/usr/bin/open', ['-n', appPath], {
+    detached: true,
+    stdio: 'ignore',
+    env: relaunchEnvironment(),
+  })
   child.unref()
 }
 

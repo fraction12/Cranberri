@@ -50,8 +50,18 @@ export async function awaitInstallOutcome(filePath, options = {}) {
   return readJournal(filePath)
 }
 
+export function relaunchEnvironment(environment = process.env) {
+  const launchEnvironment = { ...environment }
+  delete launchEnvironment.ELECTRON_RUN_AS_NODE
+  return launchEnvironment
+}
+
 function relaunch(appPath) {
-  const child = spawn('/usr/bin/open', ['-n', appPath], { detached: true, stdio: 'ignore' })
+  const child = spawn('/usr/bin/open', ['-n', appPath], {
+    detached: true,
+    stdio: 'ignore',
+    env: relaunchEnvironment(),
+  })
   child.unref()
 }
 

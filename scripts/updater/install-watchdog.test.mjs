@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { awaitInstallOutcome, recoverInterruptedInstall } from './install-watchdog.mjs'
+import { awaitInstallOutcome, recoverInterruptedInstall, relaunchEnvironment } from './install-watchdog.mjs'
 
 const roots = []
 afterEach(() => {
@@ -10,6 +10,10 @@ afterEach(() => {
 })
 
 describe('updater watchdog', () => {
+  it('removes Electron Node mode before relaunching the GUI', () => {
+    expect(relaunchEnvironment({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
+  })
+
   it('restores backup when the installer dies between promotion phases', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-watchdog-'))
     roots.push(root)

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { installFromManifest } from './install-helper.mjs'
+import { installFromManifest, relaunchEnvironment } from './install-helper.mjs'
 
 const roots = []
 
@@ -35,6 +35,10 @@ afterEach(() => {
 })
 
 describe('atomic updater helper', () => {
+  it('removes Electron Node mode before relaunching the GUI', () => {
+    expect(relaunchEnvironment({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
+  })
+
   it('promotes a complete candidate atomically and retains the backup', async () => {
     const { manifest } = fixture()
     await installFromManifest(manifest, { relaunch: false })
