@@ -37,7 +37,9 @@ export async function reconcileTaskStore(store: TaskStore, now = Date.now()): Pr
     const interruptedTaskIds = new Set(state.interruptedOperations.flatMap((operation) => (
       typeof operation.taskId === 'string' ? [operation.taskId] : []
     )))
-    const tasks = state.tasks.map((task) => recoverTask(task, interruptedTaskIds, now))
+    const tasks = state.tasks
+      .filter((task) => task.role !== 'control' || Boolean(task.threadId))
+      .map((task) => recoverTask(task.role === 'control' ? { ...task, role: 'root' as const } : task, interruptedTaskIds, now))
     const tasksById = new Map(tasks.map((task) => [task.id, task]))
     const localLeaseByProjectId = Object.fromEntries(Object.entries(state.localLeaseByProjectId).map(([projectId, taskId]) => {
       const task = taskId ? tasksById.get(taskId) : null

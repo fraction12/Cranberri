@@ -21,6 +21,22 @@ export interface WorktreeProvisioningContext {
   cap: number
 }
 
+export interface LocalTaskRequest {
+  projectId: string
+  title: string
+  localCheckoutId: string
+  baseRef: string | null
+  input: PendingFirstTurn['payload']['input']
+  threadId?: string | null
+  archived?: boolean
+}
+
+export interface ContinueInWorktreeContext extends WorktreeProvisioningContext {
+  baseRef: string
+  environmentId: string | null
+  environmentRevision: string | null
+}
+
 interface TaskCodexLifecycle {
   archiveThread(threadId: string): Promise<void>
   unarchiveThread(threadId: string): Promise<unknown>
@@ -33,48 +49,34 @@ export class TaskCoordinator {
     private readonly codex?: TaskCodexLifecycle,
   ) {}
 
-  async ensureControlTasks(registry: ProjectRegistry, now = Date.now()): Promise<Task[]> {
-    const existing = this.store.read()
-    if (registry.projects.every((project) =>
-      existing.tasks.some((task) => task.id === project.controlTaskId),
-    )) {
-      return existing.tasks.filter((task) => task.role === 'control')
+  async createLocalTask(request: LocalTaskRequest, now = Date.now()): Promise<Task> {
+    const existing = request.threadId
+      ? this.store.read().tasks.find((task) => task.threadId === request.threadId)
+      : null
+    if (existing) return existing
+    const task: Task = {
+      id: crypto.randomUUID(),
+      projectId: request.projectId,
+      threadId: request.threadId ?? null,
+      checkoutId: request.localCheckoutId,
+      worktreeId: null,
+      role: 'root',
+      location: 'local',
+      state: request.archived ? 'archived' : 'local',
+      baseRef: request.baseRef,
+      baseSha: null,
+      environmentId: null,
+      environmentRevision: null,
+      pendingFirstTurn: request.threadId ? null : {
+        payload: { input: request.input },
+        delivery: 'pending',
+      },
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: request.archived ? now : null,
     }
-
-    const localCheckoutById = new Map(
-      registry.checkouts.map((checkout) => [checkout.id, checkout]),
-    )
-
-    await this.store.update((state) => {
-      const tasks = [...state.tasks]
-      for (const project of registry.projects) {
-        if (tasks.some((task) => task.id === project.controlTaskId)) continue
-        const checkout = localCheckoutById.get(project.localCheckoutId)
-        if (!checkout) throw new Error(`Local checkout missing for project ${project.id}`)
-        tasks.push({
-          id: project.controlTaskId,
-          projectId: project.id,
-          threadId: null,
-          checkoutId: checkout.id,
-          worktreeId: null,
-          role: 'control',
-          location: 'local',
-          state: 'local',
-          baseRef: project.pinnedLocalBranch
-            ? `refs/heads/${project.pinnedLocalBranch}`
-            : null,
-          baseSha: null,
-          environmentId: null,
-          environmentRevision: null,
-          pendingFirstTurn: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-      }
-      return { ...state, tasks }
-    })
-
-    return this.store.read().tasks.filter((task) => task.role === 'control')
+    await this.store.update((state) => ({ ...state, tasks: [...state.tasks, task] }))
+    return task
   }
 
   async createWorktreeDraft(request: WorktreeDraftRequest, now = Date.now()): Promise<Task> {
@@ -136,6 +138,47 @@ export class TaskCoordinator {
       })
     } catch (error) {
       await this.patchTask(taskId, { state: 'failed' })
+      throw error
+    }
+  }
+
+  async continueInWorktree(taskId: string, context: ContinueInWorktreeContext): Promise<Task> {
+    if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')
+    const task = this.requireTask(taskId)
+    if (task.role !== 'root' || task.location !== 'local' || task.worktreeId || task.state !== 'local') {
+      throw new Error('Only an idle Local session can continue in a worktree')
+    }
+    await this.patchTask(taskId, {
+      state: 'provisioning',
+      baseRef: context.baseRef,
+      environmentId: context.environmentId,
+      environmentRevision: context.environmentRevision,
+    })
+    try {
+      const worktree = await this.worktrees.create({
+        projectId: task.projectId,
+        projectName: context.projectName,
+        taskId: task.id,
+        taskName: 'continued-session',
+        localCheckoutPath: context.localCheckoutPath,
+        managedRoot: context.managedRoot,
+        baseRef: context.baseRef,
+        cap: context.cap,
+      })
+      return this.patchTask(taskId, {
+        checkoutId: worktree.checkoutId,
+        worktreeId: worktree.id,
+        location: 'worktree',
+        baseSha: worktree.baseSha,
+        state: context.environmentRevision ? 'setup' : 'active',
+      })
+    } catch (error) {
+      await this.patchTask(taskId, {
+        state: 'local',
+        baseRef: task.baseRef,
+        environmentId: task.environmentId,
+        environmentRevision: task.environmentRevision,
+      })
       throw error
     }
   }
@@ -229,7 +272,6 @@ export class TaskCoordinator {
 
   async archive(taskId: string): Promise<Task> {
     const task = this.requireTask(taskId)
-    if (task.role === 'control') throw new Error('The Local control task cannot be archived')
     if (task.threadId && this.codex) await this.codex.archiveThread(task.threadId)
     if (task.worktreeId && this.worktrees) await this.worktrees.archive(task.worktreeId)
     await this.releaseLocalLease(task.projectId, task.id)
@@ -238,7 +280,12 @@ export class TaskCoordinator {
 
   async unarchive(taskId: string, localCheckoutPath: string, runEnvironment?: (worktree: import('../shared/worktrees').ManagedWorktree, revision: string) => Promise<void>): Promise<Task> {
     const task = this.requireTask(taskId)
-    if (task.state !== 'archived' || !task.worktreeId || !this.worktrees) throw new Error('Task is not a restorable archived worktree task')
+    if (task.state !== 'archived') throw new Error('Task is not archived')
+    if (!task.worktreeId) {
+      if (task.threadId && this.codex) await this.codex.unarchiveThread(task.threadId)
+      return this.patchTask(taskId, { state: 'local', archivedAt: null, handoff: null })
+    }
+    if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')
     const worktree = await this.worktrees.restore(task.worktreeId, localCheckoutPath, runEnvironment)
     if (task.threadId && this.codex) await this.codex.unarchiveThread(task.threadId)
     return this.patchTask(taskId, {

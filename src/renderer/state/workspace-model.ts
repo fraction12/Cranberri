@@ -15,7 +15,7 @@ export function renameWorkspaceWindow(
 }
 
 export function createBoundWorkspaceWindow(
-  window: Pick<WorkspaceWindowState, 'id' | 'type' | 'title' | 'browser'>,
+  window: Pick<WorkspaceWindowState, 'id' | 'type' | 'title' | 'browser' | 'sessionTarget'>,
   context: TaskExecutionContext,
 ): WorkspaceWindowState {
   return {

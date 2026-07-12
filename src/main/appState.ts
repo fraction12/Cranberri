@@ -20,6 +20,7 @@ const windowSchema = z.object({
   projectId: z.string().optional(),
   taskId: z.string().nullable().optional(),
   checkoutId: z.string().optional(),
+  sessionTarget: z.enum(['local', 'worktree']).optional(),
   browser: browserSchema.optional(),
 })
 
@@ -101,6 +102,7 @@ export function parseAppState(
                   projectId: id,
                   taskId: project.controlTaskId,
                   checkoutId: project.localCheckoutId,
+                  sessionTarget: 'local' as const,
                 }
               : window,
           ),

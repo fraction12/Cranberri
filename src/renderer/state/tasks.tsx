@@ -3,7 +3,7 @@ import type { CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import type { EnvironmentRecord } from '@/shared/environments'
 import type { Checkout, Project } from '@/shared/projects'
 import type { EnvironmentJob } from '@/shared/terminal'
-import type { Task, TaskDraftRequest, TaskHandoffRequest } from '@/shared/tasks'
+import type { LocalTaskDraftRequest, Task, TaskDraftRequest, TaskHandoffRequest } from '@/shared/tasks'
 import type { GitRef, ManagedWorktree, RefRefreshResult } from '@/shared/worktrees'
 import type { TaskExecutionContext } from './execution-context'
 
@@ -102,11 +102,13 @@ export interface TasksApi extends TaskCatalogSnapshot {
   refresh: () => Promise<void>
   loadRefs: (projectId: string, refresh?: boolean) => Promise<{ refs: GitRef[]; refresh?: RefRefreshResult }>
   loadEnvironments: (projectId: string) => Promise<EnvironmentRecord[]>
+  submitLocal: (draft: LocalTaskDraftRequest, settings?: CodexTurnSettings) => Promise<Task>
   submitWorktree: (submission: WorktreeSubmission) => Promise<Task>
   retryProvisioning: (settings?: CodexTurnSettings) => Promise<Task>
   cancelSetup: () => Promise<void>
   handoffToLocal: (request: TaskHandoffRequest) => Promise<Task>
   handoffToWorktree: (request: TaskHandoffRequest) => Promise<Task>
+  continueInWorktree: (taskId: string) => Promise<Task>
   archive: (taskId: string) => Promise<Task>
   unarchive: (taskId: string) => Promise<Task>
 }
@@ -225,6 +227,13 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
         ? window.cranberri.worktrees.refreshRefs(projectId)
         : window.cranberri.worktrees.listRefs(projectId),
       loadEnvironments: async (projectId) => (await window.cranberri.environments.list(projectId)).environments,
+      submitLocal: async (draft, settings) => {
+        const { task } = await window.cranberri.tasks.createLocalDraft(draft)
+        const sent = (await window.cranberri.tasks.send({ taskId: task.id, input: draft.input, settings })).task
+        setActiveTask(sent.id)
+        await refresh()
+        return sent
+      },
       submitWorktree,
       retryProvisioning: async (settings) => {
         if (!lastSubmission || !operation.taskId) throw new Error('No failed task to retry')
@@ -257,6 +266,7 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
       },
       handoffToLocal: (request) => runAndRefresh(() => window.cranberri.tasks.handoffToLocal(request)),
       handoffToWorktree: (request) => runAndRefresh(() => window.cranberri.tasks.handoffToWorktree(request)),
+      continueInWorktree: (taskId) => runAndRefresh(() => window.cranberri.tasks.continueInWorktree(taskId)),
       archive: (taskId) => runAndRefresh(() => window.cranberri.tasks.archive(taskId)),
       unarchive: (taskId) => runAndRefresh(() => window.cranberri.tasks.unarchive(taskId)),
     }

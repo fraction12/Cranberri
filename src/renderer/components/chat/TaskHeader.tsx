@@ -16,7 +16,7 @@ interface TaskHeaderProps {
 
 export function TaskHeader({ task, branch, onOpen, onOpenTerminal, onHandoff, onArchive, onUnarchive }: TaskHeaderProps) {
   const location = task.location === 'local' ? 'Local' : 'Worktree'
-  const detail = branch ?? task.baseRef ?? 'detached'
+  const detail = (branch ?? task.baseRef ?? 'detached').replace(/^refs\/(heads|remotes)\//, '')
   const Icon = task.location === 'local' ? Laptop : TreePine
   return (
     <header className="flex h-9 shrink-0 items-center gap-2 px-3">
@@ -28,10 +28,10 @@ export function TaskHeader({ task, branch, onOpen, onOpenTerminal, onHandoff, on
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={5} className={cn(menuSurface, 'z-[1300] w-48')}>
             {onOpenTerminal && <DropdownMenu.Item className={itemClass} onSelect={onOpenTerminal}><ExternalLink className="h-3.5 w-3.5" />Open terminal</DropdownMenu.Item>}
-            {onHandoff && task.role === 'root' && task.state !== 'archived' && <DropdownMenu.Item className={itemClass} onSelect={() => { void onHandoff() }}><RotateCcw className="h-3.5 w-3.5" />{task.location === 'local' ? 'Return to worktree' : 'Test in Local'}</DropdownMenu.Item>}
+            {onHandoff && task.role === 'root' && task.state !== 'archived' && <DropdownMenu.Item className={itemClass} onSelect={() => { void onHandoff() }}><RotateCcw className="h-3.5 w-3.5" />{task.location === 'local' ? task.worktreeId ? 'Return to worktree' : 'Continue in worktree' : 'Test in Local'}</DropdownMenu.Item>}
             {task.state === 'archived'
               ? onUnarchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onUnarchive() }}><RotateCcw className="h-3.5 w-3.5" />Restore task</DropdownMenu.Item>
-              : onArchive && task.role !== 'control' && <DropdownMenu.Item className={itemClass} onSelect={() => { void onArchive() }}><Archive className="h-3.5 w-3.5" />Archive task</DropdownMenu.Item>}
+              : onArchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onArchive() }}><Archive className="h-3.5 w-3.5" />Archive task</DropdownMenu.Item>}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

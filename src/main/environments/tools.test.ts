@@ -25,7 +25,7 @@ function fixture(approve = vi.fn(async () => true)) {
   })
   const control: Task = {
     id: 'control', projectId: 'project', threadId: 'thread', checkoutId: 'local',
-    worktreeId: null, role: 'control', location: 'local', state: 'local', baseRef: null,
+    worktreeId: null, role: 'root', location: 'local', state: 'local', baseRef: null,
     baseSha: null, environmentId: null, environmentRevision: null, pendingFirstTurn: null,
     createdAt: 1, updatedAt: 1,
   }
@@ -50,7 +50,7 @@ describe('EnvironmentToolRouter', () => {
     }))
   })
 
-  it('allows validated reads and edits only on the bound Local control thread', async () => {
+  it('allows validated reads and edits only on the bound Local project session', async () => {
     const { router, store, control } = fixture()
     const created = await router.handle({
       threadId: 'thread', namespace: 'cranberri_environments', tool: 'create',
@@ -61,7 +61,7 @@ describe('EnvironmentToolRouter', () => {
 
     await expect(router.handle({
       threadId: 'other', tool: 'list', arguments: { projectId: 'project' },
-    }, control)).rejects.toThrow(/Local control task/)
+    }, control)).rejects.toThrow(/Local project session/)
     await expect(router.handle({
       threadId: 'thread', tool: 'create', arguments: { projectId: 'project' },
     }, control)).rejects.toThrow()

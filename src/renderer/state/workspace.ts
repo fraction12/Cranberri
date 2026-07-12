@@ -4,7 +4,7 @@ import { useAppState } from './appState'
 import { createBoundWorkspaceWindow, renameWorkspaceWindow } from './workspace-model'
 import { useOptionalTasks } from './tasks'
 import { resolveTaskExecutionContext, type ExecutionContextResolution, type TaskExecutionContext } from './execution-context'
-import type { WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
+import type { SessionExecutionTarget, WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
 
 export type WorkspaceWindow = WorkspaceWindowState
 export type { WorkspaceWindowType }
@@ -18,7 +18,7 @@ interface WorkspaceApi {
   activeCheckoutPath: string | null
   activeExecutionContext: TaskExecutionContext | null
   activeExecutionResolution: ExecutionContextResolution | null
-  openChat: (id?: string, title?: string, projectId?: string | null, context?: TaskExecutionContext) => string
+  openChat: (id?: string, title?: string, projectId?: string | null, context?: TaskExecutionContext, sessionTarget?: SessionExecutionTarget) => string
   openTerminal: (id?: string, title?: string, projectId?: string | null, context?: TaskExecutionContext) => string
   openBrowser: (options?: { id?: string; title?: string; url?: string; repoId?: string | null; processId?: string; context?: TaskExecutionContext }) => string
   updateBrowserState: (id: string, browser: Partial<NonNullable<WorkspaceWindow['browser']>>) => void
@@ -35,7 +35,7 @@ function generateId(): string {
 }
 
 function defaultWorkspace(context: TaskExecutionContext) {
-  const first = createBoundWorkspaceWindow({ id: generateId(), type: 'chat', title: 'Chat 1' }, context)
+  const first = createBoundWorkspaceWindow({ id: generateId(), type: 'chat', title: 'New local session', sessionTarget: 'local' }, context)
   return { windows: [first], activeWindowId: first.id }
 }
 
@@ -105,7 +105,7 @@ export function useWorkspace(): WorkspaceApi {
     })
   }, [activeProjectId, updateAppState])
 
-  const openChat = useCallback((id?: string, title?: string, projectId?: string | null, explicitContext?: TaskExecutionContext) => {
+  const openChat = useCallback((id?: string, title?: string, projectId?: string | null, explicitContext?: TaskExecutionContext, sessionTarget: SessionExecutionTarget = 'local') => {
     const windowId = id ?? generateId()
     const targetProjectId = projectId ?? activeProjectId
     const context = explicitContext ?? (targetProjectId ? contextForProject(targetProjectId) : null)
@@ -114,7 +114,7 @@ export function useWorkspace(): WorkspaceApi {
       const existingWindow = windows.find((w) => w.id === windowId)
       if (existingWindow) return { windows, activeWindowId: windowId }
       const existingCount = windows.filter((w) => w.type === 'chat').length + 1
-      const newWindow = createBoundWorkspaceWindow({ id: windowId, type: 'chat', title: title ?? `Chat ${existingCount}` }, context)
+      const newWindow = createBoundWorkspaceWindow({ id: windowId, type: 'chat', title: title ?? `Chat ${existingCount}`, sessionTarget }, context)
       return { windows: [...windows, newWindow], activeWindowId: windowId }
     })
     return windowId

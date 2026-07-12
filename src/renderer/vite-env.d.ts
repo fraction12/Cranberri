@@ -112,13 +112,15 @@ declare global {
       tasks: {
         snapshot: () => Promise<{ projects: import('@/shared/projects').Project[]; checkouts: import('@/shared/projects').Checkout[]; tasks: import('@/shared/tasks').Task[]; managedWorktrees: import('@/shared/worktrees').ManagedWorktree[] }>
         list: (projectId?: string) => Promise<{ tasks: import('@/shared/tasks').Task[] }>
-        ensureControl: (projectId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        createLocalDraft: (request: import('@/shared/tasks').LocalTaskDraftRequest) => Promise<{ task: import('@/shared/tasks').Task }>
+        adoptLocalThread: (request: import('@/shared/tasks').LocalTaskAdoptRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         history: (request: import('@/shared/tasks').TaskHistoryRequest) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
         read: (taskId: string, archived?: boolean) => Promise<{ task: import('@/shared/tasks').Task; thread: CodexSessionThread }>
         resume: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; thread?: CodexSessionThread; threadId?: string }>
         send: (request: import('@/shared/tasks').TaskSendRequest) => Promise<{ ok: true; task: import('@/shared/tasks').Task }>
         createWorktreeDraft: (request: import('@/shared/tasks').TaskDraftRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         provision: (request: import('@/shared/tasks').TaskProvisionRequest) => Promise<{ task: import('@/shared/tasks').Task }>
+        continueInWorktree: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
         status: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; worktree: import('@/shared/worktrees').ManagedWorktree | null; setupJob: import('@/shared/terminal').EnvironmentJob | null }>
         handoffToLocal: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         handoffToWorktree: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>

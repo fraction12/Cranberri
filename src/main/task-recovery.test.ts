@@ -34,4 +34,24 @@ describe('task startup recovery', () => {
     expect(recovered.localLeaseByProjectId.project).toBeNull()
     expect(recovered.interruptedOperations).toEqual([])
   })
+
+  it('preserves control-task history as a normal Local session and drops empty controls', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    const control = (id: string, threadId: string | null) => ({
+      id, projectId: 'project', threadId, checkoutId: 'local', worktreeId: null,
+      role: 'control' as const, location: 'local' as const, state: 'local' as const,
+      baseRef: 'refs/heads/main', baseSha: null, environmentId: null,
+      environmentRevision: null, pendingFirstTurn: null, createdAt: 1, updatedAt: 1,
+      archivedAt: null,
+    })
+    await store.update((state) => ({ ...state, tasks: [control('kept', 'thread-1'), control('empty', null)] }))
+
+    await reconcileTaskStore(store, 10)
+
+    expect(store.read().tasks).toEqual([
+      expect.objectContaining({ id: 'kept', threadId: 'thread-1', role: 'root', location: 'local' }),
+    ])
+  })
 })

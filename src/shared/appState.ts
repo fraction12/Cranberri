@@ -1,4 +1,5 @@
 export type WorkspaceWindowType = 'chat' | 'terminal' | 'browser'
+export type SessionExecutionTarget = 'local' | 'worktree'
 
 export interface BrowserWindowState {
   url: string
@@ -16,6 +17,7 @@ export interface WorkspaceWindowState {
   projectId?: string
   taskId?: string | null
   checkoutId?: string
+  sessionTarget?: SessionExecutionTarget
 }
 
 export interface RepoWorkspaceState {

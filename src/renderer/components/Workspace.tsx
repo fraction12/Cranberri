@@ -5,7 +5,8 @@ import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
 import { BrowserWindow as BrowserPane } from './BrowserWindow'
-import { ChevronLeft, ChevronRight, Globe, MessageSquare, MessageSquarePlus, SquareTerminal, Terminal, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Globe, MessageSquare, SquareTerminal, Terminal, X } from 'lucide-react'
+import { NewSessionMenu } from './chat/NewSessionMenu'
 import {
   CLOSE_PROCESS_TERMINAL_EVENT,
   OPEN_PROCESS_TERMINAL_EVENT,
@@ -23,6 +24,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { cn, iconButton } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
+import { useOptionalTasks } from '../state/tasks'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -31,10 +33,11 @@ interface WorkspaceProps {
 }
 
 export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
-  const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow } = useWorkspace()
+  const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
   const { openSession, closeThreadWindow } = useCodexActions()
   const { getThreadForWindow } = useCodexWindows()
+  const tasksApi = useOptionalTasks()
   const [terminalCloseTarget, setTerminalCloseTarget] = useState<{ windowId: string; termId: string } | null>(null)
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const tabStripRef = useRef<HTMLDivElement>(null)
@@ -93,17 +96,35 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
         return
       }
       const windowId = `session-${session.id}`
-      openSession(windowId, session, archived, targetRepo ?? undefined)
-        .then((thread) => {
-          openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId)
+      const open = async () => {
+        const taskResult = targetRepo
+          ? await window.cranberri.tasks.adoptLocalThread({ projectId: targetRepo.id, threadId: session.id, archived })
+          : null
+        const snapshot = taskResult ? await window.cranberri.tasks.snapshot() : null
+        const task = taskResult?.task
+        const checkout = task && snapshot
+          ? snapshot.checkouts.find((candidate) => candidate.id === task.checkoutId)
+            ?? snapshot.managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
+          : null
+        const context = task && checkout ? {
+          projectId: task.projectId,
+          taskId: task.id,
+          checkoutId: task.checkoutId,
+          worktreeId: task.worktreeId,
+          checkoutPath: 'canonicalPath' in checkout ? checkout.canonicalPath : checkout.path,
+        } : undefined
+        const thread = await openSession(windowId, session, archived, targetRepo ?? undefined)
+        openChat(windowId, thread.title, targetRepo?.id ?? activeRepoId, context, task?.location)
+        if (context) bindWindowToTask(windowId, context)
+        await tasksApi?.refresh()
           if (targetRepo && targetRepo.id !== activeRepoId) return setActiveRepo(targetRepo.id)
           return undefined
-        })
-        .catch((error) => console.error('Failed to open Codex session:', error))
+      }
+      void open().catch((error) => console.error('Failed to open Codex session:', error))
     }
     window.addEventListener('cranberri:open-codex-session', onOpenSession)
     return () => window.removeEventListener('cranberri:open-codex-session', onOpenSession)
-  }, [activeRepoId, getThreadForWindow, openChat, openSession, repos, setActiveRepo, setActiveWindow, windows])
+  }, [activeRepoId, bindWindowToTask, getThreadForWindow, openChat, openSession, repos, setActiveRepo, setActiveWindow, tasksApi, windows])
 
   useEffect(() => {
     const onOpenProcessTerminal = (event: Event) => {
@@ -278,15 +299,10 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5 pl-1">
-        <button
-          type="button"
-          onClick={() => openChat()}
-          className={iconButton()}
-          title="New chat"
-          aria-label="New chat"
-        >
-          <MessageSquarePlus className="h-3.5 w-3.5" />
-        </button>
+        <NewSessionMenu
+          onLocal={() => openChat(undefined, 'New local session', activeRepoId, undefined, 'local')}
+          onWorktree={() => openChat(undefined, 'New worktree session', activeRepoId, undefined, 'worktree')}
+        />
         <button
           type="button"
           onClick={() => openTerminal()}

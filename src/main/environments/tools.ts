@@ -66,8 +66,8 @@ export class EnvironmentToolRouter {
 
   async handle(raw: Record<string, unknown>, controlTask: Task): Promise<Record<string, unknown>> {
     const call = toolCallSchema.parse(raw)
-    if (call.threadId !== controlTask.threadId || controlTask.role !== 'control') {
-      throw new Error('Environment tools are available only in the Local control task')
+    if (call.threadId !== controlTask.threadId || controlTask.location !== 'local' || controlTask.role === 'worker') {
+      throw new Error('Environment tools are available only in a Local project session')
     }
     if (call.namespace && call.namespace !== 'cranberri_environments') {
       throw new Error(`Unknown dynamic tool namespace: ${call.namespace}`)

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ProjectRegistry } from '../shared/projects'
 import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
+import type { WorktreeLifecycle } from './worktree-lifecycle'
 
 const roots: string[] = []
 
@@ -34,17 +35,18 @@ afterEach(() => {
 })
 
 describe('TaskCoordinator', () => {
-  it('creates one durable Local control task per project', async () => {
+  it('creates ordinary visible Local tasks instead of a special control task', async () => {
     const { store, coordinator } = fixture()
-    await coordinator.ensureControlTasks(registry, 10)
-    await coordinator.ensureControlTasks(registry, 20)
+    const created = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Investigate', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [{ type: 'text', text: 'Investigate' }],
+    }, 10)
 
-    expect(store.read().tasks).toEqual([
-      expect.objectContaining({
-        id: 'control-project', role: 'control', location: 'local',
-        state: 'local', baseRef: 'refs/heads/main', createdAt: 10,
-      }),
-    ])
+    expect(store.read().tasks).toEqual([created])
+    expect(created).toMatchObject({
+      role: 'root', location: 'local', state: 'local', baseRef: 'refs/heads/main',
+      pendingFirstTurn: { delivery: 'pending' },
+    })
   })
 
   it('persists the full first turn before provisioning', async () => {
@@ -76,7 +78,10 @@ describe('TaskCoordinator', () => {
 
   it('resolves cwd from authoritative checkout and worktree records', async () => {
     const { store, coordinator } = fixture()
-    await coordinator.ensureControlTasks(registry)
+    const local = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [{ type: 'text', text: 'Local' }],
+    })
     await store.update((state) => ({
       ...state,
       tasks: [...state.tasks, {
@@ -93,7 +98,7 @@ describe('TaskCoordinator', () => {
       }],
     }))
 
-    expect(coordinator.resolveRuntime('control-project', registry).cwd).toBe('/repo')
+    expect(coordinator.resolveRuntime(local.id, registry).cwd).toBe('/repo')
     expect(coordinator.resolveRuntime('worktree-task', registry)).toMatchObject({
       cwd: '/managed/task', taskId: 'worktree-task',
     })
@@ -113,5 +118,35 @@ describe('TaskCoordinator', () => {
     expect(coordinator.get(task.id).pendingFirstTurn?.delivery).toBe('pending')
     await coordinator.acknowledgePendingTurn(task.id)
     expect(coordinator.get(task.id).pendingFirstTurn).toBeNull()
+  })
+
+  it('moves an ordinary Local session into a newly provisioned worktree', async () => {
+    const { store } = fixture()
+    const worktree = {
+      id: 'worktree', projectId: 'project', taskId: 'task', checkoutId: 'managed',
+      path: '/managed/task', recordedRoot: '/managed', gitCommonDir: '/repo/.git',
+      manifestPath: '/managed/task/.cranberri/worktree.json', baseRef: 'refs/heads/main',
+      baseSha: 'a'.repeat(40), branch: null, headSha: 'a'.repeat(40), archiveHeadSha: null,
+      privateRef: null, lifecycle: 'active' as const, cleanupReason: null,
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }
+    const lifecycle = { create: async () => worktree } as unknown as WorktreeLifecycle
+    const coordinator = new TaskCoordinator(store, lifecycle)
+    const local = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [{ type: 'text', text: 'Local' }],
+    })
+    await coordinator.bindThread(local.id, 'thread')
+
+    const continued = await coordinator.continueInWorktree(local.id, {
+      projectName: 'Project', localCheckoutId: 'local', localCheckoutPath: '/repo',
+      managedRoot: '/managed', cap: 15, baseRef: 'refs/heads/main',
+      environmentId: null, environmentRevision: null,
+    })
+
+    expect(continued).toMatchObject({
+      location: 'worktree', state: 'active', worktreeId: 'worktree', checkoutId: 'managed',
+      threadId: 'thread',
+    })
   })
 })

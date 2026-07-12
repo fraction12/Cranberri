@@ -15,6 +15,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { mergeHydratedPinnedSessions, shouldAutoLoadRepoSessions } from './repo-sessions-state'
 import { buttonStyle, cn, dialogSurface, fieldStyle, iconButton, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
+import { NewSessionMenu } from './chat/NewSessionMenu'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
 
@@ -57,12 +58,14 @@ function SessionRow({
   onTogglePinned,
   active,
   pinned,
+  location,
   repoPath,
 }: {
   session: CodexSessionSummary
   archived?: boolean
   active?: boolean
   pinned?: boolean
+  location?: 'local' | 'worktree'
   repoPath: string
   onArchive: (session: CodexSessionSummary) => void
   onUnarchive: (session: CodexSessionSummary) => void
@@ -84,6 +87,7 @@ function SessionRow({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
+            {location === 'local' ? <Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /> : location === 'worktree' ? <TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /> : null}
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
             <span className={cn('truncate', typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }))}>{sessionTitle(session)}</span>
           </span>
@@ -150,6 +154,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
     .filter((session): session is CodexSessionSummary => Boolean(session))
   const recentSessions = recent.filter((session) => !pinnedIdSet.has(session.id))
   const archivedSessions = archived.filter((session) => !pinnedIdSet.has(session.id))
+  const locationForSession = (session: CodexSessionSummary) => tasksApi?.tasks.find((task) => task.threadId === session.id)?.location
 
   const rememberSessionOptionsTrigger = useCallback((trigger: HTMLButtonElement) => {
     dialogReturnFocusRef.current = trigger
@@ -382,13 +387,13 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Pinned</div>
         )}
         {pinnedSessions.map((session) => (
-          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {pinnedSessions.length > 0 && recentSessions.length > 0 && (
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Recent</div>
         )}
         {recentSessions.map((session) => (
-          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {archivedSessions.length > 0 && (
           <>
@@ -400,7 +405,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo }: { projectId: string
               {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
             {showArchived && archivedSessions.map((session) => (
-              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
             ))}
           </>
         )}
@@ -661,7 +666,7 @@ export function RepoRail() {
     if (activeRepoId !== task.projectId) await setActiveRepo(task.projectId)
     tasksApi.setActiveTask(task.id)
     const windowId = `task-${task.id}`
-    openChat(windowId, task.role === 'control' ? 'Local control' : 'Task', task.projectId, context)
+    openChat(windowId, task.location === 'local' ? 'Local session' : 'Worktree task', task.projectId, context, task.location)
     bindWindowToTask(windowId, context)
     if (task.threadId) {
       try {
@@ -671,6 +676,11 @@ export function RepoRail() {
       }
     }
   }, [activeRepoId, bindTaskWindow, bindWindowToTask, openChat, setActiveRepo, tasksApi])
+
+  const openNewSession = useCallback(async (projectId: string, target: 'local' | 'worktree') => {
+    if (activeRepoId !== projectId) await setActiveRepo(projectId)
+    openChat(undefined, target === 'local' ? 'New local session' : 'New worktree session', projectId, undefined, target)
+  }, [activeRepoId, openChat, setActiveRepo])
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-surface px-2.5 py-2">
@@ -717,6 +727,12 @@ export function RepoRail() {
                 <FolderGit2 className="h-4 w-4 shrink-0 opacity-75" />
                 <span className="min-w-0 flex-1 truncate">{repo.name}</span>
               </button>
+              <NewSessionMenu
+                label={`New session in ${repo.name}`}
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                onLocal={() => { void openNewSession(repo.id, 'local') }}
+                onWorktree={() => { void openNewSession(repo.id, 'worktree') }}
+              />
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
@@ -758,7 +774,7 @@ export function RepoRail() {
             </div>
             {expandedRepoIds[repo.id] && <RepoSessions projectId={repo.id} repoPath={repo.path} isActiveRepo={activeRepoId === repo.id} />}
             {expandedRepoIds[repo.id] && tasksApi && (
-              <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id)} controlTaskId={tasksApi.projects.find((project) => project.id === repo.id)?.controlTaskId} onOpen={(taskId) => { void openTask(taskId) }} />
+              <ProjectTaskRows projectId={repo.id} tasks={tasksApi.rootTasks.filter((task) => task.projectId === repo.id && !task.threadId && task.role !== 'control')} onOpen={(taskId) => { void openTask(taskId) }} />
             )}
           </div>
         ))}
@@ -786,13 +802,13 @@ export function RepoRail() {
   )
 }
 
-function ProjectTaskRows({ projectId, tasks, controlTaskId, onOpen }: { projectId: string; tasks: import('@/shared/tasks').Task[]; controlTaskId?: string; onOpen: (id: string) => void }) {
-  const control = tasks.find((task) => task.id === controlTaskId)
-  return <div className="ml-8 mt-1 space-y-0.5" data-project-tasks={projectId}>{control && <TaskRailRow task={control} fixed onOpen={onOpen} />}{tasks.filter((task) => task.id !== controlTaskId).map((task) => <TaskRailRow key={task.id} task={task} onOpen={onOpen} />)}</div>
+function ProjectTaskRows({ projectId, tasks, onOpen }: { projectId: string; tasks: import('@/shared/tasks').Task[]; onOpen: (id: string) => void }) {
+  if (tasks.length === 0) return null
+  return <div className="ml-8 mt-1 space-y-0.5" data-project-tasks={projectId}>{tasks.map((task) => <TaskRailRow key={task.id} task={task} onOpen={onOpen} />)}</div>
 }
 
-function TaskRailRow({ task, fixed = false, onOpen }: { task: import('@/shared/tasks').Task; fixed?: boolean; onOpen: (id: string) => void }) {
+function TaskRailRow({ task, onOpen }: { task: import('@/shared/tasks').Task; onOpen: (id: string) => void }) {
   const Icon = task.location === 'local' ? Laptop : TreePine
-  const detail = fixed ? 'Control' : task.baseRef ?? 'Detached'
+  const detail = task.baseRef ?? 'Detached'
   return <button type="button" onClick={() => onOpen(task.id)} className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-app-surface-2/60" aria-label={`Open ${detail} task`}><Icon className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={cn('min-w-0 flex-1 truncate', typeStyle({ role: 'metadata', tone: 'secondary' }))}>{task.location === 'local' ? 'Local' : 'Worktree'} · {detail}</span></button>
 }
