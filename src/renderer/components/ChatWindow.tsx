@@ -45,13 +45,14 @@ export function ChatWindow({ id }: { id: string }) {
     restoreSessionWindow,
     bindTaskWindow,
     markThreadSendFailed,
+    archiveSession,
   } = useCodexActions()
   const { getThread } = useCodexThreads()
   const { getThreadForWindow } = useCodexWindows()
   const { settings } = useSettings()
   const tasks = useOptionalTasks()
   const { activeProject } = useRepos()
-  const { windows, renameWindow, bindWindowToTask, openTerminal } = useWorkspace()
+  const { windows, renameWindow, bindWindowToTask, openTerminal, closeSessionWindows } = useWorkspace()
   const workspaceWindow = windows.find((window) => window.id === id)
   const recovery = useRecovery()
   const recoveryNotice = recovery.noticeForWindow(workspaceWindow?.projectId ?? activeProject?.id, id)
@@ -448,8 +449,15 @@ export function ChatWindow({ id }: { id: string }) {
         } : undefined}
         onArchive={isRunning ? undefined : async () => {
           try {
-            await tasks?.archive(activeTask.id)
+            if (activeTask.threadId) {
+              await archiveSession(activeTask.threadId, activeProject?.path)
+            } else {
+              await tasks?.archive(activeTask.id)
+            }
             invalidateSessions({ projectId: activeTask.projectId })
+            if (activeTask.threadId) {
+              closeSessionWindows(activeTask.projectId, { threadId: activeTask.threadId, taskId: activeTask.id })
+            }
             toast.success('Session archived')
           } catch (error) { toast.error(errorMessage(error)) }
         }}
