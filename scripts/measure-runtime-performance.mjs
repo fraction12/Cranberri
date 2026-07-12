@@ -69,6 +69,7 @@ try {
       totalMemoryBytes: os.totalmem(),
     },
     fixture: { launchLoops, switchLoops, projectCount: 1, chatWindowCount: 3 },
+    samples,
     metrics,
   }
   const comparison = compareRuntimePerformance(report, contract)
@@ -85,7 +86,7 @@ async function measureInteractions(electronApp, page, fixturePath) {
   await installRendererObservers(page)
   const primaryRepo = page.locator('[data-repo-id="perf-repo"]')
   const prompts = ['perf session one', 'perf session two', 'perf session three']
-  await sendNewSessionPrompt(page, prompts[0])
+  const firstTurn = await sendNewSessionPrompt(page, prompts[0])
   for (const prompt of prompts.slice(1)) {
     await primaryRepo.hover()
     await primaryRepo.getByRole('button', { name: `New session in ${path.basename(fixturePath)}` }).click()
@@ -128,13 +129,32 @@ async function measureInteractions(electronApp, page, fixturePath) {
   await page.getByText('README.md', { exact: true }).waitFor({ timeout: 10_000 })
   const rightRailRefreshMs = [performance.now() - railStartedAt]
 
-  await page.waitForTimeout(1_500)
+  const largeDiff = Array.from({ length: 2_000 }, (_, index) => `Runtime diff line ${index + 1}`).join('\n')
+  fs.appendFileSync(path.join(fixturePath, 'README.md'), `\n${largeDiff}\n`)
+  await page.getByText('README.md', { exact: true }).click()
+  const largeDiffStartedAt = performance.now()
+  await page.getByRole('tab', { name: 'Diff' }).click()
+  await page.locator('.cranberri-diff-viewer').waitFor({ timeout: 10_000 })
+  await page.getByText('Runtime diff line 2000', { exact: true }).waitFor({ timeout: 10_000 })
+  const largeDiffRenderMs = [performance.now() - largeDiffStartedAt]
+
+  const terminalStartedAt = performance.now()
+  await page.getByLabel('New terminal').click()
+  await page.locator('.xterm').waitFor({ timeout: 10_000 })
+  const terminalReadyMs = [performance.now() - terminalStartedAt]
+
+  const browserStartedAt = performance.now()
+  await page.getByLabel('New browser').click()
+  await page.getByPlaceholder('https://localhost:5173').waitFor({ timeout: 10_000 })
+  const browserReadyMs = [performance.now() - browserStartedAt]
+
+  await page.waitForTimeout(5_000)
   const idleCpuPercent = []
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 10; index += 1) {
     idleCpuPercent.push(await electronApp.evaluate(({ app }) => (
       app.getAppMetrics().reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0)
     )))
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(500)
   }
   const longTaskMs = await page.evaluate(() => {
     const values = window.__cranberriRuntimePerf?.longTasks ?? []
@@ -143,7 +163,12 @@ async function measureInteractions(electronApp, page, fixturePath) {
 
   return {
     windowSwitchCoherentMs,
+    firstCodexEventMs: [firstTurn.firstEventMs],
+    transcriptCommitMs: [firstTurn.transcriptCommitMs],
     rightRailRefreshMs,
+    largeDiffRenderMs,
+    terminalReadyMs,
+    browserReadyMs,
     composerKeyToPaintMs,
     longTaskMs,
     idleCpuPercent,
@@ -154,9 +179,13 @@ async function measureInteractions(electronApp, page, fixturePath) {
 async function sendNewSessionPrompt(page, prompt) {
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await composer.fill(prompt)
+  const startedAt = performance.now()
   await page.locator('button[aria-label="Send message"]:visible').click()
+  await page.locator('[data-turn-activity]:visible').last().waitFor({ timeout: 10_000 })
+  const firstEventMs = performance.now() - startedAt
   await page.getByText(`Fake Codex received: ${prompt}`).waitFor({ timeout: 10_000 })
   await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 10_000 })
+  return { firstEventMs, transcriptCommitMs: performance.now() - startedAt }
 }
 
 async function installRendererObservers(page) {

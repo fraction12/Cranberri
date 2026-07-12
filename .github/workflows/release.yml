@@ -52,6 +52,9 @@ jobs:
       - name: Package DMG and updater zip
         run: npm run package
 
+      - name: Verify packaged runtime budgets
+        run: npm run measure:runtime
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
