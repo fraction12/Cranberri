@@ -13,7 +13,8 @@ const appPath = path.join(root, 'dist', 'mac-arm64', 'Cranberri.app')
 const plistPath = path.join(appPath, 'Contents', 'Info.plist')
 const executablePath = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
 const helperPath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'out', 'updater', 'install-helper.mjs')
-for (const required of [plistPath, executablePath, helperPath]) {
+const watchdogPath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'out', 'updater', 'install-watchdog.mjs')
+for (const required of [plistPath, executablePath, helperPath, watchdogPath]) {
   if (!fs.existsSync(required)) throw new Error(`Packaged release file is missing: ${required}`)
 }
 

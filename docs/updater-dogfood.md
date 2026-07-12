@@ -10,7 +10,7 @@ This checklist covers stable GitHub artifacts and beta source builds. Stable rel
 4. If behind, the app can build the latest `main` in a hidden staging area under `~/Library/Application Support/Cranberri/updater-staging`.
 5. Cranberri blocks install while tasks, workers, setup jobs, terminals, or handoffs are active and flushes workspace/draft state.
 6. A detached helper copies a candidate beside the installed app, journals same-volume rename promotion, and keeps the previous app until the recovered renderer acknowledges health.
-7. A watchdog restores the previous app if the installer exits during promotion.
+7. A watchdog restores the previous app if promotion is interrupted or the candidate never acknowledges startup health.
 
 ## New/changed files
 
@@ -86,7 +86,7 @@ This checklist covers stable GitHub artifacts and beta source builds. Stable rel
 Dev builds already run from source; telling them to update would replace the source checkout with a packaged app. The blocked message tells the user to use git directly.
 
 **What happens if the install helper fails?**
-It restores the previous app, preserves the failed candidate for diagnosis, journals `rolledBack`, writes `updater-result.json`, and relaunches the restored app. If the helper itself dies, the watchdog performs the same recovery.
+It restores the previous app, preserves the failed candidate for diagnosis, journals `rolledBack`, writes `updater-result.json`, and relaunches the restored app. If the helper dies or the candidate never acknowledges startup health, the watchdog performs the same recovery.
 
 **Where is the build log?**
 `~/Library/Application Support/Cranberri/updater-staging/build.log`.

@@ -26,6 +26,8 @@ function journal(manifest, phase, detail = null) {
     currentAppPath: manifest.currentAppPath,
     candidateAppPath: manifest.candidateAppPath,
     backupAppPath: manifest.backupAppPath,
+    resultManifestPath: manifest.resultManifestPath,
+    logPath: manifest.logPath ?? null,
     updatedAt: new Date().toISOString(),
   })
   if (process.env.CRANBERRI_UPDATER_FAIL_AFTER === phase) {

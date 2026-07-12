@@ -10,7 +10,7 @@ files:
 asar: true
 npmRebuild: false
 asarUnpack:
-  - out/updater/install-helper.mjs
+  - out/updater/*.mjs
 mac:
   icon: buildResources/icon.icns
   category: public.app-category.developer-tools

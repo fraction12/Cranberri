@@ -22,13 +22,32 @@ async function waitForExit(rawPid) {
 }
 
 export function recoverInterruptedInstall(journal) {
-  if (journal.phase === 'relaunching' || journal.phase === 'healthAcknowledged' || journal.phase === 'rolledBack') return false
+  if (journal.phase === 'healthAcknowledged' || journal.phase === 'rolledBack') return false
   if (!fs.existsSync(journal.backupAppPath)) return false
   if (fs.existsSync(journal.currentAppPath)) {
     fs.renameSync(journal.currentAppPath, `${journal.currentAppPath}.failed-${journal.installId}`)
   }
   fs.renameSync(journal.backupAppPath, journal.currentAppPath)
   return true
+}
+
+function readJournal(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+}
+
+export async function awaitInstallOutcome(filePath, options = {}) {
+  const healthTimeoutMs = options.healthTimeoutMs ?? 45_000
+  const pollIntervalMs = options.pollIntervalMs ?? 250
+  let current = readJournal(filePath)
+  if (current.phase !== 'relaunching') return current
+
+  const deadline = Date.now() + healthTimeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    current = readJournal(filePath)
+    if (current.phase !== 'relaunching') return current
+  }
+  return readJournal(filePath)
 }
 
 function relaunch(appPath) {
@@ -40,9 +59,24 @@ async function main() {
   if (!journalPath) throw new Error('Watchdog journal path is required')
   await waitForExit(installerPid)
   if (!fs.existsSync(journalPath)) return
-  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'))
+  const timeout = Number.parseInt(process.env.CRANBERRI_UPDATER_HEALTH_TIMEOUT_MS ?? '', 10)
+  const journal = await awaitInstallOutcome(journalPath, {
+    healthTimeoutMs: Number.isSafeInteger(timeout) && timeout >= 0 ? timeout : undefined,
+  })
   if (!recoverInterruptedInstall(journal)) return
-  atomicJson(journalPath, { ...journal, phase: 'rolledBack', detail: 'Installer exited before completion', updatedAt: new Date().toISOString() })
+  const message = journal.phase === 'relaunching'
+    ? 'Updated app did not acknowledge startup health in time'
+    : 'Installer exited before promotion completed'
+  atomicJson(journalPath, { ...journal, phase: 'rolledBack', detail: message, updatedAt: new Date().toISOString() })
+  if (typeof journal.resultManifestPath === 'string') {
+    atomicJson(journal.resultManifestPath, {
+      success: false,
+      phase: 'relaunching',
+      message,
+      logPath: typeof journal.logPath === 'string' ? journal.logPath : null,
+      completedAt: new Date().toISOString(),
+    })
+  }
   relaunch(journal.currentAppPath)
 }
 
