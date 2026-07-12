@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   ArrowDown,
@@ -173,6 +174,17 @@ export function ChatWindow({ id }: { id: string }) {
   const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
   const taskProject = tasks?.projects.find((project) => project.id === (activeTask?.projectId ?? activeProject?.id)) ?? null
   const taskTarget = activeTask?.location ?? workspaceWindow?.sessionTarget ?? 'local'
+  const activeTaskContext = activeTask ? tasks?.executionContextForTask(activeTask.id) ?? null : null
+  const recordedWorktreeBranch = activeTask?.worktreeId
+    ? tasks?.managedWorktrees?.find((worktree) => worktree.id === activeTask.worktreeId)?.branch ?? null
+    : null
+  const taskGitSummary = useQuery({
+    queryKey: ['task-git-summary', activeTask?.id, activeTaskContext?.checkoutPath],
+    queryFn: () => window.cranberri.git.taskGithubSummary(activeTask!.id),
+    enabled: Boolean(activeTask && activeTaskContext),
+    refetchInterval: 2_000,
+  })
+  const activeTaskBranch = taskGitSummary.isSuccess ? taskGitSummary.data.branch : recordedWorktreeBranch
   const taskInputBlockReason = activeTask && activeTask.state !== 'local' && activeTask.state !== 'active'
     ? activeTask.state === 'archived'
       ? 'This session is archived. Restore it to continue.'
@@ -791,7 +803,7 @@ export function ChatWindow({ id }: { id: string }) {
     <div className="flex h-full w-full flex-col overflow-hidden bg-app-bg text-app-text">
       {activeTask ? <TaskHeader
         task={activeTask}
-        branch={activeTask.baseRef}
+        branch={activeTaskBranch}
         onOpen={() => {
           const context = tasks?.executionContextForTask(activeTask.id)
           if (context) void window.cranberri.openPath(context.checkoutPath)

@@ -15,9 +15,20 @@ interface TaskHeaderProps {
   onUnarchive?: () => void | Promise<void>
 }
 
+function shortRef(ref: string): string {
+  return ref.replace(/^refs\/(heads|remotes)\//, '')
+}
+
+export function taskHeaderDetail(task: Task, branch?: string | null): string {
+  if (branch) return shortRef(branch)
+  const base = task.baseRef ? shortRef(task.baseRef) : null
+  if (task.location === 'worktree') return base ? `from ${base}` : 'detached'
+  return base ?? 'detached'
+}
+
 export function TaskHeader({ task, branch, onOpen, onOpenTerminal, onHandoff, onRetrySetup, onArchive, onUnarchive }: TaskHeaderProps) {
   const location = task.location === 'local' ? 'Local' : 'Worktree'
-  const detail = (branch ?? task.baseRef ?? 'detached').replace(/^refs\/(heads|remotes)\//, '')
+  const detail = taskHeaderDetail(task, branch)
   const Icon = task.location === 'local' ? Laptop : TreePine
   return (
     <header className="flex h-9 shrink-0 items-center gap-2 px-3">
