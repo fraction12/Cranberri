@@ -1367,7 +1367,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     installPlugin: installPluginFromCommand,
     upgradePluginMarketplaces,
     sendSkillContext: (skill) => {
-      sendCodexResourceContext({
+      return sendCodexResourceContext({
         kind: 'skill',
         label: skill.displayName,
         text: skillChatContext(skill),
@@ -1383,19 +1383,19 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       })
     },
     sendAppContext: (app) => {
-      sendCodexResourceContext({ kind: 'app', label: app.name, text: appChatContext(app) })
+      return sendCodexResourceContext({ kind: 'app', label: app.name, text: appChatContext(app) })
     },
     copyAppContext: (app) => {
       return copyCodexResourceContext({ kind: 'app', label: app.name, text: appChatContext(app) })
     },
     sendMcpServerContext: (server) => {
-      sendCodexResourceContext({ kind: 'mcp-server', label: server.name, text: mcpServerChatContext(server) })
+      return sendCodexResourceContext({ kind: 'mcp-server', label: server.name, text: mcpServerChatContext(server) })
     },
     copyMcpServerContext: (server) => {
       return copyCodexResourceContext({ kind: 'mcp-server', label: server.name, text: mcpServerChatContext(server) })
     },
     sendMcpToolContext: (server, tool) => {
-      sendCodexResourceContext({ kind: 'mcp-tool', label: tool.title ?? tool.name, text: mcpToolChatContext(server, tool) })
+      return sendCodexResourceContext({ kind: 'mcp-tool', label: tool.title ?? tool.name, text: mcpToolChatContext(server, tool) })
     },
     copyMcpToolContext: (server, tool) => {
       return copyCodexResourceContext({ kind: 'mcp-tool', label: tool.title ?? tool.name, text: mcpToolChatContext(server, tool) })
