@@ -6,7 +6,7 @@ Date: 2026-07-12
 
 - Path: `/Applications/Cranberri.app`
 - Version/build: `0.1.11` / `0.1.11`
-- Bundle: `com.dushyantgarg.cranberri`
+- Bundle: `com.<developer>.cranberri` (developer segment sanitized)
 - Profile: normal user profile, real registered repositories observed read-only
 - Operator: Computer Use through the visible installed application
 
@@ -15,7 +15,7 @@ Date: 2026-07-12
 - Registered repositories and their session lists loaded without a manual refresh.
 - Switching from a worktree chat to a new local chat changed the visible execution label from `Worktree · from main` to `Local · main`.
 - Files, Diff, and Agents tabs switched immediately and showed context-appropriate empty states.
-- Opening a terminal from the local session used `/Users/dushyantgarg/Documents/Projects/Cranberri` as its visible working directory.
+- Opening a terminal from the local session used the expected checkout, recorded here as `<home>/Documents/Projects/<project>` to avoid committing the operator username and absolute project path.
 - Opening a browser from the same session produced a bounded `about:blank` tab with reachable navigation controls.
 - The model/reasoning menu opened without moving the transcript and remained open during a scroll gesture.
 - At the normal window size, workspace tabs truncated long labels intentionally and the browser plus right rail showed no overlap or clipped controls.

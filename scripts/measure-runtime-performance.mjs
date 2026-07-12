@@ -5,7 +5,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { compareRuntimePerformance, summarizeSamples } from './runtime-performance-contract.mjs'
+import {
+  compareRuntimePerformance,
+  RUNTIME_MINIMUM_SAMPLE_COUNTS,
+  summarizeSamples,
+} from './runtime-performance-contract.mjs'
 
 const appExecutable = process.platform === 'darwin'
   ? path.resolve('dist/mac-arm64/Cranberri.app/Contents/MacOS/Cranberri')
@@ -13,8 +17,8 @@ const appExecutable = process.platform === 'darwin'
     ? path.resolve('dist/win-unpacked/Cranberri.exe')
     : path.resolve('dist/linux-unpacked/cranberri')
 const contract = JSON.parse(fs.readFileSync(new URL('./runtime-performance-budgets.json', import.meta.url), 'utf8'))
-const launchLoops = Math.max(1, Number(process.env.CRANBERRI_PERF_LAUNCH_LOOPS ?? 3))
-const switchLoops = Math.max(10, Number(process.env.CRANBERRI_PERF_SWITCH_LOOPS ?? 50))
+const launchLoops = Math.max(RUNTIME_MINIMUM_SAMPLE_COUNTS.launchToUsableMs, Number(process.env.CRANBERRI_PERF_LAUNCH_LOOPS ?? 3))
+const switchLoops = Math.max(RUNTIME_MINIMUM_SAMPLE_COUNTS.windowSwitchCoherentMs, Number(process.env.CRANBERRI_PERF_SWITCH_LOOPS ?? 50))
 const outputPath = path.resolve(process.env.CRANBERRI_PERF_OUTPUT ?? 'artifacts/runtime-performance.json')
 
 if (!fs.existsSync(appExecutable)) {
@@ -22,7 +26,7 @@ if (!fs.existsSync(appExecutable)) {
 }
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-runtime-perf-'))
-const repoPath = createFixtureRepo(fixtureRoot)
+const fixtureProjects = createFixtureRepos(fixtureRoot, 3)
 const launchToUsableMs = []
 const workspaceCoherentMs = []
 let interaction = null
@@ -31,7 +35,7 @@ let appVersion = null
 try {
   for (let index = 0; index < launchLoops; index += 1) {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-runtime-profile-'))
-    seedRegisteredRepo(userDataDir, repoPath)
+    seedRegisteredRepos(userDataDir, fixtureProjects)
     const launchedAt = performance.now()
     const electronApp = await launchApp(userDataDir)
     try {
@@ -39,7 +43,7 @@ try {
       const page = await electronApp.firstWindow({ timeout: 20_000 })
       const windowVisibleAt = performance.now()
       await Promise.all([
-        page.getByText(repoPath).waitFor({ timeout: 10_000 }),
+        page.getByRole('button', { name: `Open ${fixtureProjects[0].name}` }).waitFor({ timeout: 10_000 }),
         page.getByText('Local · main', { exact: true }).waitFor({ timeout: 10_000 }),
         page.getByRole('textbox', { name: 'Chat message' }).waitFor({ timeout: 10_000 }),
         page.getByRole('tab', { name: 'Files' }).waitFor({ timeout: 10_000 }),
@@ -47,7 +51,7 @@ try {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
       launchToUsableMs.push(performance.now() - launchedAt)
       workspaceCoherentMs.push(performance.now() - windowVisibleAt)
-      if (index === launchLoops - 1) interaction = await measureInteractions(electronApp, page, repoPath)
+      if (index === launchLoops - 1) interaction = await measureInteractions(electronApp, page, fixtureProjects)
     } finally {
       await electronApp.close().catch(() => undefined)
       fs.rmSync(userDataDir, { recursive: true, force: true })
@@ -55,8 +59,9 @@ try {
   }
 
   if (!interaction) throw new Error('Runtime interaction measurements were not captured')
-  const samples = { launchToUsableMs, workspaceCoherentMs, ...interaction }
+  const samples = { launchToUsableMs, workspaceCoherentMs, ...interaction.samples }
   const metrics = Object.fromEntries(Object.entries(samples).map(([name, values]) => [name, summarizeSamples(values)]))
+  metrics.longTaskMs.maximum = interaction.instrumentation.longTasks.maximumObservedMs
   const report = {
     version: 1,
     capturedAt: new Date().toISOString(),
@@ -68,9 +73,11 @@ try {
       cpuModel: os.cpus()[0]?.model ?? 'unknown',
       totalMemoryBytes: os.totalmem(),
     },
-    fixture: { launchLoops, switchLoops, projectCount: 1, chatWindowCount: 3 },
+    fixture: { launchLoops, switchLoops, projectCount: fixtureProjects.length, checkoutCount: fixtureProjects.length, chatWindowCount: fixtureProjects.length },
     samples,
     metrics,
+    instrumentation: interaction.instrumentation,
+    endurance: interaction.endurance,
   }
   const comparison = compareRuntimePerformance(report, contract)
   const output = { ...report, comparison }
@@ -82,35 +89,48 @@ try {
   fs.rmSync(fixtureRoot, { recursive: true, force: true })
 }
 
-async function measureInteractions(electronApp, page, fixturePath) {
+async function measureInteractions(electronApp, page, projects) {
   await installRendererObservers(page)
-  const primaryRepo = page.locator('[data-repo-id="perf-repo"]')
-  const prompts = ['perf session one', 'perf session two', 'perf session three']
+  const prompts = projects.map((_, index) => `perf project ${index + 1}`)
   const firstTurn = await sendNewSessionPrompt(page, prompts[0])
-  for (const prompt of prompts.slice(1)) {
-    await primaryRepo.hover()
-    await primaryRepo.getByRole('button', { name: `New session in ${path.basename(fixturePath)}` }).click()
+  for (let index = 1; index < projects.length; index += 1) {
+    const project = projects[index]
+    const repo = page.locator(`[data-repo-id="${project.id}"]`)
+    await repo.hover()
+    await repo.getByRole('button', { name: `New session in ${project.name}` }).click()
     await page.getByRole('menuitem', { name: /New Local session/ }).click()
     await page.getByRole('textbox', { name: 'Chat message' }).waitFor({ timeout: 10_000 })
-    await sendNewSessionPrompt(page, prompt)
+    await sendNewSessionPrompt(page, prompts[index])
   }
 
-  const workspaceTabs = page.locator('[role="tab"][aria-label^="Switch to "]')
-  if (await workspaceTabs.count() < 3) throw new Error('Expected three chat windows for the switch loop')
   const memoryBefore = await rendererWorkingSetBytes(electronApp)
   const windowSwitchCoherentMs = []
+  const identityMismatches = []
+  const projectIds = new Set()
+  const checkoutIds = new Set()
+  let identityChecks = 0
+  let activeFixturePath = projects[projects.length - 1].path
   for (let index = 0; index < switchLoops; index += 1) {
-    const tab = workspaceTabs.nth(index % 3)
-    const label = await tab.getAttribute('aria-label')
-    if (!label) throw new Error('Workspace tab did not have an accessible label')
+    const project = projects[index % projects.length]
     const startedAt = performance.now()
-    await tab.click()
-    await page.waitForFunction((expectedLabel) => (
-      [...document.querySelectorAll('[role="tab"]')]
-        .some((tabElement) => tabElement.getAttribute('aria-label') === expectedLabel && tabElement.getAttribute('aria-selected') === 'true')
-      && document.querySelector('[data-chat-composer="true"]') instanceof HTMLElement
-      && document.querySelector('[role="tab"][aria-label="Files"]') instanceof HTMLElement
-    ), label, { timeout: 5_000 })
+    await page.getByRole('button', { name: `Open ${project.name}` }).click()
+    const identityResult = await waitForExpectedIdentity(page, project)
+    identityChecks += 1
+    if (!identityResult.matched) {
+      identityMismatches.push({
+        expectedProjectId: project.id,
+        actualProjectId: identityResult.identity.projectId,
+        windowProjectId: identityResult.identity.windowProjectId,
+        taskProjectId: identityResult.identity.taskProjectId,
+        checkoutProjectId: identityResult.identity.checkoutProjectId,
+        checkoutKind: identityResult.identity.checkoutKind,
+        checkoutPathMatched: identityResult.identity.checkoutPath === project.path,
+      })
+      break
+    }
+    projectIds.add(identityResult.identity.projectId)
+    checkoutIds.add(identityResult.identity.checkoutId)
+    activeFixturePath = identityResult.identity.checkoutPath
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     windowSwitchCoherentMs.push(performance.now() - startedAt)
   }
@@ -125,12 +145,12 @@ async function measureInteractions(electronApp, page, fixturePath) {
   await page.getByRole('tab', { name: 'Files' }).click()
   await page.getByText('No changed files.').waitFor({ timeout: 10_000 })
   const railStartedAt = performance.now()
-  fs.appendFileSync(path.join(fixturePath, 'README.md'), '\nRuntime rail refresh marker.\n')
+  fs.appendFileSync(path.join(activeFixturePath, 'README.md'), '\nRuntime rail refresh marker.\n')
   await page.getByText('README.md', { exact: true }).waitFor({ timeout: 10_000 })
   const rightRailRefreshMs = [performance.now() - railStartedAt]
 
   const largeDiff = Array.from({ length: 2_000 }, (_, index) => `Runtime diff line ${index + 1}`).join('\n')
-  fs.appendFileSync(path.join(fixturePath, 'README.md'), `\n${largeDiff}\n`)
+  fs.appendFileSync(path.join(activeFixturePath, 'README.md'), `\n${largeDiff}\n`)
   await page.getByText('README.md', { exact: true }).click()
   const largeDiffStartedAt = performance.now()
   await page.getByRole('tab', { name: 'Diff' }).click()
@@ -156,24 +176,98 @@ async function measureInteractions(electronApp, page, fixturePath) {
     )))
     await page.waitForTimeout(500)
   }
-  const longTaskMs = await page.evaluate(() => {
+  const longTaskObservation = await page.evaluate(() => {
     const values = window.__cranberriRuntimePerf?.longTasks ?? []
-    return values.length > 0 ? values : [0]
+    return {
+      available: window.__cranberriRuntimePerf?.longTasksAvailable === true,
+      observationWindowMs: performance.now() - (window.__cranberriRuntimePerf?.longTaskObservationStartedAt ?? performance.now()),
+      entryCount: values.length,
+      maximumObservedMs: values.length > 0 ? Math.max(...values) : 0,
+      values,
+    }
   })
 
   return {
-    windowSwitchCoherentMs,
-    firstCodexEventMs: [firstTurn.firstEventMs],
-    transcriptCommitMs: [firstTurn.transcriptCommitMs],
-    rightRailRefreshMs,
-    largeDiffRenderMs,
-    terminalReadyMs,
-    browserReadyMs,
-    composerKeyToPaintMs,
-    longTaskMs,
-    idleCpuPercent,
-    retainedMemoryGrowthPercent,
+    samples: {
+      windowSwitchCoherentMs,
+      firstCodexEventMs: [firstTurn.firstEventMs],
+      transcriptCommitMs: [firstTurn.transcriptCommitMs],
+      rightRailRefreshMs,
+      largeDiffRenderMs,
+      terminalReadyMs,
+      browserReadyMs,
+      composerKeyToPaintMs,
+      longTaskMs: longTaskObservation.values,
+      idleCpuPercent,
+      retainedMemoryGrowthPercent,
+    },
+    instrumentation: {
+      longTasks: {
+        available: longTaskObservation.available,
+        observationWindowMs: longTaskObservation.observationWindowMs,
+        entryCount: longTaskObservation.entryCount,
+        maximumObservedMs: longTaskObservation.maximumObservedMs,
+      },
+    },
+    endurance: {
+      identityChecks,
+      identityMismatches,
+      projectIds: [...projectIds],
+      checkoutIds: [...checkoutIds],
+    },
   }
+}
+
+async function waitForExpectedIdentity(page, project) {
+  try {
+    await page.waitForFunction(async (expected) => {
+      const [state, registry, snapshot] = await Promise.all([
+        window.cranberri.appState.read(),
+        window.cranberri.repos.list(),
+        window.cranberri.tasks.snapshot(),
+      ])
+      const projectId = registry.activeProjectId
+      const workspace = projectId ? state.workspacesByProjectId[projectId] : undefined
+      const activeWindow = workspace?.windows.find((windowState) => windowState.id === workspace.activeWindowId)
+      const task = snapshot.tasks.find((candidate) => candidate.id === activeWindow?.taskId)
+      const checkout = snapshot.checkouts.find((candidate) => candidate.id === activeWindow?.checkoutId)
+      return projectId === expected.id
+        && activeWindow?.projectId === expected.id
+        && task?.projectId === expected.id
+        && checkout?.projectId === expected.id
+        && checkout.kind === 'local'
+        && checkout.canonicalPath === expected.path
+        && document.querySelector('[data-chat-composer="true"]') instanceof HTMLElement
+        && document.querySelector('[role="tab"][aria-label="Files"]') instanceof HTMLElement
+    }, { id: project.id, path: project.path }, { timeout: 5_000 })
+  } catch {
+    return { matched: false, identity: await readActiveIdentity(page) }
+  }
+  return { matched: true, identity: await readActiveIdentity(page) }
+}
+
+async function readActiveIdentity(page) {
+  return page.evaluate(async () => {
+    const [state, registry, snapshot] = await Promise.all([
+      window.cranberri.appState.read(),
+      window.cranberri.repos.list(),
+      window.cranberri.tasks.snapshot(),
+    ])
+    const projectId = registry.activeProjectId
+    const workspace = projectId ? state.workspacesByProjectId[projectId] : undefined
+    const activeWindow = workspace?.windows.find((windowState) => windowState.id === workspace.activeWindowId)
+    const task = snapshot.tasks.find((candidate) => candidate.id === activeWindow?.taskId)
+    const checkout = snapshot.checkouts.find((candidate) => candidate.id === activeWindow?.checkoutId)
+    return {
+      projectId,
+      windowProjectId: activeWindow?.projectId ?? null,
+      taskProjectId: task?.projectId ?? null,
+      checkoutProjectId: checkout?.projectId ?? null,
+      checkoutId: checkout?.id ?? null,
+      checkoutKind: checkout?.kind ?? null,
+      checkoutPath: checkout?.canonicalPath ?? null,
+    }
+  })
 }
 
 async function sendNewSessionPrompt(page, prompt) {
@@ -190,7 +284,12 @@ async function sendNewSessionPrompt(page, prompt) {
 
 async function installRendererObservers(page) {
   await page.evaluate(() => {
-    const state = { keyToPaint: [], longTasks: [] }
+    const state = {
+      keyToPaint: [],
+      longTasks: [],
+      longTasksAvailable: false,
+      longTaskObservationStartedAt: performance.now(),
+    }
     window.__cranberriRuntimePerf = state
     document.addEventListener('keydown', (event) => {
       if (!(event.target instanceof Node) || ![...document.querySelectorAll('[data-composer-input="true"]')]
@@ -202,7 +301,10 @@ async function installRendererObservers(page) {
       const observer = new PerformanceObserver((list) => {
         state.longTasks.push(...list.getEntries().map((entry) => entry.duration))
       })
-      try { observer.observe({ type: 'longtask', buffered: true }) } catch { /* unsupported Chromium build */ }
+      try {
+        observer.observe({ type: 'longtask', buffered: true })
+        state.longTasksAvailable = true
+      } catch { /* unsupported Chromium build */ }
     }
   })
 }
@@ -213,20 +315,25 @@ async function rendererWorkingSetBytes(electronApp) {
     .reduce((total, metric) => total + metric.memory.workingSetSize * 1024, 0))
 }
 
-function createFixtureRepo(rootDir) {
-  const fixturePath = path.join(rootDir, 'cranberri-runtime-repo')
+function createFixtureRepos(rootDir, count) {
+  return Array.from({ length: count }, (_, index) => createFixtureRepo(rootDir, index + 1))
+}
+
+function createFixtureRepo(rootDir, index) {
+  const name = `cranberri-runtime-repo-${index}`
+  const fixturePath = path.join(rootDir, name)
   fs.mkdirSync(fixturePath, { recursive: true })
-  fs.writeFileSync(path.join(fixturePath, 'README.md'), '# Cranberri runtime fixture\n')
+  fs.writeFileSync(path.join(fixturePath, 'README.md'), `# Cranberri runtime fixture ${index}\n`)
   execFileSync('git', ['init', '--quiet'], { cwd: fixturePath })
   execFileSync('git', ['add', 'README.md'], { cwd: fixturePath })
   execFileSync('git', ['-c', 'user.name=Cranberri Runtime', '-c', 'user.email=runtime@example.invalid', 'commit', '--quiet', '-m', 'Initial fixture'], { cwd: fixturePath })
-  return fixturePath
+  return { id: `perf-repo-${index}`, name, path: fixturePath }
 }
 
-function seedRegisteredRepo(userDataDir, fixturePath) {
+function seedRegisteredRepos(userDataDir, projects) {
   fs.writeFileSync(path.join(userDataDir, 'repos.json'), JSON.stringify({
-    repos: [{ id: 'perf-repo', name: path.basename(fixturePath), path: fixturePath }],
-    activeRepoId: 'perf-repo',
+    repos: projects,
+    activeRepoId: projects[0].id,
   }))
 }
 

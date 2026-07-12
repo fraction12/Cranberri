@@ -9,6 +9,26 @@ const ROOT_MARKER = '.cranberri-uat-root.json'
 const RESULTS = new Set(['pass', 'fail', 'blocked'])
 const SEVERITIES = new Set(['none', 'P0', 'P1', 'P2'])
 
+export const DAILY_DRIVER_SCENARIO_CONTRACT = Object.freeze({
+  version: 1,
+  scenarios: Object.freeze({
+    'DD-01': { requiredTimings: ['launchToUsableMs'], requiredAssertions: ['fixture-project-only'], minimumEvidencePaths: 1 },
+    'DD-02': { requiredTimings: ['launchToUsableMs', 'workspaceCoherentMs', 'windowSwitchCoherentP95Ms'], requiredAssertions: ['restored-execution-identity'], minimumEvidencePaths: 1 },
+    'DD-03': { requiredTimings: [], requiredAssertions: ['local-session-restored'], minimumEvidencePaths: 1 },
+    'DD-04': { requiredTimings: [], requiredAssertions: ['managed-checkout-identity'], minimumEvidencePaths: 1 },
+    'DD-05': { requiredTimings: ['composerKeyToPaintP95Ms'], requiredAssertions: ['composer-draft-roundtrip'], minimumEvidencePaths: 1 },
+    'DD-06': { requiredTimings: [], requiredAssertions: ['menu-focus-scroll-contained'], minimumEvidencePaths: 1 },
+    'DD-07': { requiredTimings: [], requiredAssertions: ['active-turn-targeting'], minimumEvidencePaths: 1 },
+    'DD-08': { requiredTimings: [], requiredAssertions: ['agent-checkout-identity'], minimumEvidencePaths: 1 },
+    'DD-09': { requiredTimings: ['terminalReadyMs', 'browserReadyMs'], requiredAssertions: ['terminal-browser-context'], minimumEvidencePaths: 1 },
+    'DD-10': { requiredTimings: ['rightRailRefreshMs'], requiredAssertions: ['right-rail-checkout-context'], minimumEvidencePaths: 1 },
+    'DD-11': { requiredTimings: [], requiredAssertions: ['lifecycle-recovery-state'], minimumEvidencePaths: 1 },
+    'DD-12': { requiredTimings: [], requiredAssertions: ['handoff-head-dirty-protection'], minimumEvidencePaths: 1 },
+    'DD-13': { requiredTimings: [], requiredAssertions: ['update-metadata-no-install'], minimumEvidencePaths: 1 },
+    'DD-14': { requiredTimings: [], requiredAssertions: ['compact-layout-context-preserved'], minimumEvidencePaths: 1 },
+  }),
+})
+
 function realTempRoot() {
   return fs.realpathSync(os.tmpdir())
 }
@@ -64,6 +84,7 @@ export function startEvidenceRecord(options) {
   if (!/^DD-[0-9]{2}$/.test(options?.scenarioId ?? '')) {
     throw new Error('scenarioId must use the versioned DD-01 form')
   }
+  scenarioRequirements(options.scenarioId)
   if (!options?.fixtureManifestPath) throw new Error('fixtureManifestPath is required')
 
   const fixture = readFixtureManifest(options.fixtureManifestPath)
@@ -80,6 +101,7 @@ export function startEvidenceRecord(options) {
   const startedAt = new Date().toISOString()
   const record = {
     schemaVersion: 1,
+    scenarioContractVersion: DAILY_DRIVER_SCENARIO_CONTRACT.version,
     scenarioId: options.scenarioId,
     startedAt,
     updatedAt: startedAt,
@@ -116,10 +138,45 @@ function validateEvidencePaths(evidencePaths) {
   }
 }
 
+function validateStateAssertions(stateAssertions) {
+  for (const assertion of stateAssertions) {
+    if (typeof assertion?.id !== 'string' || !assertion.id || typeof assertion.passed !== 'boolean') {
+      throw new Error('State assertions require a stable id and boolean passed value')
+    }
+  }
+}
+
+function scenarioRequirements(scenarioId) {
+  const requirements = DAILY_DRIVER_SCENARIO_CONTRACT.scenarios[scenarioId]
+  if (!requirements) throw new Error(`Unknown daily-driver scenario ${scenarioId}`)
+  return requirements
+}
+
+function validatePassingEvidence(record, timings, stateAssertions, evidencePaths) {
+  const requirements = scenarioRequirements(record.scenarioId)
+  for (const timing of requirements.requiredTimings) {
+    if (!Number.isFinite(timings[timing])) {
+      throw new Error(`${record.scenarioId} pass requires timing ${timing}`)
+    }
+  }
+  for (const assertionId of requirements.requiredAssertions) {
+    if (!stateAssertions.some((assertion) => assertion.id === assertionId && assertion.passed === true)) {
+      throw new Error(`${record.scenarioId} pass requires assertion ${assertionId}`)
+    }
+  }
+  if (evidencePaths.length < requirements.minimumEvidencePaths) {
+    throw new Error(`${record.scenarioId} pass requires at least ${requirements.minimumEvidencePaths} raw evidence artifact`)
+  }
+}
+
 export function finishEvidenceRecord(recordPath, update) {
   const resolvedRecordPath = path.resolve(recordPath)
   assertTempPath(resolvedRecordPath, 'Evidence record')
   const record = JSON.parse(fs.readFileSync(resolvedRecordPath, 'utf8'))
+  scenarioRequirements(record.scenarioId)
+  if (record.scenarioContractVersion !== DAILY_DRIVER_SCENARIO_CONTRACT.version) {
+    throw new Error(`Evidence record scenario contract version ${record.scenarioContractVersion} does not match ${DAILY_DRIVER_SCENARIO_CONTRACT.version}`)
+  }
   if (!RESULTS.has(update?.result)) throw new Error(`Invalid evidence result: ${update?.result}`)
   if (!SEVERITIES.has(update?.severity)) throw new Error(`Invalid evidence severity: ${update?.severity}`)
   if (update.result === 'pass' && update.severity !== 'none') {
@@ -133,10 +190,12 @@ export function finishEvidenceRecord(recordPath, update) {
   const stateAssertions = update.stateAssertions ?? []
   const evidencePaths = update.evidencePaths ?? []
   validateTimings(timings)
+  validateStateAssertions(stateAssertions)
   validateEvidencePaths(evidencePaths)
   if (update.result === 'pass' && stateAssertions.some((assertion) => assertion.passed !== true)) {
     throw new Error('Passing evidence cannot contain a failed state assertion')
   }
+  if (update.result === 'pass') validatePassingEvidence(record, timings, stateAssertions, evidencePaths)
 
   const next = {
     ...record,

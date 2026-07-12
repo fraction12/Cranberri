@@ -22,6 +22,27 @@ This corpus is the human-style acceptance suite for the installed Cranberri app.
 
 The fixture cases are stable across runs: `local` is clean on `main`; `worktree` has one synthetic committed change; `handoff` has one unique commit; `dirty` has tracked and untracked changes; `error` provides a missing checkout path and a non-Git directory. The fixture SHA excludes temp paths and is identical for identical fixture content.
 
+## Evidence Contract v1
+
+The recorder accepts only the scenario IDs below. A `pass` requires every named timing, a passing durable assertion with the exact stable ID, and at least one raw evidence artifact under the marked temp evidence root. `fail` and `blocked` records still describe observed evidence, but they do not claim the pass contract was met.
+
+| Scenario | Required timings for pass | Required durable assertion |
+|---|---|---|
+| DD-01 | `launchToUsableMs` | `fixture-project-only` |
+| DD-02 | `launchToUsableMs`, `workspaceCoherentMs`, `windowSwitchCoherentP95Ms` | `restored-execution-identity` |
+| DD-03 | None | `local-session-restored` |
+| DD-04 | None | `managed-checkout-identity` |
+| DD-05 | `composerKeyToPaintP95Ms` | `composer-draft-roundtrip` |
+| DD-06 | None | `menu-focus-scroll-contained` |
+| DD-07 | None | `active-turn-targeting` |
+| DD-08 | None | `agent-checkout-identity` |
+| DD-09 | `terminalReadyMs`, `browserReadyMs` | `terminal-browser-context` |
+| DD-10 | `rightRailRefreshMs` | `right-rail-checkout-context` |
+| DD-11 | None | `lifecycle-recovery-state` |
+| DD-12 | None | `handoff-head-dirty-protection` |
+| DD-13 | None | `update-metadata-no-install` |
+| DD-14 | None | `compact-layout-context-preserved` |
+
 ## Scenarios
 
 ### DD-01 Cold Installed Launch
@@ -139,4 +160,3 @@ The fixture cases are stable across runs: `local` is clean on `main`; `worktree`
 ## Run Completion
 
 A scenario passes only when every pass condition is observed and every durable assertion passes. Use `fail` with P0/P1/P2 for a product defect and `blocked` when an external prerequisite prevents a verdict. Do not convert a visible failure into a pass because a source test succeeds. Record cleanup as a separate operator action after all evidence paths have been reviewed.
-

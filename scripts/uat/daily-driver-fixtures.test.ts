@@ -8,6 +8,7 @@ import {
   trashDailyDriverFixtures,
 } from './daily-driver-fixtures.mjs'
 import {
+  DAILY_DRIVER_SCENARIO_CONTRACT,
   finishEvidenceRecord,
   startEvidenceRecord,
   trashEvidenceArtifacts,
@@ -15,6 +16,12 @@ import {
 
 const fixtureRoots: string[] = []
 const evidenceRoots: string[] = []
+const appMetadata = {
+  version: '0.1.11',
+  build: '1011',
+  bundleId: 'com.fraction12.cranberri',
+  path: '/Applications/Cranberri.app',
+}
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -81,12 +88,7 @@ describe('daily-driver UAT evidence', () => {
     const started = startEvidenceRecord({
       scenarioId: 'DD-01',
       fixtureManifestPath: fixture.manifestPath,
-      appMetadata: {
-        version: '0.1.11',
-        build: '1011',
-        bundleId: 'com.fraction12.cranberri',
-        path: '/Applications/Cranberri.app',
-      },
+      appMetadata,
     })
     evidenceRoots.push(started.artifactRoot)
     const screenshotPath = path.join(started.artifactRoot, 'after.png')
@@ -94,7 +96,7 @@ describe('daily-driver UAT evidence', () => {
 
     const record = finishEvidenceRecord(started.recordPath, {
       timings: { launchToUsableMs: 842 },
-      stateAssertions: [{ id: 'workspace-visible', passed: true, actual: 'local fixture selected' }],
+      stateAssertions: [{ id: 'fixture-project-only', passed: true, actual: 'local fixture selected' }],
       severity: 'none',
       result: 'pass',
       evidencePaths: [{ kind: 'screenshot-after', path: screenshotPath }],
@@ -102,6 +104,7 @@ describe('daily-driver UAT evidence', () => {
 
     expect(record).toMatchObject({
       schemaVersion: 1,
+      scenarioContractVersion: 1,
       scenarioId: 'DD-01',
       fixtureSha: fixture.fixtureSha,
       app: {
@@ -116,7 +119,7 @@ describe('daily-driver UAT evidence', () => {
     })
     expect(record.machine).toEqual(expect.objectContaining({ platform: process.platform, arch: process.arch }))
     expect(record.stateAssertions).toEqual([
-      { id: 'workspace-visible', passed: true, actual: 'local fixture selected' },
+      { id: 'fixture-project-only', passed: true, actual: 'local fixture selected' },
     ])
     expect(record.evidencePaths).toEqual([{ kind: 'screenshot-after', path: screenshotPath }])
     expect(started.recordPath.startsWith(`${fs.realpathSync(os.tmpdir())}${path.sep}`)).toBe(true)
@@ -146,6 +149,68 @@ describe('daily-driver UAT evidence', () => {
     })
     expect(calls).toEqual([{ file: '/usr/bin/trash', args: [started.artifactRoot] }])
   })
+
+  it('rejects scenario IDs outside the versioned corpus', () => {
+    const fixture = createDailyDriverFixtures()
+    fixtureRoots.push(fixture.root)
+    let started: ReturnType<typeof startEvidenceRecord> | undefined
+    let thrown: unknown
+    try {
+      started = startEvidenceRecord({
+        scenarioId: 'DD-99',
+        fixtureManifestPath: fixture.manifestPath,
+        appMetadata,
+      })
+    } catch (error) {
+      thrown = error
+    }
+    if (started) evidenceRoots.push(started.artifactRoot)
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect((thrown as Error).message).toMatch(/Unknown daily-driver scenario DD-99/)
+  })
+
+  it('rejects evidence-free passes and missing per-scenario requirements', () => {
+    const fixture = createDailyDriverFixtures()
+    fixtureRoots.push(fixture.root)
+
+    const launch = startEvidenceRecord({
+      scenarioId: 'DD-01',
+      fixtureManifestPath: fixture.manifestPath,
+      appMetadata,
+    })
+    evidenceRoots.push(launch.artifactRoot)
+    expect(() => finishEvidenceRecord(launch.recordPath, {
+      timings: { launchToUsableMs: 842 },
+      stateAssertions: [],
+      severity: 'none',
+      result: 'pass',
+      evidencePaths: [],
+    })).toThrow(/DD-01 pass requires assertion fixture-project-only/)
+    expect(() => finishEvidenceRecord(launch.recordPath, {
+      timings: { launchToUsableMs: 842 },
+      stateAssertions: [{ id: 'fixture-project-only', passed: true }],
+      severity: 'none',
+      result: 'pass',
+      evidencePaths: [],
+    })).toThrow(/DD-01 pass requires at least 1 raw evidence artifact/)
+
+    const composer = startEvidenceRecord({
+      scenarioId: 'DD-05',
+      fixtureManifestPath: fixture.manifestPath,
+      appMetadata,
+    })
+    evidenceRoots.push(composer.artifactRoot)
+    const screenshotPath = path.join(composer.artifactRoot, 'composer-after.png')
+    fs.writeFileSync(screenshotPath, 'sanitized fixture screenshot placeholder')
+    expect(() => finishEvidenceRecord(composer.recordPath, {
+      timings: {},
+      stateAssertions: [{ id: 'composer-draft-roundtrip', passed: true }],
+      severity: 'none',
+      result: 'pass',
+      evidencePaths: [{ kind: 'screenshot-after', path: screenshotPath }],
+    })).toThrow(/DD-05 pass requires timing composerKeyToPaintP95Ms/)
+  })
 })
 
 describe('daily-driver UAT corpus', () => {
@@ -155,12 +220,16 @@ describe('daily-driver UAT corpus', () => {
       'utf8',
     )
     const headings = [...scenarios.matchAll(/^### (DD-[0-9]{2}) /gm)].map((match) => match[1])
-    expect(headings).toEqual(Array.from({ length: 14 }, (_, index) => `DD-${String(index + 1).padStart(2, '0')}`))
+    expect(headings).toEqual(Object.keys(DAILY_DRIVER_SCENARIO_CONTRACT.scenarios))
 
     for (const scenarioId of headings) {
       const section = scenarios.split(`### ${scenarioId} `)[1]?.split('\n### DD-')[0] ?? ''
       expect(section, `${scenarioId} preconditions`).toContain('**Preconditions:**')
       expect(section, `${scenarioId} pass conditions`).toContain('**Pass conditions:**')
+      const requirements = DAILY_DRIVER_SCENARIO_CONTRACT.scenarios[scenarioId]
+      expect(scenarios, `${scenarioId} evidence contract`).toContain(`| ${scenarioId} |`)
+      for (const timing of requirements.requiredTimings) expect(scenarios).toContain(`\`${timing}\``)
+      for (const assertion of requirements.requiredAssertions) expect(scenarios).toContain(`\`${assertion}\``)
     }
   })
 
