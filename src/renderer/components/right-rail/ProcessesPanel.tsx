@@ -3,7 +3,7 @@ import { Activity, AlertCircle, Globe, Loader2, MessageSquare, RefreshCw, Termin
 import { toast } from 'sonner'
 import { createOpenProcessBrowserEvent } from '../process-browser-events'
 import { createCloseProcessTerminalEvent, createOpenProcessTerminalEvent } from '../process-terminal-events'
-import { createSendChatContextEvent } from '../chat/chat-context-events'
+import { sendChatContextSafely } from '../../state/chat-context-command'
 import { createProcessContextCapturedEvent } from '../process-context-events'
 import { processChatContext } from '../process-chat-context'
 import { canFocusProcessTerminal, processRowMetadata } from './process-row-model'
@@ -187,7 +187,7 @@ function ProcessRow({
   }
   const sendContextToChat = () => {
     window.dispatchEvent(createProcessContextCapturedEvent(processInfo))
-    window.dispatchEvent(createSendChatContextEvent({ text: processChatContext(processInfo) }))
+    sendChatContextSafely({ text: processChatContext(processInfo) })
   }
   const canFocusTerminal = canFocusProcessTerminal(processInfo)
   const metadata = processRowMetadata(processInfo)

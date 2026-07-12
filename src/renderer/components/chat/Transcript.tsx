@@ -1,7 +1,7 @@
 import { Suspense, lazy, memo, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, Copy, MessageSquarePlus } from 'lucide-react'
 import { formatInlineCodexText } from './mention-pill'
-import { createSendChatContextEvent } from './chat-context-events'
+import { sendChatContextSafely } from '../../state/chat-context-command'
 import { assistantResponseChatContext, stripCodexAppDirectives } from './assistant-response-context'
 import { cn, iconButton } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
@@ -19,9 +19,9 @@ function MessageActions({ text }: { text: string }) {
   const visibleText = stripCodexAppDirectives(text)
   if (!visibleText) return null
   const sendToChat = () => {
-    window.dispatchEvent(createSendChatContextEvent({
+    sendChatContextSafely({
       text: assistantResponseChatContext(visibleText),
-    }))
+    })
   }
 
   return (

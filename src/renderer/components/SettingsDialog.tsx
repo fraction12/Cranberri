@@ -6,6 +6,7 @@ import { useUpdate } from '../state/update'
 import { cn, dialogSurface, iconButton } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import { CodexResourcesSection } from './CodexResourcesSection'
+import { ConfirmDialog } from './ConfirmDialog'
 import { DiagnosticsSection } from './DiagnosticsSection'
 import { AppearanceSettings } from './settings/AppearanceSettings'
 import { GeneralSettings } from './settings/GeneralSettings'
@@ -41,7 +42,7 @@ const TABS: Array<{ value: SettingsTabValue; label: string; icon: React.ElementT
 ]
 
 export function SettingsDialog({ open, onClose, initialTab = 'general' }: SettingsDialogProps) {
-  const { settings, loading, status, error, retry, updateSection } = useSettings()
+  const { settings, loading, status, retry, updateSection } = useSettings()
   const update = useUpdate()
   const [activeTab, setActiveTab] = useState<SettingsTabValue>(initialTab)
   const [version, setVersion] = useState('...')
@@ -96,7 +97,7 @@ export function SettingsDialog({ open, onClose, initialTab = 'general' }: Settin
                   <div className="min-w-0">
                     <div className={typeStyle({ role: 'status', tone: 'warning' })}>Settings unavailable</div>
                     <div className={cn('mt-1', typeStyle({ role: 'metadata', tone: 'secondary' }))}>
-                      {error ?? 'Cranberri could not safely load your settings.'}
+                      Cranberri could not safely load your settings. Your current settings have not been changed.
                     </div>
                     <button
                       type="button"
@@ -151,6 +152,9 @@ function LiveEnvironmentsSettings() {
   const { activeProjectId, refresh: refreshProjects } = useRepos()
   const [projectId, setProjectId] = useState(activeProjectId)
   const [records, setRecords] = useState<EnvironmentRecord[]>([])
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const load = useCallback(async (target = projectId) => {
     if (!target) { setRecords([]); return }
@@ -166,7 +170,8 @@ function LiveEnvironmentsSettings() {
     toast.success('Environment saved')
   }
 
-  return <EnvironmentsSettings
+  return <>
+    <EnvironmentsSettings
     projects={tasks.projects}
     activeProjectId={projectId}
     environments={records.map((record) => ({
@@ -191,8 +196,9 @@ function LiveEnvironmentsSettings() {
       void window.cranberri.environments.startTest({ projectId, environmentId: item.id, revision: item.revision }).then(() => toast.success('Environment test started')).catch((error) => toast.error(error instanceof Error ? error.message : 'Environment test failed'))
     }}
     onDelete={(item) => {
-      if (!projectId || !window.confirm(`Delete ${item.profile.name}?`)) return
-      void window.cranberri.environments.delete(projectId, item.id).then(() => load()).then(() => toast.success('Environment deleted')).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to delete environment'))
+      if (!projectId) return
+      setDeleteError(null)
+      setPendingDelete({ id: item.id, name: item.profile.name })
     }}
     onSetDefault={(environmentId) => {
       if (!projectId) return
@@ -201,7 +207,34 @@ function LiveEnvironmentsSettings() {
         toast.success(environmentId ? 'Default environment updated' : 'Default environment cleared')
       }).catch((error) => toast.error(error instanceof Error ? error.message : 'Failed to update default environment'))
     }}
-  />
+    />
+    {pendingDelete && <ConfirmDialog
+      title="Delete environment?"
+      description={`${pendingDelete.name} will be removed from this project.`}
+      confirmLabel="Delete"
+      busy={deleting}
+      busyLabel="Deleting"
+      danger
+      error={deleteError}
+      onCancel={() => { setPendingDelete(null); setDeleteError(null) }}
+      onConfirm={() => {
+        if (!projectId || deleting) return
+        setDeleting(true)
+        setDeleteError(null)
+        void window.cranberri.environments.delete(projectId, pendingDelete.id)
+          .then(() => load())
+          .then(() => {
+            setPendingDelete(null)
+            toast.success('Environment deleted')
+          })
+          .catch((error) => {
+            console.error('Failed to delete environment:', error)
+            setDeleteError('Environment could not be deleted. Try again.')
+          })
+          .finally(() => setDeleting(false))
+      }}
+    />}
+  </>
 }
 
 function SidebarButton({ active, value, icon: Icon, label, onClick }: {

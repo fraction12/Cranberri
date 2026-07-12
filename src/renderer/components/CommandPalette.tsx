@@ -14,7 +14,7 @@ import { actionSearchText, buildActiveThreadMessageActions, buildAppActions, bui
 import { createOpenRightRailFileEvent } from './right-rail/right-rail-file-events'
 import { createOpenRightRailCommandEvent } from './right-rail/right-rail-command-events'
 import { RIGHT_RAIL_ACTIVE_FILE_EVENT, rightRailActiveFileFromEvent } from './right-rail/right-rail-active-file-events'
-import { createSendChatContextEvent } from './chat/chat-context-events'
+import { sendChatContext } from '../state/chat-context-command'
 import { createOpenProcessBrowserEvent } from './process-browser-events'
 import { createOpenProcessTerminalEvent } from './process-terminal-events'
 import { REPO_FILE_CONTEXT_CAPTURED_EVENT, repoFileContextFromEvent } from './repo-file-context-events'
@@ -394,9 +394,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         text: snapshot.buffer,
       }
       setLatestTerminalContext(terminalContext)
-      window.dispatchEvent(createSendChatContextEvent({
+      await sendChatContext({
         text: terminalBufferChatContext(terminalContext),
-      }))
+      })
       return
     }
 
@@ -404,7 +404,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       const snapshot = await window.cranberri.browser.snapshot(windowId)
       setLatestBrowserSnapshot(snapshot)
       window.dispatchEvent(createBrowserSnapshotContextCapturedEvent(snapshot))
-      window.dispatchEvent(createSendChatContextEvent({ text: browserSnapshotChatContext(snapshot) }))
+      await sendChatContext({ text: browserSnapshotChatContext(snapshot) })
       return
     }
 
@@ -413,7 +413,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         ? latestBrowserInspection
         : await window.cranberri.browser.inspectElement(windowId)
       setLatestBrowserInspection(inspection)
-      window.dispatchEvent(createSendChatContextEvent({ text: browserInspectionChatContext(inspection) }))
+      await sendChatContext({ text: browserInspectionChatContext(inspection) })
       return
     }
 
@@ -436,10 +436,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
         url: pageState.url,
       },
     }))
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: browserScreenshotChatContext(screenshot, pageState),
       inputParts: [{ type: 'localImage', path: screenshot.path, detail: 'high' }],
-    }))
+    })
   }, [activeRepo?.path, latestBrowserInspection])
 
   const copyActiveWindowContext = useCallback(async (windowId: string, kind: ActiveWindowContextKind) => {
@@ -548,9 +548,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       workingContent,
     }
     setLatestRepoFileContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoFileChatContext(context),
-    }))
+    })
   }, [activeRepo])
 
   const copyFileContext = useCallback(async (path: string) => {
@@ -570,9 +570,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     const context = { result: { ...result, thread }, thread }
     setLatestSessionContext(context)
     window.dispatchEvent(createSessionContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: sessionChatContext(thread, result.transcriptMatches ?? []),
-    }))
+    })
   }, [])
 
   const copySessionContext = useCallback(async (result: SessionSearchResult) => {
@@ -583,10 +583,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     await navigator.clipboard.writeText(sessionChatContext(thread, result.transcriptMatches ?? []))
   }, [])
 
-  const sendAppContextToChat = useCallback((context: LatestAppContext) => {
+  const sendAppContextToChat = useCallback(async (context: LatestAppContext) => {
     setLatestAppContext(context)
     window.dispatchEvent(createAppContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({ text: context.text }))
+    await sendChatContext({ text: context.text })
   }, [])
 
   const copyAppContextToClipboard = useCallback(async (context: LatestAppContext) => {
@@ -597,7 +597,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
 
   const sendDiagnosticsContext = useCallback(async () => {
     const report = await window.cranberri.health.diagnostics()
-    sendAppContextToChat({
+    await sendAppContextToChat({
       kind: 'diagnostics',
       label: 'Diagnostics',
       text: diagnosticsChatContext(report),
@@ -662,7 +662,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       window.cranberri.codex.getRateLimits(),
       window.cranberri.codex.getAccountUsage(),
     ])
-    sendAppContextToChat({
+    await sendAppContextToChat({
       kind: 'usage',
       label: 'Codex usage',
       text: usageChatContext(data, accountUsage),
@@ -681,9 +681,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     })
   }, [copyAppContextToClipboard])
 
-  const sendActiveChatContext = useCallback(() => {
+  const sendActiveChatContext = useCallback(async () => {
     if (!activeThread) throw new Error('Open a chat first')
-    sendAppContextToChat({
+    await sendAppContextToChat({
       kind: 'active-chat',
       label: activeThread.title || activeThread.id,
       text: activeChatContext(activeThread),
@@ -717,97 +717,97 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     await navigator.clipboard.writeText(activeThreadMarkdownExport(activeThread, activeRepo?.path ?? null))
   }, [activeRepo?.path, activeThread])
 
-  const sendLatestAssistantResponseToChat = useCallback((message: CodexMessage) => {
-    window.dispatchEvent(createSendChatContextEvent({ text: assistantResponseChatContext(message.content) }))
+  const sendLatestAssistantResponseToChat = useCallback(async (message: CodexMessage) => {
+    await sendChatContext({ text: assistantResponseChatContext(message.content) })
   }, [])
 
   const copyLatestAssistantResponse = useCallback(async (message: CodexMessage) => {
     await navigator.clipboard.writeText(message.content)
   }, [])
 
-  const sendLatestUserPromptToChat = useCallback((message: CodexMessage) => {
-    window.dispatchEvent(createSendChatContextEvent({ text: userPromptChatContext(message.content) }))
+  const sendLatestUserPromptToChat = useCallback(async (message: CodexMessage) => {
+    await sendChatContext({ text: userPromptChatContext(message.content) })
   }, [])
 
   const copyLatestUserPrompt = useCallback(async (message: CodexMessage) => {
     await navigator.clipboard.writeText(message.content)
   }, [])
 
-  const sendLatestTerminalContextToChat = useCallback((context: LatestTerminalContext) => {
+  const sendLatestTerminalContextToChat = useCallback(async (context: LatestTerminalContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: terminalBufferChatContext(context) }))
+    await sendChatContext({ text: terminalBufferChatContext(context) })
   }, [activeThread])
 
   const copyLatestTerminalContext = useCallback(async (context: LatestTerminalContext) => {
     await navigator.clipboard.writeText(terminalBufferChatContext(context))
   }, [])
 
-  const sendLatestRepoChangesContextToChat = useCallback((context: LatestRepoChangesContext) => {
+  const sendLatestRepoChangesContextToChat = useCallback(async (context: LatestRepoChangesContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: repoChangesChatContext(context) }))
+    await sendChatContext({ text: repoChangesChatContext(context) })
   }, [activeThread])
 
   const copyLatestRepoChangesContext = useCallback(async (context: LatestRepoChangesContext) => {
     await navigator.clipboard.writeText(repoChangesChatContext(context))
   }, [])
 
-  const sendLatestRepoFileContextToChat = useCallback((context: LatestRepoFileContext) => {
+  const sendLatestRepoFileContextToChat = useCallback(async (context: LatestRepoFileContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: repoFileChatContext(context) }))
+    await sendChatContext({ text: repoFileChatContext(context) })
   }, [activeThread])
 
   const copyLatestRepoFileContext = useCallback(async (context: LatestRepoFileContext) => {
     await navigator.clipboard.writeText(repoFileChatContext(context))
   }, [])
 
-  const sendProcessContext = useCallback((processInfo: AgentProcessInfo) => {
+  const sendProcessContext = useCallback(async (processInfo: AgentProcessInfo) => {
     setLatestProcessContext(processInfo)
     window.dispatchEvent(createProcessContextCapturedEvent(processInfo))
-    window.dispatchEvent(createSendChatContextEvent({ text: processChatContext(processInfo) }))
+    await sendChatContext({ text: processChatContext(processInfo) })
   }, [])
 
-  const sendLatestProcessContextToChat = useCallback((processInfo: AgentProcessInfo) => {
+  const sendLatestProcessContextToChat = useCallback(async (processInfo: AgentProcessInfo) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: processChatContext(processInfo) }))
+    await sendChatContext({ text: processChatContext(processInfo) })
   }, [activeThread])
 
   const copyLatestProcessContext = useCallback(async (processInfo: AgentProcessInfo) => {
     await navigator.clipboard.writeText(processChatContext(processInfo))
   }, [])
 
-  const sendToolEventContext = useCallback((event: ToolEventRecord) => {
+  const sendToolEventContext = useCallback(async (event: ToolEventRecord) => {
     setLatestToolEventContext(event)
     window.dispatchEvent(createToolEventContextCapturedEvent(event))
-    window.dispatchEvent(createSendChatContextEvent({ text: toolEventChatContext(event) }))
+    await sendChatContext({ text: toolEventChatContext(event) })
   }, [])
 
-  const sendLatestToolEventContextToChat = useCallback((event: ToolEventRecord) => {
+  const sendLatestToolEventContextToChat = useCallback(async (event: ToolEventRecord) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: toolEventChatContext(event) }))
+    await sendChatContext({ text: toolEventChatContext(event) })
   }, [activeThread])
 
   const copyLatestToolEventContext = useCallback(async (event: ToolEventRecord) => {
     await navigator.clipboard.writeText(toolEventChatContext(event))
   }, [])
 
-  const sendLatestSessionContextToChat = useCallback((context: LatestSessionContext) => {
+  const sendLatestSessionContextToChat = useCallback(async (context: LatestSessionContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: sessionChatContext(context.thread, context.result.transcriptMatches ?? []),
-    }))
+    })
   }, [activeThread])
 
   const copyLatestSessionContext = useCallback(async (context: LatestSessionContext) => {
     await navigator.clipboard.writeText(sessionChatContext(context.thread, context.result.transcriptMatches ?? []))
   }, [])
 
-  const sendCodexResourceContext = useCallback((context: LatestCodexResourceContext) => {
+  const sendCodexResourceContext = useCallback(async (context: LatestCodexResourceContext) => {
     setLatestCodexResourceContext(context)
     window.dispatchEvent(createCodexResourceContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: context.text,
       inputParts: context.inputParts,
-    }))
+    })
   }, [])
 
   const copyCodexResourceContext = useCallback(async (context: LatestCodexResourceContext) => {
@@ -816,47 +816,47 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     await navigator.clipboard.writeText(context.text)
   }, [])
 
-  const sendLatestCodexResourceContextToChat = useCallback((context: LatestCodexResourceContext) => {
+  const sendLatestCodexResourceContextToChat = useCallback(async (context: LatestCodexResourceContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: context.text,
       inputParts: context.inputParts,
-    }))
+    })
   }, [activeThread])
 
   const copyLatestCodexResourceContext = useCallback(async (context: LatestCodexResourceContext) => {
     await navigator.clipboard.writeText(context.text)
   }, [])
 
-  const sendLatestAppContextToChat = useCallback((context: LatestAppContext) => {
+  const sendLatestAppContextToChat = useCallback(async (context: LatestAppContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: context.text }))
+    await sendChatContext({ text: context.text })
   }, [activeThread])
 
   const copyLatestAppContext = useCallback(async (context: LatestAppContext) => {
     await navigator.clipboard.writeText(context.text)
   }, [])
 
-  const sendGitHubChatContext = useCallback((context: LatestGitHubContext) => {
+  const sendGitHubChatContext = useCallback(async (context: LatestGitHubContext) => {
     setLatestGitHubContext(context)
     window.dispatchEvent(createGitHubContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({ text: context.text }))
+    await sendChatContext({ text: context.text })
   }, [])
 
-  const sendLatestGitHubContextToChat = useCallback((context: LatestGitHubContext) => {
+  const sendLatestGitHubContextToChat = useCallback(async (context: LatestGitHubContext) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: context.text }))
+    await sendChatContext({ text: context.text })
   }, [activeThread])
 
   const copyLatestGitHubContext = useCallback(async (context: LatestGitHubContext) => {
     await navigator.clipboard.writeText(context.text)
   }, [])
 
-  const sendTranscriptMessageToChat = useCallback((message: CodexMessage) => {
+  const sendTranscriptMessageToChat = useCallback(async (message: CodexMessage) => {
     const text = message.role === 'assistant'
       ? assistantResponseChatContext(message.content)
       : userPromptChatContext(message.content)
-    window.dispatchEvent(createSendChatContextEvent({ text }))
+    await sendChatContext({ text })
   }, [])
 
   const copyTranscriptMessage = useCallback(async (message: CodexMessage) => {
@@ -867,19 +867,19 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     if (!activeThread) throw new Error('Open a chat first')
     const result = await window.cranberri.codex.pickFiles()
     if (result.paths.length === 0) return false
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: '',
       attachmentPaths: result.paths,
-    }))
+    })
   }, [activeThread])
 
-  const attachRepoFileToActiveChat = useCallback((path: string) => {
+  const attachRepoFileToActiveChat = useCallback(async (path: string) => {
     if (!activeRepo) throw new Error('Select a repo first')
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: '',
       attachmentPaths: [repoAbsolutePath(activeRepo.path, path)],
-    }))
+    })
   }, [activeRepo, activeThread])
 
   const openSelectedFileExternal = useCallback(async (path: string) => {
@@ -909,32 +909,32 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     await navigator.clipboard.writeText(path)
   }, [])
 
-  const sendLatestBrowserSnapshotToChat = useCallback((snapshot: BrowserSnapshot) => {
+  const sendLatestBrowserSnapshotToChat = useCallback(async (snapshot: BrowserSnapshot) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: browserSnapshotChatContext(snapshot) }))
+    await sendChatContext({ text: browserSnapshotChatContext(snapshot) })
   }, [activeThread])
 
   const copyLatestBrowserSnapshot = useCallback(async (snapshot: BrowserSnapshot) => {
     await navigator.clipboard.writeText(browserSnapshotChatContext(snapshot))
   }, [])
 
-  const sendLatestBrowserInspectionToChat = useCallback((inspection: BrowserElementInspection) => {
+  const sendLatestBrowserInspectionToChat = useCallback(async (inspection: BrowserElementInspection) => {
     if (!activeThread) throw new Error('Open a chat first')
-    window.dispatchEvent(createSendChatContextEvent({ text: browserInspectionChatContext(inspection) }))
+    await sendChatContext({ text: browserInspectionChatContext(inspection) })
   }, [activeThread])
 
   const copyLatestBrowserInspection = useCallback(async (inspection: BrowserElementInspection) => {
     await navigator.clipboard.writeText(browserInspectionChatContext(inspection))
   }, [])
 
-  const sendLatestBrowserScreenshotToChat = useCallback((capture: LatestBrowserScreenshotContext) => {
+  const sendLatestBrowserScreenshotToChat = useCallback(async (capture: LatestBrowserScreenshotContext) => {
     if (!activeThread) throw new Error('Open a chat first')
     const path = capture.screenshot.path
     if (!path) throw new Error('Screenshot path was not saved')
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: browserScreenshotChatContext(capture.screenshot, capture.pageState),
       inputParts: [{ type: 'localImage', path, detail: 'high' }],
-    }))
+    })
   }, [activeThread])
 
   const renameSessionFromCommand = useCallback((threadId: string, title: string): false => {
@@ -1051,9 +1051,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       diff,
     }
     setLatestRepoChangesContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoChangesChatContext(context),
-    }))
+    })
   }, [activeRepo])
 
   const copyRepoChangesContext = useCallback(async (kind: RepoChangesContextKind) => {
@@ -1086,9 +1086,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       diff,
     }
     setLatestRepoChangesContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoChangesReviewChatContext(context),
-    }))
+    })
   }, [activeRepo, activeThread])
 
   const explainRepoChangesContext = useCallback(async () => {
@@ -1105,9 +1105,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       diff,
     }
     setLatestRepoChangesContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoChangesExplanationChatContext(context),
-    }))
+    })
   }, [activeRepo, activeThread])
 
   const testRepoChangesContext = useCallback(async () => {
@@ -1124,9 +1124,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       diff,
     }
     setLatestRepoChangesContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoChangesTestPlanChatContext(context),
-    }))
+    })
   }, [activeRepo, activeThread])
 
   const draftPullRequestContext = useCallback(async () => {
@@ -1143,9 +1143,9 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       diff,
     }
     setLatestRepoChangesContext(context)
-    window.dispatchEvent(createSendChatContextEvent({
+    await sendChatContext({
       text: repoChangesPullRequestChatContext(context),
-    }))
+    })
   }, [activeRepo, activeThread])
 
   const sendWorkspaceBrief = useCallback(async () => {
@@ -1154,7 +1154,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
       window.cranberri.git.status(activeRepo.path),
       window.cranberri.git.githubSummary(activeRepo.path).catch(() => null),
     ])
-    sendAppContextToChat({
+    await sendAppContextToChat({
       kind: 'workspace-brief',
       label: activeRepo.name,
       text: workspaceBriefChatContext({
@@ -1199,7 +1199,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     const data = kind === 'repo'
       ? null
       : await window.cranberri.github.panelData(activeRepo.path, kind as GitHubPanelKind)
-    sendGitHubChatContext({
+    await sendGitHubChatContext({
       kind: 'panel',
       label: data?.kind ?? 'repo',
       repoPath: activeRepo.path,
@@ -1237,7 +1237,7 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     if (!activeRepo) throw new Error('Select a repo first')
     const summary = await window.cranberri.git.githubSummary(activeRepo.path)
     if (!summary.isGitHub || !summary.webUrl) throw new Error('No GitHub remote detected for this repo')
-    sendGitHubChatContext({
+    await sendGitHubChatContext({
       kind: 'item',
       label: item.title,
       repoPath: activeRepo.path,

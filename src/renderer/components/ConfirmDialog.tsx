@@ -31,9 +31,9 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open && !busy) onCancel() }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[1600] bg-[var(--app-overlay)]" />
+        <Dialog.Overlay className="fixed inset-0 z-[2400] bg-[var(--app-overlay)]" />
         <Dialog.Content
-          className={cn(dialogSurface, 'fixed left-1/2 top-[28%] z-[1601] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 p-5')}
+          className={cn(dialogSurface, 'fixed left-1/2 top-[28%] z-[2401] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 p-5')}
           onEscapeKeyDown={(event) => { if (busy) event.preventDefault() }}
           onPointerDownOutside={(event) => { if (busy) event.preventDefault() }}
         >

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import type { GitHubPanelData, GitHubPanelKind, GitHubRepoSummary } from '@/shared/git'
 import { cn, iconButton } from '../../lib/ui'
-import { createSendChatContextEvent } from '../chat/chat-context-events'
+import { sendChatContextSafely } from '../../state/chat-context-command'
 import { createGitHubContextCapturedEvent } from '../github-context-events'
 import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
 import { githubPanelBadges } from './github-panel-model'
@@ -102,14 +102,14 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
     if (!summary || !repoPath) return
     const text = githubPanelChatContext({ repoPath, summary, data: panelData })
     window.dispatchEvent(createGitHubContextCapturedEvent({ kind: 'panel', label: panelData?.kind ?? 'repo', repoPath, text }))
-    window.dispatchEvent(createSendChatContextEvent({ text }))
+    sendChatContextSafely({ text })
   }
 
   const sendItemContext = (item: GitHubPanelData['items'][number]) => {
     if (!summary || !repoPath) return
     const text = githubItemChatContext({ repoPath, summary, kind: activeKind, item })
     window.dispatchEvent(createGitHubContextCapturedEvent({ kind: 'item', label: item.title, repoPath, text }))
-    window.dispatchEvent(createSendChatContextEvent({ text }))
+    sendChatContextSafely({ text })
   }
 
   if (!repoPath) return <PanelEmpty icon={Github} label="Select a repo to use GitHub." />

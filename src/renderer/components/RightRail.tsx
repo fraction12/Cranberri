@@ -14,7 +14,7 @@ import { FileTree } from './right-rail/FileTree'
 import { createRightRailActiveFileEvent } from './right-rail/right-rail-active-file-events'
 import { OPEN_RIGHT_RAIL_COMMAND_EVENT, rightRailCommandFromEvent } from './right-rail/right-rail-command-events'
 import { OPEN_RIGHT_RAIL_FILE_EVENT, rightRailFileFromEvent } from './right-rail/right-rail-file-events'
-import { createSendChatContextEvent } from './chat/chat-context-events'
+import { sendChatContext } from '../state/chat-context-command'
 import { createRepoFileContextCapturedEvent } from './repo-file-context-events'
 import { repoFileChatContext } from './repo-chat-context'
 import { repoAbsolutePath } from '../lib/repo-path'
@@ -134,9 +134,9 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
         diff,
       }
       window.dispatchEvent(createRepoFileContextCapturedEvent(context))
-      window.dispatchEvent(createSendChatContextEvent({
+      await sendChatContext({
         text: repoFileChatContext(context),
-      }))
+      })
       setContextState({ status: 'idle', message: null })
       toast.success('File context added to chat')
     } catch (error) {
@@ -477,7 +477,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
                     {lineError && <span className={cn('min-w-0 [overflow-wrap:anywhere]', typeStyle({ role: 'status', tone: 'danger' }))}>{lineError}</span>}
                   </form>
                 )}
-                <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg p-0">
+                <div className="flex-1 min-h-0 overflow-hidden bg-app-bg p-0">
                   <Suspense fallback={<div className={cn('p-3', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading diff...</div>}>
                     <DiffViewer
                       filePath={selectedFile.path}

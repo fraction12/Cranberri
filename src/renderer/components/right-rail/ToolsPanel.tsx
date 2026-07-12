@@ -14,7 +14,7 @@ import { toolDiagnosticDraft } from '../../state/tool-diagnostic'
 import { useToolCatalog } from '../../state/tools'
 import { cn, iconButton } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
-import { createSendChatContextEvent } from '../chat/chat-context-events'
+import { reportSendChatContextError, sendChatContext } from '../../state/chat-context-command'
 import { ToolGroup } from './tool-group'
 import { ToolRow } from './tool-row'
 
@@ -46,12 +46,16 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
     }
   }, [])
 
-  const sendDiagnostic = useCallback((toolId: ToolCatalogId) => {
+  const sendDiagnostic = useCallback(async (toolId: ToolCatalogId) => {
     const entry = catalogById.get(toolId)
     if (!entry) return
     const draft = toolDiagnosticDraft(entry)
-    window.dispatchEvent(createSendChatContextEvent({ text: draft }))
-    toast.success(`${entry.name} status added to chat`)
+    try {
+      await sendChatContext({ text: draft })
+      toast.success(`${entry.name} status added to chat`)
+    } catch (error) {
+      reportSendChatContextError(error)
+    }
   }, [catalogById])
 
   const statusLabel = catalog.isLoading && !catalog.data
@@ -112,7 +116,7 @@ export function ToolsPanel({ onOpenSettings }: ToolsPanelProps) {
                 onExpandedChange={(toolId, expanded) => setExpandedToolId(expanded ? toolId : null)}
                 onTest={(toolId) => void runAction(() => catalog.testTool(toolId))}
                 onOpenSettings={onOpenSettings}
-                onSendDiagnostic={sendDiagnostic}
+                onSendDiagnostic={(toolId) => void sendDiagnostic(toolId)}
               />
             ))}
           </ToolGroup>

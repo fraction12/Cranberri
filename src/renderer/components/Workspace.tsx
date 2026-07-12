@@ -15,17 +15,13 @@ import {
 } from './process-terminal-events'
 import { OPEN_PROCESS_BROWSER_EVENT, processBrowserDetailFromEvent } from './process-browser-events'
 import { OPEN_TERMINAL_LINK_BROWSER_EVENT, terminalLinkBrowserDetailFromEvent } from './terminal-link-events'
-import {
-  SEND_CHAT_CONTEXT_TO_ACTIVE_CHAT_EVENT,
-  createInsertChatContextEvent,
-  sendChatContextDetailFromEvent,
-} from './chat/chat-context-events'
 import { ConfirmDialog } from './ConfirmDialog'
 import { cn, iconButton } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 import { useOptionalTasks } from '../state/tasks'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, codexThreadIdForActiveWindow } from '../state/workspace-model'
+import { registerChatContextWorkspace, sendChatContextSafely } from '../state/chat-context-command'
 
 const TerminalWindow = lazy(() => import('./TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
@@ -217,27 +213,21 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
     return () => window.removeEventListener(CLOSE_PROCESS_TERMINAL_EVENT, onCloseProcessTerminal)
   }, [closeWindow])
 
-  const sendContextToChat = useCallback((text: string, inputParts?: CodexUserInput[], attachmentPaths?: string[]) => {
+  const chooseChatContextTarget = useCallback(() => {
     const activeChat = windows.find((win) => win.id === activeWindowId && win.type === 'chat')
     const existingChat = activeChat ?? windows.find((win) => win.type === 'chat')
     const targetWindowId = existingChat?.id ?? openChat()
     setActiveWindow(targetWindowId)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(createInsertChatContextEvent({ windowId: targetWindowId, text, inputParts, attachmentPaths }))
-      })
-    })
+    return targetWindowId
   }, [activeWindowId, openChat, setActiveWindow, windows])
 
   useEffect(() => {
-    const onSendContextToActiveChat = (event: Event) => {
-      const detail = sendChatContextDetailFromEvent(event)
-      if (!detail) return
-      sendContextToChat(detail.text, detail.inputParts, detail.attachmentPaths)
-    }
-    window.addEventListener(SEND_CHAT_CONTEXT_TO_ACTIVE_CHAT_EVENT, onSendContextToActiveChat)
-    return () => window.removeEventListener(SEND_CHAT_CONTEXT_TO_ACTIVE_CHAT_EVENT, onSendContextToActiveChat)
-  }, [sendContextToChat])
+    return registerChatContextWorkspace(chooseChatContextTarget)
+  }, [chooseChatContextTarget])
+
+  const sendContextToChat = useCallback((text: string, inputParts?: CodexUserInput[], attachmentPaths?: string[]) => {
+    sendChatContextSafely({ text, inputParts, attachmentPaths })
+  }, [])
 
   const closeWorkspaceWindow = useCallback((windowId: string) => {
     const win = windows.find((item) => item.id === windowId)

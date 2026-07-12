@@ -15,10 +15,10 @@ import { useOptionalTasks } from '../state/tasks'
 import { useRepos } from '../state/repos'
 import { useRecovery } from '../state/recovery'
 import { composerDraftOwnerKey, useComposerDraftController } from '../state/composer-drafts'
+import { registerChatContextTarget, type ChatContextPayload } from '../state/chat-context-command'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
-import { INSERT_CHAT_CONTEXT_EVENT, insertChatContextDetailFromEvent } from './chat/chat-context-events'
 import {
   NEW_THREAD_EMPTY_STATE,
   didReaderMoveTranscriptUp,
@@ -378,29 +378,25 @@ export function ChatWindow({ id }: { id: string }) {
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    const onInsertChatContext = (event: Event) => {
-      const detail = insertChatContextDetailFromEvent(event)
-      if (!detail || detail.windowId !== id) return
-      setInput((current) => {
-        return current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text
-      })
-      const inputParts = detail.inputParts ?? []
-      if (inputParts.length) {
-        setContextInputParts((current) => [...current, ...inputParts.map(contextInputAttachment)])
-      }
-      const attachmentPaths = detail.attachmentPaths ?? []
-      if (attachmentPaths.length) {
-        setAttachments((current) => [...current, ...attachmentPaths.filter((filePath) => !current.includes(filePath))])
-      }
-      composerHadFocusRef.current = true
-      requestAnimationFrame(() => {
-        composerEditorRef.current?.focus('end')
-      })
+  const insertChatContext = useCallback((detail: ChatContextPayload) => {
+    setInput((current) => {
+      return current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text
+    })
+    const inputParts = detail.inputParts ?? []
+    if (inputParts.length) {
+      setContextInputParts((current) => [...current, ...inputParts.map(contextInputAttachment)])
     }
-    window.addEventListener(INSERT_CHAT_CONTEXT_EVENT, onInsertChatContext)
-    return () => window.removeEventListener(INSERT_CHAT_CONTEXT_EVENT, onInsertChatContext)
-  }, [id])
+    const attachmentPaths = detail.attachmentPaths ?? []
+    if (attachmentPaths.length) {
+      setAttachments((current) => [...current, ...attachmentPaths.filter((filePath) => !current.includes(filePath))])
+    }
+    composerHadFocusRef.current = true
+    requestAnimationFrame(() => {
+      composerEditorRef.current?.focus('end')
+    })
+  }, [])
+
+  useEffect(() => registerChatContextTarget(id, insertChatContext), [id, insertChatContext])
 
   useEffect(() => {
     if (thread?.title) {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, ExternalLink, ImagePlus } from 'lucide-react'
 import { toast } from 'sonner'
-import { createSendChatContextEvent } from './chat-context-events'
+import { reportSendChatContextError, sendChatContext } from '../../state/chat-context-command'
 import { cn, iconButton } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
@@ -113,14 +113,18 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
   const [sent, setSent] = useState(false)
   const imageInput = markdownMediaImageInput(source)
   const canSendToChat = Boolean(imageInput)
-  const sendToChat = () => {
+  const sendToChat = async () => {
     if (!imageInput) return
-    window.dispatchEvent(createSendChatContextEvent({
-      text: markdownMediaChatContext(source, label),
-      inputParts: [imageInput],
-    }))
-    setSent(true)
-    window.setTimeout(() => setSent(false), 1800)
+    try {
+      await sendChatContext({
+        text: markdownMediaChatContext(source, label),
+        inputParts: [imageInput],
+      })
+      setSent(true)
+      window.setTimeout(() => setSent(false), 1800)
+    } catch (error) {
+      reportSendChatContextError(error)
+    }
   }
 
   return (
@@ -137,7 +141,7 @@ export function MarkdownMedia({ source, label }: { source: MarkdownMediaSource; 
           {canSendToChat && (
             <button
               type="button"
-              onClick={sendToChat}
+              onClick={() => void sendToChat()}
               className={cn(iconButton(), 'h-6 w-6')}
               aria-label="Send image to chat"
               title="Send image to chat"

@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { FolderOpen, Gauge, Goal, Package, Plus } from 'lucide-react'
+import { AlertTriangle, FolderOpen, Gauge, Goal, Loader2, Package, Plus, RotateCcw } from 'lucide-react'
 import { cn, iconButton, menuSurface } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexPluginInfo } from '@/shared/codex'
@@ -22,14 +23,16 @@ export function AddMenu({
   onPlugin: (plugin: CodexPluginInfo) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [plugins, setPlugins] = useState<CodexPluginInfo[]>([])
+  const pluginsQuery = useQuery({
+    queryKey: ['codex', 'plugins'],
+    queryFn: async () => (await window.cranberri.codex.plugins()).plugins,
+    enabled: open,
+    staleTime: 30_000,
+  })
+  const plugins = pluginsQuery.data ?? []
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (!nextOpen) return
-    window.cranberri.codex.plugins()
-      .then((result) => setPlugins(result.plugins))
-      .catch((error) => console.error('Failed to load Codex plugins:', error))
   }
 
   return (
@@ -59,7 +62,22 @@ export function AddMenu({
           <MenuItem icon={Gauge} label="Plan mode" description="Inspect and plan before editing" onSelect={onPlanMode} />
 
           <DropdownMenu.Label className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'mt-2 px-2 pb-1 pt-1')}>Plugins</DropdownMenu.Label>
-          {plugins.length === 0 ? (
+          {pluginsQuery.isLoading ? (
+            <div className={cn(typeStyle({ role: 'status', tone: 'secondary' }), 'flex items-center gap-2 px-2 py-2')}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Loading plugins
+            </div>
+          ) : pluginsQuery.isError ? (
+            <DropdownMenu.Item className={ITEM_CLASS} onSelect={(event) => { event.preventDefault(); void pluginsQuery.refetch() }}>
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-app-status-warning" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <span className={cn(typeStyle({ role: 'control', tone: 'warning' }), 'block')}>Plugins unavailable</span>
+                <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'mt-0.5 flex items-center gap-1.5')}>
+                  <RotateCcw className="h-3 w-3" aria-hidden="true" /> Retry
+                </span>
+              </span>
+            </DropdownMenu.Item>
+          ) : plugins.length === 0 ? (
             <div className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'px-2 py-2')}>No enabled plugins</div>
           ) : plugins.map((plugin) => (
             <DropdownMenu.Item

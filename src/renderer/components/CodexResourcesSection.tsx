@@ -6,7 +6,7 @@ import type { CodexPluginInfo, CodexSkillInfo } from '@/shared/codex'
 import type { ToolRegistrySnapshot } from '@/shared/tools'
 import { useCodexWindows } from '../state/codex'
 import { refreshToolCatalogQueries } from '../state/tools'
-import { createSendChatContextEvent } from './chat/chat-context-events'
+import { reportSendChatContextError, sendChatContext } from '../state/chat-context-command'
 import {
   appChatContext,
   codexAppStatus,
@@ -93,7 +93,7 @@ export function CodexResourcesSection() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not update plugin catalogs'),
   })
 
-  const sendSkillToChat = (skill: (typeof skills)[number]) => {
+  const sendSkillToChat = async (skill: (typeof skills)[number]) => {
     const context: LatestCodexResourceContext = {
       kind: 'skill',
       label: skill.displayName,
@@ -101,14 +101,22 @@ export function CodexResourcesSection() {
       inputParts: [{ type: 'skill', name: skill.name, path: skill.path }],
     }
     window.dispatchEvent(createCodexResourceContextCapturedEvent(context))
-    window.dispatchEvent(createSendChatContextEvent({ text: context.text, inputParts: context.inputParts }))
-    toast.success(`${skill.displayName} added to chat`)
+    try {
+      await sendChatContext({ text: context.text, inputParts: context.inputParts })
+      toast.success(`${skill.displayName} added to chat`)
+    } catch (error) {
+      reportSendChatContextError(error)
+    }
   }
 
-  const sendConnectionToChat = (kind: 'app' | 'mcp-server', label: string, text: string) => {
+  const sendConnectionToChat = async (kind: 'app' | 'mcp-server', label: string, text: string) => {
     window.dispatchEvent(createCodexResourceContextCapturedEvent({ kind, label, text }))
-    window.dispatchEvent(createSendChatContextEvent({ text }))
-    toast.success(`${label} added to chat`)
+    try {
+      await sendChatContext({ text })
+      toast.success(`${label} added to chat`)
+    } catch (error) {
+      reportSendChatContextError(error)
+    }
   }
 
   return (
