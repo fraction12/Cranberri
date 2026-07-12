@@ -8,12 +8,14 @@ import { WorktreeLifecycle } from './worktree-lifecycle'
 import {
   authoritativeThreadCheck,
   configureStartupRecoveryRuntime,
+  recordStartupTaskStoreFailure,
   reconcileStartup,
   type ThreadCheck,
 } from './startup-recovery'
 import { readSettings } from './settings'
 import { HandoffCoordinator } from './handoff'
 import { readProjectRegistry } from './repos'
+import type { StartupRecoveryReport } from '../shared/recovery'
 
 export const taskStore = new TaskStore()
 export const worktreeLifecycle = new WorktreeLifecycle(taskStore)
@@ -33,20 +35,37 @@ export async function checkStartupThread(threadId: string): Promise<ThreadCheck>
   }, threadId)
 }
 
+export async function settleStartupMaintenance(
+  report: StartupRecoveryReport,
+  sweep: () => Promise<unknown>,
+): Promise<StartupRecoveryReport> {
+  try {
+    await sweep()
+    return report
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Task maintenance failed during startup'
+    console.error('[startup-recovery] task maintenance remains blocked', error)
+    return recordStartupTaskStoreFailure(report, message)
+  }
+}
+
 export const recoverStartupRuntime = async () => {
   configureStartupRecoveryRuntime({
     taskStore,
     checkThread: checkStartupThread,
     recoverHandoff: async (taskId) => {
+      const { getCodexClient } = await import('./codex/ipc')
+      const client = await getCodexClient()
       const coordinator = new HandoffCoordinator(taskStore, readProjectRegistry(), {
-        isThreadRunning: () => false,
-        hasActiveWorkers: () => false,
-        resumeThread: async () => undefined,
+        isThreadRunning: (threadId) => client.isThreadRunning(threadId),
+        hasActiveWorkers: (threadId) => client.hasActiveWorkers(threadId),
+        resumeThread: (threadId, runtime) => client.resumeThread(threadId, runtime),
       }, path.join(os.homedir(), '.cranberri', 'handoff-bundles'))
       await coordinator.recoverInterrupted(taskId)
     },
   })
   const report = await reconcileStartup()
-  await worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
-  return report
+  return settleStartupMaintenance(report, () => (
+    worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
+  ))
 }

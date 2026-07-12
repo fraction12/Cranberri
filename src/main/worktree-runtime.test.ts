@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { StartupRecoveryReport } from '../shared/recovery'
 
 const codex = vi.hoisted(() => ({
   getClient: vi.fn(),
@@ -17,7 +18,13 @@ vi.mock('./worktree-lifecycle', () => ({
 }))
 vi.mock('./settings', () => ({ readSettings: () => ({ worktrees: { retentionDays: 7 } }) }))
 
-import { checkStartupThread } from './worktree-runtime'
+import { checkStartupThread, settleStartupMaintenance } from './worktree-runtime'
+
+const READY_REPORT: StartupRecoveryReport = {
+  appState: { status: 'ready', source: 'primary', message: 'App state is available.' },
+  taskStore: { status: 'ready', revision: 1, repairedTaskIds: [] },
+  windows: [],
+}
 
 describe('startup runtime thread authority', () => {
   beforeEach(() => {
@@ -43,5 +50,15 @@ describe('startup runtime thread authority', () => {
 
     await expect(checkStartupThread('thread')).resolves.toBe('unchecked')
     expect(codex.readThread).not.toHaveBeenCalled()
+  })
+
+  it('keeps startup reachable when retention cannot read the task store', async () => {
+    const result = await settleStartupMaintenance(READY_REPORT, async () => {
+      throw new Error('Cannot read task store')
+    })
+
+    expect(result.taskStore).toMatchObject({
+      status: 'needsAttention', message: 'Cannot read task store',
+    })
   })
 })

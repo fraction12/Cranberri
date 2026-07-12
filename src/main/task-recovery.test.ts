@@ -186,6 +186,7 @@ describe('task startup recovery', () => {
     expect(store.read().tasks[0]).toMatchObject({
       state: 'handingOff', handoff: { phase: 'captured' }, updatedAt: 1,
     })
+    expect(store.read().localLeaseByProjectId.project).toBe('handoff')
   })
 
 })

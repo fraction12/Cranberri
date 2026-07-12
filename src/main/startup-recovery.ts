@@ -418,6 +418,22 @@ export function getStartupRecoveryReport(): StartupRecoveryReport | null {
   return latestReport
 }
 
+export function recordStartupTaskStoreFailure(
+  report: StartupRecoveryReport,
+  message: string,
+): StartupRecoveryReport {
+  const failed = startupRecoveryReportSchema.parse({
+    ...report,
+    taskStore: {
+      ...report.taskStore,
+      status: 'needsAttention',
+      message,
+    },
+  })
+  latestReport = failed
+  return failed
+}
+
 export function getStartupHandoffRecoveries(): readonly HandoffRecoveryRecommendation[] {
   return latestHandoffRecoveries
 }

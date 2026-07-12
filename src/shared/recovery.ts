@@ -52,6 +52,7 @@ export const startupRecoveryReportSchema = z.object({
     status: recoveryStatusSchema,
     revision: z.number().int().nonnegative().safe(),
     repairedTaskIds: z.array(z.string().min(1)),
+    message: z.string().min(1).optional(),
   }).strict(),
   windows: z.array(windowRecoveryOutcomeSchema),
 }).strict()

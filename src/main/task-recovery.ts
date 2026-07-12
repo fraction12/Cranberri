@@ -124,8 +124,14 @@ function recoveredState(
       now,
       transitionWorktrees.get(task.id),
     ))
+  const retainedHandoffLeases = new Map(state.tasks.flatMap((task) => (
+    task.handoff && (task.state === 'handingOff' || task.state === 'needsAttention')
+      ? [[task.projectId, task.id] as const]
+      : []
+  )))
   const localLeaseByProjectId = Object.fromEntries(
-    Object.keys(state.localLeaseByProjectId).map((projectId) => [projectId, null]),
+    [...new Set([...Object.keys(state.localLeaseByProjectId), ...retainedHandoffLeases.keys()])]
+      .map((projectId) => [projectId, retainedHandoffLeases.get(projectId) ?? null]),
   )
   const managedWorktrees = state.managedWorktrees.map((worktree) => {
     if (worktree.lifecycle === 'removed' || fs.existsSync(worktree.path)) return worktree

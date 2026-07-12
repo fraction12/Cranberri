@@ -255,6 +255,9 @@ export class HandoffCoordinator {
       } else {
         await this.rollbackToLocal(task, worktree, local.canonicalPath, bundle)
       }
+      if (!task.threadId) throw new Error('Task has no Codex thread to recover')
+      const sourcePath = task.handoff.direction === 'toLocal' ? worktree.path : local.canonicalPath
+      await this.codex.resumeThread(task.threadId, { cwd: sourcePath, taskId: task.id })
       const updated = await this.restoreInterruptedBinding(task, worktree)
       if (bundlePath) {
         try {
@@ -365,11 +368,16 @@ export class HandoffCoordinator {
     if (!sameChanges(current, expected)) throw new Error('Checkout changed during handoff; duplicate data was preserved')
   }
 
-  private async reconcileChanges(checkoutPath: string, expected: LocalChanges, destination: boolean): Promise<void> {
+  private async reconcileChanges(
+    checkoutPath: string,
+    expected: LocalChanges,
+    destination: boolean,
+    allowedCleanHead?: string,
+  ): Promise<void> {
     const head = await resolveGitRef(checkoutPath, 'HEAD')
     if (head !== expected.baseSha) {
-      if (await gitStatusPorcelain(checkoutPath)) throw new Error('Checkout changed during handoff recovery')
-      return
+      if (head === allowedCleanHead && !(await gitStatusPorcelain(checkoutPath))) return
+      throw new Error('Checkout HEAD changed during handoff recovery')
     }
     const current = await captureLocalChanges(checkoutPath, expected.baseSha)
     if (sameChanges(current, expected)) {
@@ -387,7 +395,10 @@ export class HandoffCoordinator {
     pinnedBranch: string,
     changes: LocalChanges | null,
   ): Promise<void> {
-    if (changes) await this.reconcileChanges(localPath, changes, true)
+    if (changes) {
+      const pinnedHead = await resolveGitRef(localPath, `refs/heads/${pinnedBranch}`)
+      await this.reconcileChanges(localPath, changes, true, pinnedHead)
+    }
     await checkoutBranch(localPath, pinnedBranch)
     await checkoutBranch(worktree.path, task.handoff!.branch)
     if (changes) await this.reconcileChanges(worktree.path, changes, false)
