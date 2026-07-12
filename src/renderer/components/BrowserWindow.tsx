@@ -408,16 +408,15 @@ export function BrowserWindow({ windowState, active, obscured, onPageState, onVi
   }, [actionsMenuOpen, active, cancelActionsMenuOpen, obscured])
 
   useEffect(() => {
-    if (!actionsMenuPending) return
     const cancelOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || !actionsMenuPendingRef.current) return
       event.preventDefault()
       event.stopPropagation()
       cancelActionsMenuOpen()
     }
     window.addEventListener('keydown', cancelOnEscape, true)
     return () => window.removeEventListener('keydown', cancelOnEscape, true)
-  }, [actionsMenuPending, cancelActionsMenuOpen])
+  }, [cancelActionsMenuOpen])
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col bg-app-bg', typeStyle({ role: 'body' }))}>

@@ -459,17 +459,17 @@ async function waitForVisibleToastsToClear(page, timeout = 10_000) {
   await page.waitForTimeout(250)
 }
 
-async function clickButtonByTitle(page, title, timeout = 10_000) {
-  await page.waitForFunction((expectedTitle) => {
+async function clickButtonByAccessibleName(page, name, timeout = 10_000) {
+  await page.waitForFunction((expectedName) => {
     return [...document.querySelectorAll('button')]
-      .some((button) => button.getAttribute('title') === expectedTitle)
-  }, title, { timeout })
-  await page.evaluate((expectedTitle) => {
+      .some((button) => button.getAttribute('aria-label') === expectedName || button.getAttribute('title') === expectedName)
+  }, name, { timeout })
+  await page.evaluate((expectedName) => {
     const button = [...document.querySelectorAll('button')]
-      .find((node) => node.getAttribute('title') === expectedTitle)
-    if (!button) throw new Error(`Button not found: ${expectedTitle}`)
+      .find((node) => node.getAttribute('aria-label') === expectedName || node.getAttribute('title') === expectedName)
+    if (!button) throw new Error(`Button not found: ${expectedName}`)
     button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-  }, title)
+  }, name)
 }
 
 async function waitForAssistantArticleText(page, text, minimumCount = 1, timeout = 10_000) {
@@ -2964,7 +2964,7 @@ async function runRepoWorkspaceSmoke() {
       if (!snapshotReady) {
         throw new Error('Browser snapshot did not include cranberri-browser-smoke-ready')
       }
-      await clickButtonByTitle(page, 'Copy page context')
+      await clickButtonByAccessibleName(page, 'Copy page context')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
         return text.includes('Browser page context:') && text.includes('cranberri-browser-smoke-ready')
@@ -3174,12 +3174,12 @@ async function runRepoWorkspaceSmoke() {
         return text.includes('Browser element context:') && text.includes('Smoke Browser Page')
       }, { timeout: 10_000 })
       await page.getByLabel(/Switch to (Browser|Smoke Browser Page)/).click()
-      await clickButtonByTitle(page, 'Copy element selector')
+      await clickButtonByAccessibleName(page, 'Copy element selector')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
         return text.length > 0 && !text.includes('Browser element context:')
       }, { timeout: 10_000 })
-      await clickButtonByTitle(page, 'Copy element text')
+      await clickButtonByAccessibleName(page, 'Copy element text')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
         return text.includes('Smoke Browser Page') || text.includes('cranberri-browser-smoke-ready')
@@ -3226,7 +3226,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByAltText('Captured browser screenshot').waitFor({ timeout: 10_000 })
       await waitForMainWindowChildViewCount(electronApp, attachedBrowserChildViews, 'Browser capture did not reattach the browser surface')
       await captureSmokeScreenshot(page, 'browser-captures-light')
-      await clickButtonByTitle(page, 'Copy screenshot path')
+      await clickButtonByAccessibleName(page, 'Copy screenshot path')
       await page.waitForFunction(async () => {
         const text = await navigator.clipboard.readText()
         return text.includes('browser-captures') && text.endsWith('.png')
