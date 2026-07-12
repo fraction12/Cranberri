@@ -9,7 +9,13 @@ import type { ProjectRegistry } from '../shared/projects'
 import type { Task } from '../shared/tasks'
 import type { ManagedWorktree } from '../shared/worktrees'
 import { TaskStore } from './task-store'
-import { reconcileStartup } from './startup-recovery'
+import {
+  authoritativeThreadCheck,
+  configureStartupRecoveryRuntime,
+  getStartupHandoffRecoveries,
+  reconcileStartup,
+  retryStartupRecovery,
+} from './startup-recovery'
 
 const roots: string[] = []
 afterEach(() => roots.splice(0).forEach((root) => execFileSync('/usr/bin/trash', [root])))
@@ -66,6 +72,16 @@ async function seed(store: TaskStore, tasks: Task[], managedWorktrees: ManagedWo
 }
 
 describe('startup recovery', () => {
+  it('classifies only an authoritative thread-not-found response as missing', async () => {
+    await expect(authoritativeThreadCheck(async () => ({ id: 'thread' }), 'thread')).resolves.toBe('available')
+    await expect(authoritativeThreadCheck(async () => {
+      throw new Error('thread not found: thread')
+    }, 'thread')).resolves.toBe('missing')
+    await expect(authoritativeThreadCheck(async () => {
+      throw new Error('Codex app-server did not respond within 5s')
+    }, 'thread')).resolves.toBe('unchecked')
+  })
+
   it('reports a valid binding ready when its thread is confirmed available', async () => {
     const value = fixture()
     await seed(value.store, [value.task])
@@ -171,6 +187,23 @@ describe('startup recovery', () => {
 
     expect(report.windows[0]).toMatchObject({
       status: 'needsAttention', reason: 'threadMissing', threadStatus: 'missing',
+    })
+  })
+
+  it('keeps updater health unsettled until persisted threads are checked', async () => {
+    const value = fixture()
+    await seed(value.store, [value.task])
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState: vi.fn(),
+    })
+
+    expect(report.appState.status).toBe('retryable')
+    expect(report.windows[0]).toMatchObject({
+      status: 'retryable', reason: 'threadUnchecked', threadStatus: 'unchecked',
     })
   })
 
@@ -283,6 +316,82 @@ describe('startup recovery', () => {
     expect(writeAppState).not.toHaveBeenCalled()
   })
 
+  it('returns a typed fail-closed report when the authoritative task store is corrupt', async () => {
+    const value = fixture()
+    fs.writeFileSync(path.join(value.root, 'tasks.json'), 'not-json')
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState: vi.fn(),
+    })
+
+    expect(report).toMatchObject({
+      appState: { status: 'ready', source: 'primary' },
+      taskStore: { status: 'needsAttention', revision: 0, repairedTaskIds: [] },
+      windows: [],
+    })
+  })
+
+  it('runs explicit retry against the configured runtime TaskStore instance', async () => {
+    const value = fixture()
+    await seed(value.store, [{ ...value.task, state: 'provisioning' }])
+    const restore = configureStartupRecoveryRuntime({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState: vi.fn(),
+      checkThread: async () => 'available',
+      now: () => 10,
+    })
+
+    try {
+      await retryStartupRecovery()
+      expect(value.store.read().tasks[0]).toMatchObject({ state: 'draft', updatedAt: 10 })
+    } finally {
+      restore()
+    }
+  })
+
+  it('delegates interrupted handoff recovery before explicit runtime reconciliation', async () => {
+    const value = fixture()
+    await seed(value.store, [{
+      ...value.task,
+      state: 'handingOff',
+      handoff: {
+        direction: 'toLocal', phase: 'captured', branch: 'feature', bundlePath: '/bundle',
+        startedAt: 1, error: null,
+      },
+    }])
+    const recoverHandoff = vi.fn(async (taskId: string) => {
+      await value.store.update((state) => ({
+        ...state,
+        tasks: state.tasks.map((task) => task.id === taskId
+          ? { ...task, state: 'active' as const, handoff: null, updatedAt: 10 }
+          : task),
+      }))
+    })
+    const restore = configureStartupRecoveryRuntime({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState: vi.fn(),
+      checkThread: async () => 'available',
+      recoverHandoff,
+      now: () => 10,
+    })
+
+    try {
+      await retryStartupRecovery()
+      expect(recoverHandoff).toHaveBeenCalledWith('task')
+      expect(getStartupHandoffRecoveries()).toEqual([])
+      expect(value.store.read().tasks[0]).toMatchObject({ state: 'active', handoff: null, updatedAt: 10 })
+    } finally {
+      restore()
+    }
+  })
+
   it('makes interrupted work observable and is mutation-idempotent on rerun', async () => {
     const value = fixture()
     await seed(value.store, [{
@@ -311,8 +420,9 @@ describe('startup recovery', () => {
       now: () => 20,
     })
 
-    expect(first.windows[0]).toMatchObject({ status: 'needsAttention', reason: 'interruptedOperation' })
-    expect(second.windows[0]).toMatchObject({ status: 'needsAttention', reason: 'interruptedOperation' })
+    expect(first.windows[0]).toMatchObject({ status: 'retryable', reason: 'interruptedOperation' })
+    expect(second.windows[0]).toMatchObject({ status: 'retryable', reason: 'interruptedOperation' })
+    expect(value.store.read().tasks[0].handoff).toMatchObject({ phase: 'captured' })
     expect(value.store.read().revision).toBe(firstRevision)
     expect(writeAppState).not.toHaveBeenCalled()
   })

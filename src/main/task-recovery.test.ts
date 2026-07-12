@@ -1,14 +1,27 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TaskStore } from './task-store'
-import { reconcileTaskStore } from './task-recovery'
+import { handoffRecoveryCommand, reconcileTaskStore } from './task-recovery'
 
 const roots: string[] = []
-afterEach(() => roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })))
+afterEach(() => roots.splice(0).forEach((root) => execFileSync('/usr/bin/trash', [root])))
 
 describe('task startup recovery', () => {
+  it.each([
+    ['preflight', 'discard'],
+    ['captured', 'discard'],
+    ['branchReleased', 'rollback'],
+    ['applied', 'rollback'],
+    ['resumed', 'rollback'],
+    ['rollback', 'rollback'],
+    ['needsAttention', 'rollback'],
+  ] as const)('recommends %s handoff recovery as %s', (phase, command) => {
+    expect(handoffRecoveryCommand(phase)).toBe(command)
+  })
+
   it('makes interrupted work retryable and releases stale Local leases', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
     roots.push(root)
@@ -30,7 +43,7 @@ describe('task startup recovery', () => {
     await reconcileTaskStore(store, 10)
     const recovered = store.read()
     expect(recovered.tasks.map((candidate) => candidate.state)).toEqual(['draft', 'failed', 'active'])
-    expect(recovered.tasks[2].pendingFirstTurn?.delivery).toBe('pending')
+    expect(recovered.tasks[2].pendingFirstTurn?.delivery).toBe('sending')
     expect(recovered.localLeaseByProjectId.project).toBeNull()
     expect(recovered.interruptedOperations).toEqual([])
   })
@@ -149,4 +162,30 @@ describe('task startup recovery', () => {
 
     expect(store.read().revision).toBe(revision)
   })
+
+  it('preserves interrupted handoff phase during startup reconciliation', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    await store.update((state) => ({ ...state, tasks: [{
+      id: 'handoff', projectId: 'project', threadId: 'thread', checkoutId: 'managed', worktreeId: 'worktree',
+      role: 'root', location: 'worktree', state: 'handingOff', baseRef: 'refs/heads/feature', baseSha: 'a'.repeat(40),
+      environmentId: null, environmentRevision: null, pendingFirstTurn: null,
+      handoff: {
+        direction: 'toLocal', phase: 'captured', branch: 'feature', bundlePath: path.join(root, 'bundle.json'),
+        startedAt: 1, error: null,
+      },
+      createdAt: 1, updatedAt: 1, archivedAt: null,
+    }] }))
+
+    const result = await reconcileTaskStore(store, 10)
+
+    expect(result.handoffRecoveries).toEqual([{
+      taskId: 'handoff', phase: 'captured', command: 'discard',
+    }])
+    expect(store.read().tasks[0]).toMatchObject({
+      state: 'handingOff', handoff: { phase: 'captured' }, updatedAt: 1,
+    })
+  })
+
 })

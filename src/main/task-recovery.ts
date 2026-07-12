@@ -3,13 +3,45 @@ import type { Task } from '../shared/tasks'
 import type { ManagedWorktree } from '../shared/worktrees'
 import type { TaskStore } from './task-store'
 
+type HandoffPhase = NonNullable<Task['handoff']>['phase']
+
+export type HandoffRecoveryCommand = 'rollback' | 'discard'
+
+export interface HandoffRecoveryRecommendation {
+  taskId: string
+  phase: HandoffPhase
+  command: HandoffRecoveryCommand
+}
+
 export interface TaskRecoveryResult {
   changed: boolean
   revision: number
   repairedTaskIds: string[]
+  handoffRecoveries: HandoffRecoveryRecommendation[]
 }
 
-function recoverTask(task: Task, interruptedTaskIds: ReadonlySet<string>, now: number, transitionWorktree?: ManagedWorktree): Task {
+export function handoffRecoveryCommand(phase: HandoffPhase): HandoffRecoveryCommand {
+  if (phase === 'preflight' || phase === 'captured') return 'discard'
+  return 'rollback'
+}
+
+function interruptedHandoffs(tasks: Task[]): HandoffRecoveryRecommendation[] {
+  return tasks.flatMap((task) => {
+    if (!task.handoff || (task.state !== 'handingOff' && task.state !== 'needsAttention')) return []
+    return [{
+      taskId: task.id,
+      phase: task.handoff.phase,
+      command: handoffRecoveryCommand(task.handoff.phase),
+    }]
+  })
+}
+
+function recoverTask(
+  task: Task,
+  interruptedTaskIds: ReadonlySet<string>,
+  now: number,
+  transitionWorktree: ManagedWorktree | undefined,
+): Task {
   if (task.worktreeTransition) {
     if (task.location === 'local' && !task.worktreeId) {
       if (transitionWorktree) {
@@ -51,16 +83,14 @@ function recoverTask(task: Task, interruptedTaskIds: ReadonlySet<string>, now: n
       updatedAt: now,
     }
   }
-  if (task.state === 'handingOff' || interruptedTaskIds.has(task.id)) {
+  if (task.state === 'handingOff' || Boolean(task.handoff && task.state === 'needsAttention') || interruptedTaskIds.has(task.id)) {
+    if (task.handoff) {
+      return task
+    }
     return {
       ...task,
       state: 'needsAttention',
       updatedAt: now,
-      handoff: task.handoff ? {
-        ...task.handoff,
-        phase: 'needsAttention',
-        error: task.handoff.error ?? 'Cranberri restarted during handoff. Review the retained transfer bundle before retrying.',
-      } : task.handoff,
     }
   }
   if (task.state === 'provisioning') {
@@ -72,18 +102,13 @@ function recoverTask(task: Task, interruptedTaskIds: ReadonlySet<string>, now: n
   if (task.threadId && task.pendingFirstTurn?.delivery === 'pending') {
     return { ...task, threadId: null, updatedAt: now }
   }
-  if (task.pendingFirstTurn?.delivery === 'sending') {
-    return {
-      ...task,
-      state: task.location === 'local' ? 'local' : 'active',
-      pendingFirstTurn: { ...task.pendingFirstTurn, delivery: 'pending' },
-      updatedAt: now,
-    }
-  }
   return task
 }
 
-function recoveredState(state: ReturnType<TaskStore['read']>, now: number): ReturnType<TaskStore['read']> {
+function recoveredState(
+  state: ReturnType<TaskStore['read']>,
+  now: number,
+): ReturnType<TaskStore['read']> {
   const interruptedTaskIds = new Set(state.interruptedOperations.flatMap((operation) => (
     typeof operation.taskId === 'string' ? [operation.taskId] : []
   )))
@@ -125,14 +150,18 @@ function changedTaskIds(
     .sort()
 }
 
-export async function reconcileTaskStore(store: TaskStore, now = Date.now()): Promise<TaskRecoveryResult> {
+export async function reconcileTaskStore(
+  store: TaskStore,
+  now = Date.now(),
+): Promise<TaskRecoveryResult> {
   const before = store.read()
+  const handoffRecoveries = interruptedHandoffs(before.tasks)
   const candidate = recoveredState(before, now)
   if (JSON.stringify(candidate) === JSON.stringify(before)) {
-    return { changed: false, revision: before.revision, repairedTaskIds: [] }
+    return { changed: false, revision: before.revision, repairedTaskIds: [], handoffRecoveries }
   }
 
   const repairedTaskIds = changedTaskIds(before, candidate)
   const committed = await store.update((state) => recoveredState(state, now))
-  return { changed: true, revision: committed.revision, repairedTaskIds }
+  return { changed: true, revision: committed.revision, repairedTaskIds, handoffRecoveries }
 }

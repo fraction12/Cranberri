@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { z } from 'zod'
 import type { CodexRuntimeContext } from '../shared/codex'
 import type { ProjectRegistry } from '../shared/projects'
 import type { Task } from '../shared/tasks'
@@ -44,6 +45,17 @@ interface SerializedChanges {
   untrackedFiles: Array<{ relativePath: string; contents: string; mode: number }>
 }
 
+const serializedChangesSchema = z.object({
+  baseSha: z.string().regex(/^[0-9a-f]{40,64}$/i),
+  stagedPatch: z.string(),
+  unstagedPatch: z.string(),
+  untrackedFiles: z.array(z.object({
+    relativePath: z.string().min(1),
+    contents: z.string(),
+    mode: z.number().int().nonnegative(),
+  }).strict()),
+}).strict()
+
 function serializeChanges(changes: LocalChanges): SerializedChanges {
   return {
     baseSha: changes.baseSha,
@@ -63,6 +75,32 @@ function writeBundle(root: string, taskId: string, changes: LocalChanges): strin
   return bundlePath
 }
 
+function readBundle(bundlePath: string): LocalChanges {
+  const serialized = serializedChangesSchema.parse(JSON.parse(fs.readFileSync(bundlePath, 'utf8')))
+  return {
+    baseSha: serialized.baseSha,
+    stagedPatch: Buffer.from(serialized.stagedPatch, 'base64'),
+    unstagedPatch: Buffer.from(serialized.unstagedPatch, 'base64'),
+    untrackedFiles: serialized.untrackedFiles.map((file) => ({
+      ...file,
+      contents: Buffer.from(file.contents, 'base64'),
+    })),
+  }
+}
+
+function ownedBundlePath(bundleRoot: string, taskId: string, bundlePath: string): string {
+  const root = path.resolve(bundleRoot)
+  const candidate = path.resolve(bundlePath)
+  const relative = path.relative(root, candidate)
+  if (relative.startsWith('..') || path.isAbsolute(relative) || path.dirname(candidate) !== root) {
+    throw new Error('Transfer bundle is outside Cranberri storage')
+  }
+  if (!path.basename(candidate).startsWith(`${taskId}-`) || path.extname(candidate) !== '.json') {
+    throw new Error('Transfer bundle identity does not match the task')
+  }
+  return candidate
+}
+
 function sameChanges(left: LocalChanges, right: LocalChanges): boolean {
   return left.baseSha === right.baseSha
     && left.stagedPatch.equals(right.stagedPatch)
@@ -74,6 +112,12 @@ function sameChanges(left: LocalChanges, right: LocalChanges): boolean {
         && candidate.mode === file.mode
         && candidate.contents.equals(file.contents)
     })
+}
+
+function hasChanges(changes: LocalChanges): boolean {
+  return changes.stagedPatch.length > 0
+    || changes.unstagedPatch.length > 0
+    || changes.untrackedFiles.length > 0
 }
 
 function activeChild(task: Task, rootTaskId: string): boolean {
@@ -180,6 +224,60 @@ export class HandoffCoordinator {
     }
   }
 
+  async recoverInterrupted(taskId: string): Promise<Task> {
+    const state = this.store.read()
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task?.handoff || (task.state !== 'handingOff' && task.state !== 'needsAttention')) {
+      throw new Error('Task has no interrupted handoff')
+    }
+    const worktree = state.managedWorktrees.find((item) => item.id === task.worktreeId)
+    const project = this.registry.projects.find((item) => item.id === task.projectId)
+    const local = project && this.registry.checkouts.find((item) => item.id === project.localCheckoutId)
+    if (!worktree || !fs.existsSync(worktree.path)) throw new Error('Original managed worktree is unavailable')
+    if (!project || !local?.available || !fs.existsSync(local.canonicalPath)) throw new Error('Local checkout is unavailable')
+    if (!project.pinnedLocalBranch) throw new Error('Local has no pinned return branch')
+    if (await this.dependencies.hasRunningProcesses(worktree.path) || await this.dependencies.hasRunningProcesses(local.canonicalPath)) {
+      throw new Error('Task has running processes')
+    }
+
+    try {
+      const bundlePath = task.handoff.bundlePath
+        ? ownedBundlePath(this.bundleRoot, task.id, task.handoff.bundlePath)
+        : null
+      const bundle = bundlePath
+        ? readBundle(bundlePath)
+        : null
+      if (task.handoff.phase !== 'preflight' && !bundle) {
+        throw new Error('The retained transfer bundle is unavailable')
+      }
+      if (task.handoff.direction === 'toLocal') {
+        await this.rollbackToWorktree(task, worktree, local.canonicalPath, project.pinnedLocalBranch, bundle)
+      } else {
+        await this.rollbackToLocal(task, worktree, local.canonicalPath, bundle)
+      }
+      const updated = await this.restoreInterruptedBinding(task, worktree)
+      if (bundlePath) {
+        try {
+          fs.rmSync(bundlePath, { force: true })
+        } catch (error) {
+          console.warn(`Recovered handoff ${task.id}, but its transfer bundle could not be removed`, error)
+        }
+      }
+      return updated
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Handoff recovery failed'
+      await this.journal(task.id, 'needsAttention', task.handoff.bundlePath, message)
+      await this.store.update((current) => ({
+        ...current,
+        tasks: current.tasks.map((item) => item.id === task.id ? { ...item, state: 'needsAttention' as const } : item),
+        managedWorktrees: current.managedWorktrees.map((item) => item.id === worktree.id ? {
+          ...item, lifecycle: 'needsAttention' as const, cleanupReason: message, updatedAt: this.dependencies.now(),
+        } : item),
+      }))
+      throw error
+    }
+  }
+
   private async preflight(taskId: string, location: Task['location']): Promise<{ task: Task; worktree: ManagedWorktree; localPath: string; project: ProjectRegistry['projects'][number] }> {
     const state = this.store.read()
     const task = state.tasks.find((item) => item.id === taskId)
@@ -265,6 +363,79 @@ export class HandoffCoordinator {
   private async assertUnchanged(checkoutPath: string, expected: LocalChanges): Promise<void> {
     const current = await captureLocalChanges(checkoutPath, expected.baseSha)
     if (!sameChanges(current, expected)) throw new Error('Checkout changed during handoff; duplicate data was preserved')
+  }
+
+  private async reconcileChanges(checkoutPath: string, expected: LocalChanges, destination: boolean): Promise<void> {
+    const head = await resolveGitRef(checkoutPath, 'HEAD')
+    if (head !== expected.baseSha) {
+      if (await gitStatusPorcelain(checkoutPath)) throw new Error('Checkout changed during handoff recovery')
+      return
+    }
+    const current = await captureLocalChanges(checkoutPath, expected.baseSha)
+    if (sameChanges(current, expected)) {
+      if (destination && hasChanges(current)) await clearTransferredChanges(checkoutPath, current)
+      return
+    }
+    if (hasChanges(current)) throw new Error('Checkout changed during handoff recovery')
+    if (!destination && hasChanges(expected)) await applyLocalChanges(checkoutPath, expected)
+  }
+
+  private async rollbackToWorktree(
+    task: Task,
+    worktree: ManagedWorktree,
+    localPath: string,
+    pinnedBranch: string,
+    changes: LocalChanges | null,
+  ): Promise<void> {
+    if (changes) await this.reconcileChanges(localPath, changes, true)
+    await checkoutBranch(localPath, pinnedBranch)
+    await checkoutBranch(worktree.path, task.handoff!.branch)
+    if (changes) await this.reconcileChanges(worktree.path, changes, false)
+  }
+
+  private async rollbackToLocal(
+    task: Task,
+    worktree: ManagedWorktree,
+    localPath: string,
+    changes: LocalChanges | null,
+  ): Promise<void> {
+    if (changes) await this.reconcileChanges(worktree.path, changes, true)
+    await detachCheckout(worktree.path, await resolveGitRef(worktree.path, 'HEAD'))
+    await checkoutBranch(localPath, task.handoff!.branch)
+    if (changes) await this.reconcileChanges(localPath, changes, false)
+  }
+
+  private async restoreInterruptedBinding(task: Task, worktree: ManagedWorktree): Promise<Task> {
+    const location = task.handoff!.direction === 'toLocal' ? 'worktree' : 'local'
+    let updated!: Task
+    await this.store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((item) => {
+        if (item.id !== task.id) return item
+        updated = {
+          ...item,
+          checkoutId: location === 'local'
+            ? this.registry.projects.find((project) => project.id === task.projectId)!.localCheckoutId
+            : worktree.checkoutId,
+          location,
+          state: location === 'local' ? 'local' : 'active',
+          handoff: null,
+          updatedAt: this.dependencies.now(),
+        }
+        return updated
+      }),
+      managedWorktrees: state.managedWorktrees.map((item) => item.id === worktree.id ? {
+        ...item,
+        lifecycle: location === 'local' ? 'handedOff' as const : 'active' as const,
+        cleanupReason: null,
+        updatedAt: this.dependencies.now(),
+      } : item),
+      localLeaseByProjectId: {
+        ...state.localLeaseByProjectId,
+        [task.projectId]: location === 'local' ? task.id : null,
+      },
+    }))
+    return updated
   }
 
   private async commitBinding(task: Task, worktree: ManagedWorktree, location: Task['location'], branch: string): Promise<Task> {

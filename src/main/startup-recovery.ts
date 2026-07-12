@@ -14,11 +14,15 @@ import {
 import type { Task } from '../shared/tasks'
 import type { ManagedWorktree } from '../shared/worktrees'
 import { readProjectRegistry } from './repos'
-import { reconcileTaskStore, type TaskRecoveryResult } from './task-recovery'
-import { TaskStore } from './task-store'
+import {
+  reconcileTaskStore,
+  type HandoffRecoveryRecommendation,
+  type TaskRecoveryResult,
+} from './task-recovery'
+import type { TaskStore } from './task-store'
 
 type AppStateRead = ReturnType<typeof readPersistedAppState>
-type ThreadCheck = 'available' | 'missing' | 'unchecked'
+export type ThreadCheck = 'available' | 'missing' | 'unchecked'
 
 export interface StartupRecoveryDependencies {
   taskStore: TaskStore
@@ -26,11 +30,11 @@ export interface StartupRecoveryDependencies {
   readAppState: () => AppStateRead
   writeAppState: (state: CranberriAppState) => CranberriAppState
   checkThread?: (threadId: string, task: Task | null) => Promise<ThreadCheck>
+  recoverHandoff?: (taskId: string) => Promise<void>
   now: () => number
 }
 
-const defaultDependencies: StartupRecoveryDependencies = {
-  taskStore: new TaskStore(),
+const defaultDependencies: Omit<StartupRecoveryDependencies, 'taskStore' | 'checkThread'> = {
   readProjectRegistry,
   readAppState: readPersistedAppState,
   writeAppState: writePersistedAppState,
@@ -38,6 +42,29 @@ const defaultDependencies: StartupRecoveryDependencies = {
 }
 
 let latestReport: StartupRecoveryReport | null = null
+let latestHandoffRecoveries: HandoffRecoveryRecommendation[] = []
+let runtimeDependencies: Partial<StartupRecoveryDependencies> = {}
+
+export async function authoritativeThreadCheck(
+  readThread: (threadId: string) => Promise<unknown>,
+  threadId: string,
+): Promise<ThreadCheck> {
+  try {
+    await readThread(threadId)
+    return 'available'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return /thread not found/i.test(message) ? 'missing' : 'unchecked'
+  }
+}
+
+export function configureStartupRecoveryRuntime(
+  dependencies: Pick<StartupRecoveryDependencies, 'taskStore'> & Partial<StartupRecoveryDependencies>,
+): () => void {
+  const previous = runtimeDependencies
+  runtimeDependencies = { ...runtimeDependencies, ...dependencies }
+  return () => { runtimeDependencies = previous }
+}
 
 function outcome(
   window: WorkspaceWindowState,
@@ -258,7 +285,7 @@ async function validateWindow(
     return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'needsAttention', 'threadMissing', 'The Codex thread was confirmed missing.', 'missing') }
   }
   if (threadStatus === 'unchecked') {
-    return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, 'retryable', 'threadUnchecked', 'Thread availability is unchecked and will be verified by the renderer.', 'unchecked') }
+    return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, 'retryable', 'threadUnchecked', 'Thread availability could not be verified and must be retried after Codex is available.', 'unchecked') }
   }
   return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, bindingRepaired ? 'repaired' : 'ready', bindingRepaired ? 'legacyBindingRestored' : 'none', bindingRepaired ? 'The legacy window binding was restored from its authoritative task.' : 'The window binding is ready.', 'available') }
 }
@@ -266,12 +293,49 @@ async function validateWindow(
 export async function reconcileStartup(
   partial: Partial<StartupRecoveryDependencies> = {},
 ): Promise<StartupRecoveryReport> {
-  const dependencies = { ...defaultDependencies, ...partial }
-  const taskRecovery: TaskRecoveryResult = await reconcileTaskStore(
-    dependencies.taskStore,
-    dependencies.now(),
-  )
-  const tasks = dependencies.taskStore.read()
+  const dependencies = { ...defaultDependencies, ...runtimeDependencies, ...partial }
+  if (!dependencies.taskStore) throw new Error('Startup recovery runtime is not configured')
+
+  let taskRecovery: TaskRecoveryResult
+  let tasks: ReturnType<TaskStore['read']>
+  try {
+    taskRecovery = await reconcileTaskStore(
+      dependencies.taskStore,
+      dependencies.now(),
+    )
+    tasks = dependencies.taskStore.read()
+  } catch {
+    let appState: StartupRecoveryReport['appState']
+    try {
+      const appStateRead = dependencies.readAppState()
+      appState = {
+        status: appStateRead.source === 'backup' ? 'repaired' : 'ready',
+        source: appStateRead.source,
+        message: appStateRead.source === 'backup'
+          ? 'App state is available from the last known good snapshot.'
+          : 'App state is available, but session state could not be restored.',
+      }
+    } catch (error) {
+      appState = {
+        status: 'needsAttention',
+        source: 'unavailable',
+        message: error instanceof Error ? error.message : 'App state is unavailable.',
+      }
+    }
+    const report = startupRecoveryReportSchema.parse({
+      appState,
+      taskStore: {
+        status: 'needsAttention',
+        revision: 0,
+        repairedTaskIds: [],
+      },
+      windows: [],
+    })
+    latestHandoffRecoveries = []
+    latestReport = report
+    return report
+  }
+  latestHandoffRecoveries = taskRecovery.handoffRecoveries
 
   let appStateRead: AppStateRead
   try {
@@ -326,11 +390,14 @@ export async function reconcileStartup(
     dependencies.writeAppState({ ...state, workspacesByProjectId })
   }
 
+  const hasUncheckedThread = windows.some((window) => window.threadStatus === 'unchecked')
   const report = startupRecoveryReportSchema.parse({
     appState: {
-      status: changed ? 'repaired' : 'ready',
+      status: hasUncheckedThread ? 'retryable' : changed ? 'repaired' : 'ready',
       source: appStateRead.source,
-      message: appStateRead.source === 'backup'
+      message: hasUncheckedThread
+        ? 'Workspace bindings are available, but persisted Codex threads still require authoritative verification.'
+        : appStateRead.source === 'backup'
         ? 'App state was restored from the last known good snapshot.'
         : changed
           ? 'Deterministic app-state repairs were persisted.'
@@ -351,7 +418,26 @@ export function getStartupRecoveryReport(): StartupRecoveryReport | null {
   return latestReport
 }
 
+export function getStartupHandoffRecoveries(): readonly HandoffRecoveryRecommendation[] {
+  return latestHandoffRecoveries
+}
+
+export async function retryStartupRecovery(): Promise<StartupRecoveryReport> {
+  await reconcileStartup()
+  const dependencies = { ...defaultDependencies, ...runtimeDependencies }
+  if (dependencies.recoverHandoff) {
+    for (const recovery of latestHandoffRecoveries) {
+      try {
+        await dependencies.recoverHandoff(recovery.taskId)
+      } catch (error) {
+        console.error(`[startup-recovery] handoff ${recovery.taskId} remains blocked`, error)
+      }
+    }
+  }
+  return reconcileStartup()
+}
+
 export function initStartupRecoveryIpc(): void {
   ipcMain.handle('recovery:read', () => latestReport)
-  ipcMain.handle('recovery:retry', () => reconcileStartup())
+  ipcMain.handle('recovery:retry', () => retryStartupRecovery())
 }

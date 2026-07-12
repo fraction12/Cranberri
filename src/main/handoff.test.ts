@@ -8,6 +8,7 @@ import { HandoffCoordinator, type HandoffCodex } from './handoff'
 import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
 import { WorktreeLifecycle } from './worktree-lifecycle'
+import { applyLocalChanges, captureLocalChanges } from './git-worktrees'
 
 const roots: string[] = []
 function git(cwd: string, ...args: string[]): string {
@@ -48,6 +49,21 @@ async function activeTask(f: ReturnType<typeof fixture>, environmentRevision: st
 
 function codex(overrides: Partial<HandoffCodex> = {}): HandoffCodex {
   return { isThreadRunning: () => false, hasActiveWorkers: () => false, resumeThread: async () => ({}), ...overrides }
+}
+
+function writeBundleFixture(root: string, changes: Awaited<ReturnType<typeof captureLocalChanges>>): string {
+  fs.mkdirSync(root, { recursive: true })
+  const bundlePath = path.join(root, 'task-fixture.json')
+  fs.writeFileSync(bundlePath, JSON.stringify({
+    baseSha: changes.baseSha,
+    stagedPatch: changes.stagedPatch.toString('base64'),
+    unstagedPatch: changes.unstagedPatch.toString('base64'),
+    untrackedFiles: changes.untrackedFiles.map((file) => ({
+      ...file,
+      contents: file.contents.toString('base64'),
+    })),
+  }))
+  return bundlePath
 }
 
 afterEach(() => {
@@ -150,6 +166,126 @@ describe('journaled handoff', () => {
     expect(git(worktreePath, 'branch', '--show-current')).toBe('feature')
     expect(fs.readFileSync(path.join(worktreePath, 'new.txt'), 'utf8')).toBe('keep me')
     expect(f.store.read().localLeaseByProjectId.project).toBeNull()
+  })
+
+  it('recovers an interrupted to-Local transfer by restoring the worktree source', async () => {
+    const f = fixture()
+    const { worktreePath } = await activeTask(f)
+    const baseSha = git(worktreePath, 'rev-parse', 'HEAD')
+    git(worktreePath, 'switch', '-c', 'feature')
+    fs.writeFileSync(path.join(worktreePath, 'new.txt'), 'keep me')
+    const changes = await captureLocalChanges(worktreePath, baseSha)
+    const bundleRoot = path.join(f.root, 'bundles')
+    const bundlePath = writeBundleFixture(bundleRoot, changes)
+    git(worktreePath, 'switch', '--detach', baseSha)
+    git(f.repo, 'switch', 'feature')
+    await applyLocalChanges(f.repo, changes)
+    await f.store.update((state) => ({
+      ...state,
+      localLeaseByProjectId: { project: 'task' },
+      tasks: state.tasks.map((task) => ({
+        ...task,
+        state: 'handingOff' as const,
+        handoff: { direction: 'toLocal' as const, phase: 'applied' as const, branch: 'feature', bundlePath, startedAt: 2, error: null },
+      })),
+    }))
+    const coordinator = new HandoffCoordinator(f.store, f.registry, codex(), bundleRoot, { hasRunningProcesses: async () => false })
+
+    const recovered = await coordinator.recoverInterrupted('task')
+
+    expect(recovered).toMatchObject({ location: 'worktree', state: 'active', handoff: null })
+    expect(git(f.repo, 'branch', '--show-current')).toBe('main')
+    expect(git(worktreePath, 'branch', '--show-current')).toBe('feature')
+    expect(fs.readFileSync(path.join(worktreePath, 'new.txt'), 'utf8')).toBe('keep me')
+    expect(fs.existsSync(path.join(f.repo, 'new.txt'))).toBe(false)
+    expect(f.store.read().localLeaseByProjectId.project).toBeNull()
+    expect(fs.existsSync(bundlePath)).toBe(false)
+  })
+
+  it('discards a preflight-only handoff without requiring a transfer bundle', async () => {
+    const f = fixture()
+    const { worktreePath } = await activeTask(f)
+    git(worktreePath, 'branch', 'feature')
+    await f.store.update((state) => ({
+      ...state,
+      localLeaseByProjectId: { project: 'task' },
+      tasks: state.tasks.map((task) => ({
+        ...task,
+        state: 'handingOff' as const,
+        handoff: { direction: 'toLocal' as const, phase: 'preflight' as const, branch: 'feature', bundlePath: null, startedAt: 2, error: null },
+      })),
+    }))
+    const coordinator = new HandoffCoordinator(f.store, f.registry, codex(), path.join(f.root, 'bundles'), { hasRunningProcesses: async () => false })
+
+    const recovered = await coordinator.recoverInterrupted('task')
+
+    expect(recovered).toMatchObject({ location: 'worktree', state: 'active', handoff: null })
+    expect(git(f.repo, 'branch', '--show-current')).toBe('main')
+    expect(git(worktreePath, 'branch', '--show-current')).toBe('feature')
+    expect(f.store.read().localLeaseByProjectId.project).toBeNull()
+  })
+
+  it('recovers an interrupted return transfer by restoring the Local source', async () => {
+    const f = fixture()
+    const { worktreePath } = await activeTask(f)
+    const coordinator = new HandoffCoordinator(f.store, f.registry, codex(), path.join(f.root, 'bundles'), { hasRunningProcesses: async () => false })
+    await coordinator.toLocal({ taskId: 'task', branch: 'feature', createBranch: true })
+    const baseSha = git(f.repo, 'rev-parse', 'HEAD')
+    fs.writeFileSync(path.join(f.repo, 'new.txt'), 'keep me')
+    const changes = await captureLocalChanges(f.repo, baseSha)
+    const bundleRoot = path.join(f.root, 'bundles')
+    const bundlePath = writeBundleFixture(bundleRoot, changes)
+    git(f.repo, 'switch', '--detach', baseSha)
+    git(worktreePath, 'switch', 'feature')
+    await applyLocalChanges(worktreePath, changes)
+    await f.store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => ({
+        ...task,
+        state: 'handingOff' as const,
+        handoff: { direction: 'toWorktree' as const, phase: 'applied' as const, branch: 'feature', bundlePath, startedAt: 2, error: null },
+      })),
+    }))
+
+    const recovered = await coordinator.recoverInterrupted('task')
+
+    expect(recovered).toMatchObject({ location: 'local', state: 'local', handoff: null })
+    expect(git(f.repo, 'branch', '--show-current')).toBe('feature')
+    expect(git(worktreePath, 'branch', '--show-current')).toBe('')
+    expect(fs.readFileSync(path.join(f.repo, 'new.txt'), 'utf8')).toBe('keep me')
+    expect(fs.existsSync(path.join(worktreePath, 'new.txt'))).toBe(false)
+    expect(f.store.read().localLeaseByProjectId.project).toBe('task')
+    expect(fs.existsSync(bundlePath)).toBe(false)
+  })
+
+  it('fails closed when a destination changed after an interrupted transfer', async () => {
+    const f = fixture()
+    const { worktreePath } = await activeTask(f)
+    const baseSha = git(worktreePath, 'rev-parse', 'HEAD')
+    git(worktreePath, 'switch', '-c', 'feature')
+    fs.writeFileSync(path.join(worktreePath, 'new.txt'), 'original')
+    const changes = await captureLocalChanges(worktreePath, baseSha)
+    const bundleRoot = path.join(f.root, 'bundles')
+    const bundlePath = writeBundleFixture(bundleRoot, changes)
+    git(worktreePath, 'switch', '--detach', baseSha)
+    git(f.repo, 'switch', 'feature')
+    await applyLocalChanges(f.repo, changes)
+    fs.writeFileSync(path.join(f.repo, 'new.txt'), 'changed after crash')
+    await f.store.update((state) => ({
+      ...state,
+      localLeaseByProjectId: { project: 'task' },
+      tasks: state.tasks.map((task) => ({
+        ...task,
+        state: 'handingOff' as const,
+        handoff: { direction: 'toLocal' as const, phase: 'applied' as const, branch: 'feature', bundlePath, startedAt: 2, error: null },
+      })),
+    }))
+    const coordinator = new HandoffCoordinator(f.store, f.registry, codex(), bundleRoot, { hasRunningProcesses: async () => false })
+
+    await expect(coordinator.recoverInterrupted('task')).rejects.toThrow('changed during handoff recovery')
+    expect(f.store.read().tasks[0]).toMatchObject({ state: 'needsAttention', handoff: { phase: 'needsAttention' } })
+    expect(fs.readFileSync(path.join(f.repo, 'new.txt'), 'utf8')).toBe('changed after crash')
+    expect(fs.existsSync(bundlePath)).toBe(true)
   })
 
   it('restores a safely removed archive from its private ref and exact environment revision', async () => {
