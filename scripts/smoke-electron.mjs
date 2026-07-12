@@ -1992,7 +1992,7 @@ async function runRepoWorkspaceSmoke() {
       await activeChatContextAction.click()
       await page.waitForTimeout(500)
       const activeChatComposers = await page.locator('[data-composer-input="true"]').evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ''))
-      if (!activeChatComposers.some((value) => value.includes('Active chat context:') && value.includes('Smoke Codex Thread') && value.includes('128 / 258,400 tokens'))) {
+      if (!activeChatComposers.some((value) => value.includes('Active chat context:') && value.includes('fake-thread-1') && value.includes('128 / 258,400 tokens'))) {
         throw new Error(`Active chat context did not reach composer. Composers:\n${activeChatComposers.join('\n---\n')}`)
       }
       await page.getByLabel('Send message').click()
