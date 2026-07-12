@@ -153,6 +153,33 @@ describe('startup recovery', () => {
     expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'localControlDeleted' })
   })
 
+  it('repairs a legacy local control binding without a session target', async () => {
+    const value = fixture()
+    value.state.workspacesByProjectId.project.windows[0] = {
+      ...value.state.workspacesByProjectId.project.windows[0],
+      taskId: 'control-project',
+      threadId: undefined,
+      sessionTarget: undefined,
+    }
+    const writeAppState = vi.fn((state: CranberriAppState) => state)
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState,
+    })
+
+    expect(writeAppState).toHaveBeenCalledWith(expect.objectContaining({
+      workspacesByProjectId: expect.objectContaining({
+        project: expect.objectContaining({
+          windows: [expect.objectContaining({ taskId: null, sessionTarget: 'local' })],
+        }),
+      }),
+    }))
+    expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'localControlDeleted' })
+  })
+
   it('fails closed for a missing managed worktree and a task ownership mismatch', async () => {
     const value = fixture()
     const missingWorktreeTask: Task = {

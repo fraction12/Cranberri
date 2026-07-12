@@ -128,7 +128,7 @@ async function validateWindow(
     )
     const isDeletedLocalControl = window.taskId === project.controlTaskId
       && window.checkoutId === project.localCheckoutId
-      && window.sessionTarget === 'local'
+      && (window.sessionTarget === 'local' || window.sessionTarget === undefined)
       && localCheckout?.projectId === project.id
       && localCheckout.available
     if (!isDeletedLocalControl) {

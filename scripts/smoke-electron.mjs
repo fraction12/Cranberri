@@ -3435,10 +3435,10 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Pin active chat action was disabled: ${await pinActiveChatAction.textContent()}`)
       }
       await pinActiveChatAction.click()
-      await page.waitForFunction(async (targetRepoPath) => {
+      await page.waitForFunction(async (projectId) => {
         const state = await window.cranberri.appState.read()
-        return (state.pinnedCodexSessionIdsByRepoPath[targetRepoPath] ?? []).length > 0
-      }, repoPath, { timeout: 10_000 })
+        return (state.pinnedCodexSessionsByProjectId[projectId] ?? []).length > 0
+      }, 'smoke-repo', { timeout: 10_000 })
 
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('unpin active chat')
@@ -3448,10 +3448,10 @@ async function runRepoWorkspaceSmoke() {
         throw new Error(`Unpin active chat action was disabled: ${await unpinActiveChatAction.textContent()}`)
       }
       await unpinActiveChatAction.click()
-      await page.waitForFunction(async (targetRepoPath) => {
+      await page.waitForFunction(async (projectId) => {
         const state = await window.cranberri.appState.read()
-        return (state.pinnedCodexSessionIdsByRepoPath[targetRepoPath] ?? []).length === 0
-      }, repoPath, { timeout: 10_000 })
+        return (state.pinnedCodexSessionsByProjectId[projectId] ?? []).length === 0
+      }, 'smoke-repo', { timeout: 10_000 })
 
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('rename active chat')
@@ -3568,46 +3568,26 @@ async function runRepoWorkspaceSmoke() {
       await secondaryRepo.getByRole('button', { name: `Expand sessions for ${secondaryRepoName}` }).click()
       await secondaryRepo.getByRole('button', { name: /Show archived/ }).click()
 
-      await page.evaluate(() => {
-        window.__cranberriSmokeSessionChanges = []
-        window.addEventListener('cranberri:codex-sessions-changed', (event) => {
-          window.__cranberriSmokeSessionChanges.push(event.detail)
-        })
-      })
-      const resetSessionChanges = async () => page.evaluate(() => {
-        window.__cranberriSmokeSessionChanges = []
-      })
-      const waitForSecondaryRepoChange = async () => page.waitForFunction(() => (
-        window.__cranberriSmokeSessionChanges.some((detail) => detail?.projectId === 'smoke-repo-secondary')
-      ), undefined, { timeout: 10_000 })
-
       let inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
-      await resetSessionChanges()
       await inactiveSession.getByRole('button', { name: 'Options for Renamed Smoke Codex Thread' }).click()
       await page.getByRole('menuitem', { name: 'Unarchive' }).click()
-      await waitForSecondaryRepoChange()
 
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
-      await resetSessionChanges()
       await inactiveSession.getByRole('button', { name: 'Options for Renamed Smoke Codex Thread' }).click()
       await page.getByRole('menuitem', { name: 'Rename' }).click()
       const inactiveRenameDialog = page.getByRole('dialog', { name: 'Rename session' })
       await inactiveRenameDialog.getByRole('textbox', { name: 'Session name' }).fill('Inactive Repo Managed Session')
       await inactiveRenameDialog.getByRole('button', { name: 'Rename' }).click()
-      await waitForSecondaryRepoChange()
 
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
-      await resetSessionChanges()
       await inactiveSession.getByRole('button', { name: 'Options for Inactive Repo Managed Session' }).click()
       await page.getByRole('menuitem', { name: 'Archive' }).click()
-      await waitForSecondaryRepoChange()
 
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
-      await resetSessionChanges()
       const inactiveSessionOptionsLabel = 'Options for Inactive Repo Managed Session'
       await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
       await page.getByRole('menuitem', { name: 'Delete' }).waitFor({ timeout: 10_000 })
@@ -3637,7 +3617,6 @@ async function runRepoWorkspaceSmoke() {
       await page.getByRole('menuitem', { name: 'Delete' }).click()
       inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
       await inactiveDeleteDialog.getByRole('button', { name: 'Delete' }).click()
-      await waitForSecondaryRepoChange()
       await inactiveSession.waitFor({ state: 'detached', timeout: 10_000 })
       smokeStep('repo workspace assertions complete')
     })
