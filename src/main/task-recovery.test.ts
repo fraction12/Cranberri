@@ -136,4 +136,17 @@ describe('task startup recovery', () => {
       worktreeTransition: { phase: 'needsAttention', error: expect.stringContaining('before binding') },
     })
   })
+
+  it('does not create another store revision after recovery has settled', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-recovery-'))
+    roots.push(root)
+    const store = new TaskStore(path.join(root, 'tasks.json'))
+    await store.update((state) => ({ ...state, localLeaseByProjectId: { project: null } }))
+
+    await reconcileTaskStore(store, 10)
+    const revision = store.read().revision
+    await reconcileTaskStore(store, 20)
+
+    expect(store.read().revision).toBe(revision)
+  })
 })

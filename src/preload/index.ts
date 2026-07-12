@@ -19,6 +19,9 @@ const api = {
     read: () => ipcRenderer.invoke('app-state:read'),
     write: (state: import('@/shared/appState').CranberriAppState) => ipcRenderer.invoke('app-state:write', state),
   },
+  recovery: {
+    read: () => ipcRenderer.invoke('recovery:read') as Promise<import('@/shared/recovery').StartupRecoveryReport | null>,
+  },
   repos: {
     list: () => ipcRenderer.invoke('repos:list'),
     add: (path: string) => ipcRenderer.invoke('repos:add', path),

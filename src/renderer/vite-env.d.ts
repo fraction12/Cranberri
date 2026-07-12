@@ -41,6 +41,9 @@ declare global {
         read: () => Promise<CranberriAppState>
         write: (state: CranberriAppState) => Promise<CranberriAppState>
       }
+      recovery: {
+        read: () => Promise<import('@/shared/recovery').StartupRecoveryReport | null>
+      }
       repos: {
         list: () => Promise<import('@/shared/projects').ProjectRegistryView>
         add: (path: string) => Promise<import('@/shared/projects').ProjectRegistryView>

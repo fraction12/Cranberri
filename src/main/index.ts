@@ -6,7 +6,7 @@ import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initGitHubIpc } from './github'
 import { initCodexIpc, stopCodexClient } from './codex/ipc'
-import { recoverTaskRuntime } from './worktree-runtime'
+import { recoverStartupRuntime } from './worktree-runtime'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
@@ -17,6 +17,7 @@ import { initUpdaterIpc } from './updater'
 import { initSearchIpc } from './search'
 import { initBrowserIpc } from './browser'
 import { initEnvironmentIpc } from './environments/ipc'
+import { initStartupRecoveryIpc } from './startup-recovery'
 
 const APP_SCHEME = 'cranberri'
 const MEDIA_SCHEME = 'cranberri-media'
@@ -160,7 +161,8 @@ app.whenReady().then(async () => {
     registerAppProtocol()
   }
   registerMediaProtocol()
-  await recoverTaskRuntime()
+  const recoveryReport = await recoverStartupRuntime()
+  console.info('[startup-recovery]', JSON.stringify(recoveryReport))
   initRepoIpc()
   initAppIpc()
   initGitIpc()
@@ -174,6 +176,7 @@ app.whenReady().then(async () => {
   initBrowserIpc(getMainWindow)
   initHealthIpc()
   initAppStateIpc()
+  initStartupRecoveryIpc()
   initTelemetryIpc()
   initUpdaterIpc()
   createWindow()

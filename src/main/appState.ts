@@ -257,6 +257,8 @@ function targetPath(): string {
   return path.join(app.getPath('userData'), 'app-state.json')
 }
 
+let appStateWriteBlock: Error | null = null
+
 function migrationContext(): MigrationContext {
   const registry = readProjectRegistry()
   const checkouts = new Map(registry.checkouts.map((item) => [item.id, item]))
@@ -269,15 +271,33 @@ function migrationContext(): MigrationContext {
   }
 }
 
-function read(): CranberriAppState {
-  return readAppStateFile(targetPath(), migrationContext()).state
+export function readPersistedAppState(
+  target = targetPath(),
+  context = migrationContext(),
+): AppStateReadResult {
+  try {
+    const result = readAppStateFile(target, context)
+    appStateWriteBlock = null
+    return result
+  } catch (error) {
+    appStateWriteBlock = error instanceof Error ? error : new Error('App state is unavailable')
+    throw appStateWriteBlock
+  }
 }
 
-function write(state: CranberriAppState): CranberriAppState {
-  return writeAppStateFile(targetPath(), state)
+export function writePersistedAppState(
+  state: CranberriAppState,
+  target = targetPath(),
+): CranberriAppState {
+  if (appStateWriteBlock) {
+    throw new Error('Cannot write app state while persisted state is unavailable', {
+      cause: appStateWriteBlock,
+    })
+  }
+  return writeAppStateFile(target, state)
 }
 
 export function initAppStateIpc(): void {
-  ipcMain.handle('app-state:read', () => read())
-  ipcMain.handle('app-state:write', (_, state: CranberriAppState) => write(state))
+  ipcMain.handle('app-state:read', () => readPersistedAppState().state)
+  ipcMain.handle('app-state:write', (_, state: CranberriAppState) => writePersistedAppState(state))
 }

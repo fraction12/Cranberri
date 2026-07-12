@@ -9,7 +9,9 @@ import {
   incrementBindingRevision,
   parseAppState,
   readAppStateFile,
+  readPersistedAppState,
   writeAppStateFile,
+  writePersistedAppState,
 } from './appState'
 
 const temporaryDirectories: string[] = []
@@ -267,5 +269,21 @@ describe('app-state persistence', () => {
     fs.writeFileSync(backup, JSON.stringify(lastKnownGood))
 
     expect(readAppStateFile(target)).toEqual({ state: lastKnownGood, source: 'backup' })
+  })
+
+  it('blocks later writes when persisted state is unavailable', () => {
+    const target = appStatePath()
+    fs.writeFileSync(target, '{"version":3')
+    fs.writeFileSync(appStateBackupPath(target), '{"version":2')
+
+    expect(() => readPersistedAppState(target, { projects: [] })).toThrow(
+      'Cannot read app state primary or backup',
+    )
+    expect(() => writePersistedAppState(DEFAULT_APP_STATE, target)).toThrow(
+      'Cannot write app state while persisted state is unavailable',
+    )
+    expect(fs.readFileSync(target, 'utf8')).toBe('{"version":3')
+
+    readPersistedAppState(path.join(path.dirname(target), 'fresh.json'), { projects: [] })
   })
 })
