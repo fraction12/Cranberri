@@ -19,6 +19,11 @@ const api = {
     read: () => ipcRenderer.invoke('app-state:read'),
     write: (state: import('@/shared/appState').CranberriAppState) => ipcRenderer.invoke('app-state:write', state),
   },
+  composerDrafts: {
+    read: (ownerKey: string): Promise<import('@/shared/composer-drafts').ComposerDraft | null> => ipcRenderer.invoke('composer-drafts:read', ownerKey),
+    write: (draft: import('@/shared/composer-drafts').ComposerDraft): Promise<import('@/shared/composer-drafts').ComposerDraft> => ipcRenderer.invoke('composer-drafts:write', draft),
+    delete: (ownerKey: string): Promise<{ ok: true }> => ipcRenderer.invoke('composer-drafts:delete', ownerKey),
+  },
   recovery: {
     read: () => ipcRenderer.invoke('recovery:read') as Promise<import('@/shared/recovery').StartupRecoveryReport | null>,
   },

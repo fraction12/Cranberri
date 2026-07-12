@@ -41,6 +41,11 @@ declare global {
         read: () => Promise<CranberriAppState>
         write: (state: CranberriAppState) => Promise<CranberriAppState>
       }
+      composerDrafts: {
+        read: (ownerKey: string) => Promise<import('@/shared/composer-drafts').ComposerDraft | null>
+        write: (draft: import('@/shared/composer-drafts').ComposerDraft) => Promise<import('@/shared/composer-drafts').ComposerDraft>
+        delete: (ownerKey: string) => Promise<{ ok: true }>
+      }
       recovery: {
         read: () => Promise<import('@/shared/recovery').StartupRecoveryReport | null>
       }

@@ -32,12 +32,3 @@ export function didReaderMoveTranscriptUp(
     && previous.clientHeight === current.clientHeight
     && current.scrollTop < previous.scrollTop - 1
 }
-
-export function shouldRestoreDraftAfterSendError(threadId: string | undefined, error: unknown): boolean {
-  const threadCreated = Boolean(error && typeof error === 'object' && 'threadCreated' in error)
-  return !threadId && !threadCreated
-}
-
-export function shouldToastAfterSendError(threadId: string | undefined, draft: string, error: unknown): boolean {
-  return draft.trim() === '/compact' || shouldRestoreDraftAfterSendError(threadId, error)
-}

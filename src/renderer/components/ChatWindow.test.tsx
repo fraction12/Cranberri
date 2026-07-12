@@ -5,9 +5,7 @@ import {
   didReaderMoveTranscriptUp,
   isTranscriptNearBottom,
   sessionThreadIdFromWindowId,
-  shouldRestoreDraftAfterSendError,
   shouldSendComposerOnEnter,
-  shouldToastAfterSendError,
 } from './chat/chat-window-state'
 import { renderSkillText } from './chat/composer-text'
 import type { CodexSkillInfo } from '@/shared/codex'
@@ -41,12 +39,6 @@ describe('ChatWindow composer rendering', () => {
     expect(sessionThreadIdFromWindowId('session-')).toBeNull()
   })
 
-  it('restores a draft only when first send failed before a thread was created', () => {
-    expect(shouldRestoreDraftAfterSendError(undefined, new Error('spawn failed'))).toBe(true)
-    expect(shouldRestoreDraftAfterSendError('thread-1', new Error('turn failed'))).toBe(false)
-    expect(shouldRestoreDraftAfterSendError(undefined, Object.assign(new Error('turn failed'), { threadCreated: true }))).toBe(false)
-  })
-
   it('submits Enter as a follow-up even while Codex is running', () => {
     expect(shouldSendComposerOnEnter('Enter', false)).toBe(true)
     expect(shouldSendComposerOnEnter('Enter', true)).toBe(false)
@@ -72,9 +64,4 @@ describe('ChatWindow composer rendering', () => {
     )).toBe(false)
   })
 
-  it('avoids duplicating transcript send errors in a toast', () => {
-    expect(shouldToastAfterSendError('thread-1', 'normal message', new Error('turn failed'))).toBe(false)
-    expect(shouldToastAfterSendError('thread-1', '/compact', new Error('compact failed'))).toBe(true)
-    expect(shouldToastAfterSendError(undefined, 'first message', new Error('spawn failed'))).toBe(true)
-  })
 })

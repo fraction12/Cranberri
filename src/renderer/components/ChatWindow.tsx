@@ -14,6 +14,7 @@ import { useSettings } from '../state/settings'
 import { useOptionalTasks } from '../state/tasks'
 import { useRepos } from '../state/repos'
 import { useRecovery } from '../state/recovery'
+import { composerDraftOwnerKey, useComposerDraftController } from '../state/composer-drafts'
 import { AddMenu } from './chat/AddMenu'
 import { ApprovalSelector } from './chat/ApprovalSelector'
 import { AttachmentChips } from './chat/AttachmentChips'
@@ -23,8 +24,6 @@ import {
   didReaderMoveTranscriptUp,
   isTranscriptNearBottom,
   sessionThreadIdFromWindowId,
-  shouldRestoreDraftAfterSendError,
-  shouldToastAfterSendError,
 } from './chat/chat-window-state'
 import {
   contextInputLabel,
@@ -64,6 +63,7 @@ import {
   type SpeechRecognitionLike,
 } from './chat/voice-dictation'
 import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
+import type { ComposerDraft, ContextInputAttachment } from '@/shared/composer-drafts'
 
 const GOAL_PROMPT = [
   'Create and run this as a Codex goal.',
@@ -85,12 +85,6 @@ const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-app-text text-app-bg',
   'transition-colors duration-fast ease-standard hover:bg-app-text/85 disabled:pointer-events-none disabled:opacity-35',
 ].join(' ')
-
-interface ContextInputAttachment {
-  id: string
-  label: string
-  input: CodexUserInput
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Task action failed'
@@ -144,6 +138,15 @@ export function ChatWindow({ id }: { id: string }) {
   const mappedThreadId = getThreadForWindow(id)
   const persistedThreadId = workspaceWindow?.threadId ?? sessionThreadIdFromWindowId(id)
   const threadId = persistedThreadId ?? mappedThreadId
+  const draftProjectId = workspaceWindow?.projectId ?? activeProject?.id ?? null
+  const draftOwnerKey = draftProjectId ? composerDraftOwnerKey(draftProjectId, id, threadId) : null
+  const {
+    loaded: draftLoaded,
+    restoredDraft,
+    persist: persistDraft,
+    beginSend: beginDraftSend,
+    clear: clearDraft,
+  } = useComposerDraftController(draftOwnerKey)
   const thread = threadId ? getThread(threadId) : undefined
   const boundTaskId = workspaceWindow?.taskId ?? null
   const activeTask = tasks?.tasks.find((task) => task.id === boundTaskId) ?? null
@@ -208,6 +211,85 @@ export function ChatWindow({ id }: { id: string }) {
   const lastTranscriptPositionRef = useRef<{ scrollTop: number; clientHeight: number } | null>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const restoredSessionRef = useRef<string | null>(null)
+  const restoredDraftOwnerRef = useRef<string | null>(null)
+  const skipDraftPersistOwnerRef = useRef<string | null>(null)
+  const sendInFlightRef = useRef(false)
+
+  const buildComposerDraft = useCallback((text = input, mentions = composerMentions): ComposerDraft | null => {
+    if (!draftOwnerKey || !draftProjectId) return null
+    return {
+      ownerKey: draftOwnerKey,
+      projectId: draftProjectId,
+      windowId: id,
+      bindingRevision: workspaceWindow?.bindingRevision ?? 0,
+      updatedAt: Date.now(),
+      text,
+      mentions,
+      attachmentPaths: attachments,
+      contextInputAttachments: contextInputParts,
+      turnSettings,
+      planMode,
+      goalMode,
+      baseRef,
+      environmentId,
+      includeLocalChanges,
+    }
+  }, [
+    attachments,
+    baseRef,
+    composerMentions,
+    contextInputParts,
+    draftOwnerKey,
+    draftProjectId,
+    environmentId,
+    goalMode,
+    id,
+    includeLocalChanges,
+    input,
+    planMode,
+    turnSettings,
+    workspaceWindow?.bindingRevision,
+  ])
+
+  useEffect(() => {
+    if (!draftOwnerKey || !draftLoaded || restoredDraftOwnerRef.current === draftOwnerKey) return
+    restoredDraftOwnerRef.current = draftOwnerKey
+    skipDraftPersistOwnerRef.current = draftOwnerKey
+    const draft = restoredDraft
+    if (!draft) return
+    setInput(draft.text)
+    setComposerMentions(draft.mentions)
+    setAttachments(draft.attachmentPaths)
+    setContextInputParts(draft.contextInputAttachments)
+    setTurnSettings(draft.turnSettings)
+    setPlanMode(draft.planMode)
+    setGoalMode(draft.goalMode)
+    setBaseRef(draft.baseRef)
+    setEnvironmentId(draft.environmentId)
+    setIncludeLocalChanges(draft.includeLocalChanges)
+    if (draft.pendingSend) {
+      toast.warning('Previous send was interrupted', {
+        id: `composer-send-interrupted:${draftOwnerKey}`,
+        description: 'Review the restored message before sending it again.',
+      })
+    }
+  }, [draftLoaded, draftOwnerKey, restoredDraft])
+
+  useEffect(() => {
+    if (!draftOwnerKey || !draftLoaded || restoredDraftOwnerRef.current !== draftOwnerKey || sendInFlightRef.current) return
+    if (skipDraftPersistOwnerRef.current === draftOwnerKey) {
+      skipDraftPersistOwnerRef.current = null
+      return
+    }
+    const draft = buildComposerDraft()
+    if (!draft) return
+    const timeout = window.setTimeout(() => {
+      void persistDraft(draft).catch(() => {
+        toast.error('Composer draft could not be saved', { id: 'composer-draft-save-failed' })
+      })
+    }, 150)
+    return () => window.clearTimeout(timeout)
+  }, [buildComposerDraft, draftLoaded, draftOwnerKey, persistDraft])
 
   const loadTaskTargets = useCallback(async (refreshRefs = false) => {
     if (!tasks || !taskProject || threadId || taskTarget !== 'worktree') return
@@ -466,10 +548,23 @@ export function ChatWindow({ id }: { id: string }) {
     const currentInput = currentSnapshot.text
     const text = currentInput.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
+    if (text === '/compact' && !threadId) return
     const draftInput = currentInput
     const draftAttachments = attachments
     const draftContextInputParts = contextInputParts
+    const durableDraft = buildComposerDraft(currentInput, currentSnapshot.mentions)
+    let journaledDraft: ComposerDraft | null = null
+    if (durableDraft) {
+      try {
+        journaledDraft = await beginDraftSend(durableDraft, threadId)
+      } catch {
+        toast.error('Composer draft could not be saved. Message was not sent.', { id: 'composer-draft-send-journal-failed' })
+        return
+      }
+    }
+    sendInFlightRef.current = true
     let preparedThreadId: string | null = null
+    let sendAcknowledged = false
     composerHadFocusRef.current = true
     setInput('')
     setComposerMentions([])
@@ -547,17 +642,28 @@ export function ChatWindow({ id }: { id: string }) {
           await createThread(id, message.displayText, turnSettings, message.input)
         }
       }
+      sendAcknowledged = true
     } catch (error) {
       if (preparedThreadId) markThreadSendFailed(preparedThreadId, error)
-      if (thread?.parentThreadId || steeringActiveTurn || shouldRestoreDraftAfterSendError(threadId, error)) {
-        setInput(draftInput)
-        setAttachments(draftAttachments)
-        setContextInputParts(draftContextInputParts)
+      setInput(draftInput)
+      setComposerMentions(currentSnapshot.mentions)
+      setAttachments(draftAttachments)
+      setContextInputParts(draftContextInputParts)
+      if (journaledDraft) {
+        const retryDraft: ComposerDraft = { ...journaledDraft, updatedAt: Date.now() }
+        delete retryDraft.pendingSend
+        void persistDraft(retryDraft).catch(() => {
+          toast.error('Composer draft could not be saved', { id: 'composer-draft-save-failed' })
+        })
       }
-      if (thread?.parentThreadId || steeringActiveTurn || shouldToastAfterSendError(threadId, draftInput, error)) {
-        toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
-      }
+      toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
     } finally {
+      sendInFlightRef.current = false
+      if (sendAcknowledged && durableDraft) {
+        await clearDraft().catch(() => {
+          toast.error('Sent, but the saved draft could not be cleared', { id: 'composer-draft-clear-failed' })
+        })
+      }
       requestAnimationFrame(() => composerEditorRef.current?.focus())
     }
   }

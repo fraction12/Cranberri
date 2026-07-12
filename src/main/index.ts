@@ -12,6 +12,7 @@ import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
 import { initHealthIpc } from './health'
 import { initAppStateIpc } from './appState'
+import { initComposerDraftsIpc } from './composer-drafts'
 import { initTelemetryIpc } from './telemetry'
 import { initUpdaterIpc } from './updater'
 import { initSearchIpc } from './search'
@@ -176,6 +177,7 @@ app.whenReady().then(async () => {
   initBrowserIpc(getMainWindow)
   initHealthIpc()
   initAppStateIpc()
+  initComposerDraftsIpc()
   initStartupRecoveryIpc()
   initTelemetryIpc()
   initUpdaterIpc()
