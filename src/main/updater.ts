@@ -20,6 +20,8 @@ import {
 const UPDATE_CHANNEL = 'updater:event'
 const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
 const USER_AGENT = 'CranberriUpdater/0.1.0'
+const CRANBERRI_REMOTE = 'github.com/fraction12/cranberri'
+const NATIVE_MODULES = ['better-sqlite3', 'bufferutil', 'node-pty', 'utf-8-validate'] as const
 const flushWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>()
 
 function getUserData(...segments: string[]): string {
@@ -88,13 +90,31 @@ interface SourceRepo {
   containsCommit: boolean
 }
 
+export function canonicalCranberriRemote(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim()
+  const urlValue = /^[^/@]+@[^/:]+:/.test(trimmed)
+    ? `ssh://${trimmed.replace(':', '/')}`
+    : trimmed
+  try {
+    const remote = new URL(urlValue)
+    if (!['https:', 'ssh:'].includes(remote.protocol) || remote.hostname.toLowerCase() !== 'github.com') return null
+    const segments = remote.pathname.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '').split('/')
+    if (segments.length !== 2 || segments[0]?.toLowerCase() !== 'fraction12' || segments[1]?.toLowerCase() !== 'cranberri') {
+      return null
+    }
+    return CRANBERRI_REMOTE
+  } catch {
+    return null
+  }
+}
+
 async function resolveSourceRepo(): Promise<SourceRepo | null> {
   const repoPath = readSettings().updater.sourceRepoPath
   if (!repoPath) return null
 
   const git = simpleGit(repoPath)
   const remotes = await git.getRemotes(true)
-  const origin = remotes.find((r) => r.name === 'origin') ?? remotes[0]
+  const origin = remotes.find((r) => r.name === 'origin')
   const remoteUrl = origin?.refs?.fetch || origin?.refs?.push || ''
   const status = await git.status()
   const containsCommit = await commitExistsInRepo(git, buildInfo.commit)
@@ -223,6 +243,7 @@ async function resolveReleaseUpdate(): Promise<ReleaseUpdate | null> {
   const manifestAsset = release.assets.find((candidate) => candidate.name === 'release-manifest.json')
   if (!manifestAsset) throw new Error('Release integrity manifest is missing')
   const manifest = parseReleaseManifest(JSON.parse((await requestBuffer(manifestAsset.browser_download_url)).toString('utf8')))
+  assertCandidateSignaturePolicy('stable', manifest.bundle.signature, manifest.bundle.signature)
   if (manifest.asset.name !== asset.name) throw new Error('Release asset does not match its integrity manifest')
   if (manifest.packageVersion !== manifest.bundle.version || release.tag_name !== `v${manifest.packageVersion}`) {
     throw new Error('Release version metadata is inconsistent')
@@ -261,6 +282,78 @@ function parseReleaseManifest(value: unknown): ReleaseManifest {
     throw new Error('Release integrity manifest is invalid')
   }
   return manifest as ReleaseManifest
+}
+
+interface SemanticVersion {
+  major: number
+  minor: number
+  patch: number
+  prerelease: string[]
+}
+
+function parseSemanticVersion(value: string): SemanticVersion {
+  const match = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value)
+  if (!match) throw new Error(`Invalid semantic version: ${value}`)
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4]?.split('.') ?? [],
+  }
+}
+
+export function compareSemanticVersions(leftValue: string, rightValue: string): -1 | 0 | 1 {
+  const left = parseSemanticVersion(leftValue)
+  const right = parseSemanticVersion(rightValue)
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (left[key] !== right[key]) return left[key] < right[key] ? -1 : 1
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    if (left.prerelease.length === right.prerelease.length) return 0
+    return left.prerelease.length === 0 ? 1 : -1
+  }
+  const length = Math.max(left.prerelease.length, right.prerelease.length)
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = left.prerelease[index]
+    const rightPart = right.prerelease[index]
+    if (leftPart === undefined || rightPart === undefined) return leftPart === undefined ? -1 : 1
+    if (leftPart === rightPart) continue
+    const leftNumeric = /^\d+$/.test(leftPart)
+    const rightNumeric = /^\d+$/.test(rightPart)
+    if (leftNumeric && rightNumeric) return Number(leftPart) < Number(rightPart) ? -1 : 1
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return leftPart < rightPart ? -1 : 1
+  }
+  return 0
+}
+
+export function stableCandidateDisposition(
+  currentVersion: string,
+  candidateVersion: string,
+  rollbackVersion: string | null,
+): 'update' | 'upToDate' | 'rollback' {
+  const comparison = compareSemanticVersions(currentVersion, candidateVersion)
+  if (comparison < 0) return 'update'
+  if (comparison === 0) return 'upToDate'
+  if (rollbackVersion === candidateVersion) return 'rollback'
+  throw new Error(`Stable release ${candidateVersion} is older than installed version ${currentVersion}`)
+}
+
+function configuredRollbackVersion(): string | null {
+  const value = process.env.CRANBERRI_UPDATER_ROLLBACK_VERSION?.trim()
+  return value || null
+}
+
+export function assertCandidateSignaturePolicy(
+  channel: 'stable' | 'beta',
+  expected: UpdateSignatureStatus,
+  actual: UpdateSignatureStatus,
+): void {
+  if (actual !== expected) throw new Error('Staged app signature does not match the expected candidate signature')
+  if (actual === 'other') throw new Error('Staged app uses an unsupported signing identity')
+  if (channel === 'stable' && actual !== 'developerId') {
+    throw new Error('Stable updates require a verified Developer ID signature')
+  }
 }
 
 type UpdateBlockedReasonLiteral = 'developmentMode' | 'noRelease' | 'noArtifact' | 'noSourceRepo' | 'dirtySourceRepo' | 'sourceNotGitHub' | 'gitFetchFailed' | 'releaseCheckFailed' | 'comparisonUnknown'
@@ -305,7 +398,8 @@ async function performStableCheck(): Promise<UpdateInfo> {
     if (!update.latestCommit) {
       return makeStatus({ status: 'blocked', blockedReason: 'noRelease', blockedMessage: 'No GitHub release metadata is available for Cranberri.' })
     }
-    if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
+    const disposition = stableCandidateDisposition(buildInfo.version, update.manifest.packageVersion, configuredRollbackVersion())
+    if (disposition === 'upToDate') {
       return makeStatus({ status: 'upToDate', latestCommit: update.latestCommit, commitsBehind: 0, sourceRepoPath: update.asset.name })
     }
     return makeStatus({ status: 'updateAvailable', latestCommit: update.latestCommit, sourceRepoPath: update.asset.name })
@@ -321,8 +415,8 @@ async function performBetaCheck(): Promise<UpdateInfo> {
     if (!sourceRepo) {
       return makeStatus({ status: 'blocked', blockedReason: 'noSourceRepo', blockedMessage: 'Beta updates require a local Cranberri source repo path in Settings.' })
     }
-    if (!sourceRepo.remoteUrl.includes('github.com')) {
-      return makeStatus({ status: 'blocked', blockedReason: 'sourceNotGitHub', blockedMessage: 'The configured beta source repo origin is not GitHub.', sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
+    if (!canonicalCranberriRemote(sourceRepo.remoteUrl)) {
+      return makeStatus({ status: 'blocked', blockedReason: 'sourceNotGitHub', blockedMessage: 'The configured beta source must use the fraction12/Cranberri origin on GitHub.', sourceRepoPath: sourceRepo.path, sourceRepoDirty: sourceRepo.isDirty })
     }
     if (sourceRepo.isDirty) {
       return makeStatus({ status: 'blocked', blockedReason: 'dirtySourceRepo', blockedMessage: 'The configured beta source repo has uncommitted changes. Commit, stash, or clean it before updating.', sourceRepoPath: sourceRepo.path, sourceRepoDirty: true })
@@ -433,7 +527,19 @@ async function installUpdate(): Promise<InstallResult> {
     const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
     const helperOut = fs.openSync(helperLogPath, 'a')
     try {
-      const helper = spawn(helperRunner, [helperPath, manifestPath, String(process.pid)], {
+      const helper = spawn(helperRunner, [
+        helperPath,
+        manifestPath,
+        String(process.pid),
+        currentAppPath,
+        resultManifestPath,
+        journalPath,
+        installId,
+        logPath,
+        stagedAppPath,
+        candidateAppPath,
+        backupAppPath,
+      ], {
         detached: true,
         stdio: ['ignore', helperOut, helperOut],
         env: helperEnv,
@@ -599,7 +705,8 @@ async function prepareStableUpdate(stagingDir: string, logPath: string): Promise
   emitProgress({ phase: 'preparing', message: 'Finding latest stable release artifact', percent: 5 })
   const update = await resolveReleaseUpdate()
   if (!update) throw new Error('No downloadable Cranberri macOS arm64 artifact was found on the latest GitHub release')
-  if (update.latestCommit === buildInfo.commit || update.release.tag_name === buildInfo.commit.slice(0, 7)) {
+  const disposition = stableCandidateDisposition(buildInfo.version, update.manifest.packageVersion, configuredRollbackVersion())
+  if (disposition === 'upToDate') {
     setStatus(makeStatus({ status: 'upToDate', latestCommit: update.latestCommit, commitsBehind: 0, sourceRepoPath: update.asset.name, logPath }))
     throw new AlreadyUpToDateError('Already up to date after refresh.')
   }
@@ -612,6 +719,9 @@ async function prepareBetaUpdate(stagingDir: string, logPath: string): Promise<s
   emitProgress({ phase: 'preparing', message: 'Refreshing beta source repo', percent: 5 })
   const sourceRepo = await resolveSourceRepo()
   if (!sourceRepo) throw new Error('Beta updates require a local Cranberri source repo path in Settings')
+  if (!canonicalCranberriRemote(sourceRepo.remoteUrl)) {
+    throw new Error('The configured beta source must use the fraction12/Cranberri origin on GitHub')
+  }
   if (sourceRepo.isDirty) throw new Error('The configured beta source repo has uncommitted changes')
 
   const refreshed = await checkCommitsBehind(sourceRepo, buildInfo.commit)
@@ -634,6 +744,21 @@ async function prepareBetaUpdate(stagingDir: string, logPath: string): Promise<s
   if (!fs.existsSync(stagedAppPath)) {
     throw new Error(`Packaged beta app not found at ${stagedAppPath}`)
   }
+  const sourcePackage = JSON.parse(fs.readFileSync(path.join(stagingDir, 'source', 'package.json'), 'utf8')) as { version?: unknown }
+  if (typeof sourcePackage.version !== 'string') throw new Error('Beta source package version is invalid')
+  const packagedPlist = readBundlePlist(stagedAppPath)
+  const minimumSystemVersion = packagedPlist.LSMinimumSystemVersion
+  if (minimumSystemVersion !== undefined && typeof minimumSystemVersion !== 'string') {
+    throw new Error('Beta app minimum system version is invalid')
+  }
+  const signature = appSignatureStatus(stagedAppPath)
+  validateStagedApp(stagedAppPath, {
+    identifier: 'com.dushyantgarg.cranberri',
+    version: sourcePackage.version,
+    architecture: 'arm64',
+    minimumSystemVersion: minimumSystemVersion ?? null,
+    signature,
+  }, 'beta')
   return stagedAppPath
 }
 
@@ -676,32 +801,59 @@ async function stageReleaseAsset(asset: ReleaseAsset, manifest: ReleaseManifest,
   if (!stagedAppPath) {
     throw new Error(`Cranberri.app not found inside ${asset.name}`)
   }
-  validateStagedApp(stagedAppPath, manifest)
+  validateStagedApp(stagedAppPath, manifest.bundle, 'stable')
   return stagedAppPath
 }
 
-function validateStagedApp(appPath: string, manifest: ReleaseManifest): void {
+type BundleValidation = ReleaseManifest['bundle']
+
+function readBundlePlist(appPath: string): Record<string, unknown> {
+  const plistPath = path.join(appPath, 'Contents', 'Info.plist')
+  return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' })) as Record<string, unknown>
+}
+
+export function validateStagedApp(
+  appPath: string,
+  bundle: BundleValidation,
+  channel: 'stable' | 'beta' = 'stable',
+  options: { currentSystemVersion?: string } = {},
+): void {
   const plistPath = path.join(appPath, 'Contents', 'Info.plist')
   const executablePath = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
   if (!fs.existsSync(plistPath) || !fs.existsSync(executablePath)) throw new Error('Staged app bundle is incomplete')
-  const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' })) as Record<string, unknown>
-  if (plist.CFBundleIdentifier !== manifest.bundle.identifier
-    || plist.CFBundleShortVersionString !== manifest.bundle.version
-    || (plist.LSMinimumSystemVersion ?? null) !== manifest.bundle.minimumSystemVersion) {
+  const plist = readBundlePlist(appPath)
+  if (plist.CFBundleIdentifier !== bundle.identifier
+    || plist.CFBundleShortVersionString !== bundle.version
+    || (plist.LSMinimumSystemVersion ?? null) !== bundle.minimumSystemVersion) {
     throw new Error('Staged app metadata does not match the release manifest')
   }
-  if (!supportsMinimumSystemVersion(process.getSystemVersion(), manifest.bundle.minimumSystemVersion)) {
-    throw new Error(`This update requires macOS ${manifest.bundle.minimumSystemVersion} or newer`)
+  const currentSystemVersion = options.currentSystemVersion ?? process.getSystemVersion()
+  if (!supportsMinimumSystemVersion(currentSystemVersion, bundle.minimumSystemVersion)) {
+    throw new Error(`This update requires macOS ${bundle.minimumSystemVersion} or newer`)
   }
   const executableDescription = execFileSync('/usr/bin/file', [executablePath], { encoding: 'utf8' })
-  if (!executableDescription.includes('arm64')) throw new Error('Staged app architecture is not arm64')
-  const signature = appSignatureStatus(appPath)
-  if (signature !== manifest.bundle.signature) {
-    throw new Error('Staged app signature does not match the release manifest')
+  if (!executableDescription.includes(bundle.architecture)) {
+    throw new Error(`Staged app architecture is not ${bundle.architecture}`)
   }
+  const signature = appSignatureStatus(appPath)
+  assertCandidateSignaturePolicy(channel, bundle.signature, signature)
   if (signature !== 'unsigned') {
     const verification = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath], { encoding: 'utf8' })
     if (verification.status !== 0) throw new Error('Staged app signature verification failed')
+  }
+  const packageEntry = path.join(appPath, 'Contents', 'Resources', 'app.asar', 'package.json')
+  const nativeCheck = [
+    "const { createRequire } = require('node:module')",
+    'const appRequire = createRequire(process.argv[1])',
+    `for (const name of ${JSON.stringify(NATIVE_MODULES)}) appRequire(name)`,
+  ].join('; ')
+  const nativeResult = spawnSync(executablePath, ['-e', nativeCheck, packageEntry], {
+    encoding: 'utf8',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  })
+  if (nativeResult.status !== 0) {
+    const detail = `${nativeResult.stderr ?? ''}`.trim()
+    throw new Error(`Staged app native module validation failed${detail ? `: ${detail}` : ''}`)
   }
 }
 
@@ -755,15 +907,26 @@ function getCurrentAppPath(): string {
   return path.join(contentsDir, '..')
 }
 
-function readPendingResult(): InstallResult | null {
+function readPendingResult(resultPath = getUserData('updater-result.json')): InstallResult | null {
   try {
-    const resultPath = getUserData('updater-result.json')
     if (!fs.existsSync(resultPath)) return null
     const raw = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
     return installResultSchema.parse(raw)
   } catch {
     return null
   }
+}
+
+export function consumePendingResult(resultPath: string): InstallResult | null {
+  if (!fs.existsSync(resultPath)) return null
+  const consumedPath = `${resultPath}.consumed`
+  try {
+    fs.renameSync(resultPath, consumedPath)
+  } catch (error) {
+    console.error('Failed to durably consume updater result:', error)
+    return null
+  }
+  return readPendingResult(consumedPath)
 }
 
 export function initUpdaterIpc(): void {
@@ -790,7 +953,7 @@ export function initUpdaterIpc(): void {
   })
 
   ipcMain.handle('updater:pending-result', () => {
-    return readPendingResult()
+    return consumePendingResult(getUserData('updater-result.json'))
   })
 
   ipcMain.handle('updater:ack-health', async () => {
@@ -805,6 +968,8 @@ export function initUpdaterIpc(): void {
     try {
       const resultPath = getUserData('updater-result.json')
       if (fs.existsSync(resultPath)) await shell.trashItem(resultPath)
+      const consumedPath = `${resultPath}.consumed`
+      if (fs.existsSync(consumedPath)) await shell.trashItem(consumedPath)
       return { ok: true }
     } catch {
       return { ok: false }

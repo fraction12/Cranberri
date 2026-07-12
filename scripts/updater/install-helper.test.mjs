@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { installFromManifest, relaunchEnvironment } from './install-helper.mjs'
+import { installFromManifest, installFromManifestPath, relaunchEnvironment } from './install-helper.mjs'
 
 const roots = []
 
@@ -48,7 +48,7 @@ describe('atomic updater helper', () => {
     expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('relaunching')
   })
 
-  for (const phase of ['prepared', 'candidateCopied', 'backupPromoted', 'candidatePromoted', 'relaunching']) {
+  for (const phase of ['preflighting', 'prepared', 'candidateCopied', 'backupPromoted', 'candidatePromoted', 'relaunching']) {
     it(`restores the previous app after failure at ${phase}`, async () => {
       const { manifest } = fixture()
       process.env.CRANBERRI_UPDATER_FAIL_AFTER = phase
@@ -86,5 +86,92 @@ describe('atomic updater helper', () => {
 
     const result = JSON.parse(fs.readFileSync(manifest.resultManifestPath, 'utf8'))
     expect(result.message).toContain('restored app relaunch failed: launch unavailable')
+  })
+
+  for (const prepareFailure of [
+    {
+      name: 'the staged app is missing',
+      arrange: ({ manifest }) => fs.renameSync(manifest.stagedAppPath, `${manifest.stagedAppPath}.missing`),
+      message: /Installed or staged app bundle is unavailable/,
+    },
+    {
+      name: 'a stale backup exists',
+      arrange: ({ manifest }) => fs.mkdirSync(manifest.backupAppPath),
+      message: /previous updater backup/,
+    },
+    {
+      name: 'a stale candidate exists',
+      arrange: ({ manifest }) => fs.mkdirSync(manifest.candidateAppPath),
+      message: /updater candidate already exists/,
+    },
+  ]) {
+    it(`records diagnostics and relaunches the current app when ${prepareFailure.name}`, async () => {
+      const setup = fixture()
+      const launched = []
+      prepareFailure.arrange(setup)
+
+      await expect(installFromManifest(setup.manifest, {
+        launchApp: (appPath) => launched.push(appPath),
+      })).rejects.toThrow(prepareFailure.message)
+
+      expect(launched).toEqual([setup.manifest.currentAppPath])
+      expect(JSON.parse(fs.readFileSync(setup.manifest.resultManifestPath, 'utf8'))).toMatchObject({
+        success: false,
+        phase: 'preparing',
+      })
+      expect(JSON.parse(fs.readFileSync(setup.manifest.journalPath, 'utf8'))).toMatchObject({
+        phase: 'rolledBack',
+      })
+    })
+  }
+
+  it('uses trusted fallback paths to diagnose an invalid manifest and relaunch the current app', async () => {
+    const { root, manifest } = fixture()
+    const manifestPath = path.join(root, 'invalid-manifest.json')
+    fs.writeFileSync(manifestPath, '{not-json')
+    const launched = []
+
+    await expect(installFromManifestPath(manifestPath, {
+      fallback: manifest,
+      launchApp: (appPath) => launched.push(appPath),
+    })).rejects.toThrow(/manifest/i)
+
+    expect(launched).toEqual([manifest.currentAppPath])
+    expect(JSON.parse(fs.readFileSync(manifest.resultManifestPath, 'utf8'))).toMatchObject({
+      success: false,
+      phase: 'preparing',
+    })
+  })
+
+  it('uses trusted fallback paths when the manifest file is missing', async () => {
+    const { root, manifest } = fixture()
+    const launched = []
+
+    await expect(installFromManifestPath(path.join(root, 'missing-manifest.json'), {
+      fallback: manifest,
+      launchApp: (appPath) => launched.push(appPath),
+    })).rejects.toThrow(/manifest.*invalid/i)
+
+    expect(launched).toEqual([manifest.currentAppPath])
+    expect(JSON.parse(fs.readFileSync(manifest.resultManifestPath, 'utf8')).success).toBe(false)
+  })
+
+  it('does not trust stale app paths from a valid manifest over launcher fallbacks', async () => {
+    const { root, manifest } = fixture()
+    const manifestPath = path.join(root, 'stale-manifest.json')
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      ...manifest,
+      currentAppPath: path.join(root, 'Moved.app'),
+      stagedAppPath: path.join(root, 'Missing.app'),
+    }))
+    const launched = []
+
+    await expect(installFromManifestPath(manifestPath, {
+      fallback: manifest,
+      launchApp: (appPath) => launched.push(appPath),
+    })).rejects.toThrow(/does not match trusted launcher context/)
+
+    expect(launched).toEqual([manifest.currentAppPath])
+    expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('old')
   })
 })

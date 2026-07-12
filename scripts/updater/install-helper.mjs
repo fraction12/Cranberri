@@ -4,7 +4,19 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const [, , manifestPath, parentPid] = process.argv
+const [
+  ,,
+  manifestPath,
+  parentPid,
+  fallbackCurrentAppPath,
+  fallbackResultManifestPath,
+  fallbackJournalPath,
+  fallbackInstallId,
+  fallbackLogPath,
+  fallbackStagedAppPath,
+  fallbackCandidateAppPath,
+  fallbackBackupAppPath,
+] = process.argv
 
 function log(message) {
   console.log(`[cranberri-updater] ${message}`)
@@ -32,6 +44,15 @@ function journal(manifest, phase, detail = null) {
   })
   if (process.env.CRANBERRI_UPDATER_FAIL_AFTER === phase) {
     throw new Error(`Injected updater failure after ${phase}`)
+  }
+}
+
+function safeJournal(manifest, phase, detail = null) {
+  try {
+    journal(manifest, phase, detail)
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
 }
 
@@ -85,18 +106,19 @@ function preserveResidual(residualPath, installId) {
   return preserved
 }
 
-function rollback(manifest, cause) {
+function rollback(manifest, cause, state) {
   let rollbackError = null
   try {
-    if (fs.existsSync(manifest.backupAppPath)) {
+    if (state.backupOwned && fs.existsSync(manifest.backupAppPath)) {
       if (fs.existsSync(manifest.currentAppPath)) preserveResidual(manifest.currentAppPath, manifest.installId)
       fs.renameSync(manifest.backupAppPath, manifest.currentAppPath)
     }
-    if (fs.existsSync(manifest.candidateAppPath)) preserveResidual(manifest.candidateAppPath, manifest.installId)
-    journal(manifest, 'rolledBack', cause.message)
+    if (state.candidateOwned && fs.existsSync(manifest.candidateAppPath)) {
+      preserveResidual(manifest.candidateAppPath, manifest.installId)
+    }
   } catch (error) {
     rollbackError = error instanceof Error ? error.message : String(error)
-    journal(manifest, 'rollbackFailed', rollbackError)
+    safeJournal(manifest, 'rollbackFailed', rollbackError)
   }
   return rollbackError
 }
@@ -120,14 +142,16 @@ function relaunch(appPath) {
 
 export async function installFromManifest(manifest, options = {}) {
   const launchApp = options.launchApp ?? relaunch
-  validateManifest(manifest)
-  if (!fs.existsSync(manifest.currentAppPath) || !fs.existsSync(manifest.stagedAppPath)) {
-    throw new Error('Installed or staged app bundle is unavailable')
-  }
-  if (fs.existsSync(manifest.backupAppPath)) throw new Error('A previous updater backup still awaits health acknowledgement')
-  if (fs.existsSync(manifest.candidateAppPath)) throw new Error('An updater candidate already exists')
+  const state = { backupOwned: false, candidateOwned: false }
 
   try {
+    validateManifest(manifest)
+    journal(manifest, 'preflighting')
+    if (!fs.existsSync(manifest.currentAppPath) || !fs.existsSync(manifest.stagedAppPath)) {
+      throw new Error('Installed or staged app bundle is unavailable')
+    }
+    if (fs.existsSync(manifest.backupAppPath)) throw new Error('A previous updater backup still awaits health acknowledgement')
+    if (fs.existsSync(manifest.candidateAppPath)) throw new Error('An updater candidate already exists')
     journal(manifest, 'prepared')
     fs.cpSync(manifest.stagedAppPath, manifest.candidateAppPath, {
       recursive: true,
@@ -135,10 +159,13 @@ export async function installFromManifest(manifest, options = {}) {
       errorOnExist: true,
       verbatimSymlinks: true,
     })
+    state.candidateOwned = true
     journal(manifest, 'candidateCopied')
     fs.renameSync(manifest.currentAppPath, manifest.backupAppPath)
+    state.backupOwned = true
     journal(manifest, 'backupPromoted')
     fs.renameSync(manifest.candidateAppPath, manifest.currentAppPath)
+    state.candidateOwned = false
     journal(manifest, 'candidatePromoted')
     writeResult(manifest, true, 'relaunching', 'Update promoted; waiting for startup health acknowledgement')
     journal(manifest, 'relaunching')
@@ -146,8 +173,9 @@ export async function installFromManifest(manifest, options = {}) {
     return { success: true }
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error))
-    const rollbackError = rollback(manifest, cause)
+    const rollbackError = rollback(manifest, cause, state)
     let relaunchError = null
+    const journalError = safeJournal(manifest, 'rollbackPrepared', cause.message)
     if (!rollbackError && options.relaunch !== false && fs.existsSync(manifest.currentAppPath)) {
       try {
         launchApp(manifest.relaunchTarget || manifest.currentAppPath)
@@ -158,27 +186,112 @@ export async function installFromManifest(manifest, options = {}) {
     const failures = [
       cause.message,
       rollbackError ? `rollback failed: ${rollbackError}` : null,
+      journalError ? `journal failed: ${journalError}` : null,
       relaunchError ? `restored app relaunch failed: ${relaunchError}` : null,
     ].filter(Boolean)
     const message = failures.join('; ')
-    writeResult(manifest, false, rollbackError ? 'replacing' : 'backingUp', message)
+    writeResult(manifest, false, state.backupOwned || rollbackError ? 'replacing' : 'preparing', message)
+    safeJournal(manifest, relaunchError ? 'rollbackRelaunchFailed' : 'rolledBack', message)
     throw new Error(message, { cause: error })
   }
 }
 
+function trustedFallback(value) {
+  if (!value || typeof value !== 'object') return null
+  const required = ['installId', 'currentAppPath', 'resultManifestPath', 'journalPath']
+  return required.every((key) => typeof value[key] === 'string' && value[key]) ? value : null
+}
+
+function assertMatchesFallback(manifest, fallback) {
+  if (!fallback) return
+  for (const key of [
+    'installId',
+    'currentAppPath',
+    'stagedAppPath',
+    'candidateAppPath',
+    'backupAppPath',
+    'resultManifestPath',
+    'journalPath',
+  ]) {
+    if (typeof fallback[key] === 'string' && fallback[key] && manifest[key] !== fallback[key]) {
+      throw new Error(`Updater manifest ${key} does not match trusted launcher context`)
+    }
+  }
+}
+
+async function diagnoseManifestFailure(fallback, error, options) {
+  const cause = error instanceof Error ? error : new Error(String(error))
+  if (!fallback) throw cause
+  const diagnosticManifest = {
+    ...fallback,
+    stagedAppPath: fallback.stagedAppPath ?? `${fallback.currentAppPath}.unavailable`,
+    candidateAppPath: fallback.candidateAppPath ?? `${fallback.currentAppPath}.candidate-unavailable`,
+    backupAppPath: fallback.backupAppPath ?? `${fallback.currentAppPath}.backup-unavailable`,
+    relaunchTarget: fallback.relaunchTarget ?? fallback.currentAppPath,
+  }
+  const launchApp = options.launchApp ?? relaunch
+  let relaunchError = null
+  safeJournal(diagnosticManifest, 'rollbackPrepared', cause.message)
+  if (options.relaunch !== false && fs.existsSync(diagnosticManifest.currentAppPath)) {
+    try {
+      launchApp(diagnosticManifest.relaunchTarget)
+    } catch (launchError) {
+      relaunchError = launchError instanceof Error ? launchError.message : String(launchError)
+    }
+  }
+  const message = relaunchError
+    ? `${cause.message}; restored app relaunch failed: ${relaunchError}`
+    : cause.message
+  writeResult(diagnosticManifest, false, 'preparing', message)
+  safeJournal(diagnosticManifest, relaunchError ? 'rollbackRelaunchFailed' : 'rolledBack', message)
+  throw new Error(message, { cause })
+}
+
+export async function installFromManifestPath(filePath, options = {}) {
+  const fallback = trustedFallback(options.fallback)
+  let manifest
+  try {
+    if (!filePath) throw new Error('Updater manifest path is missing')
+    manifest = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    assertMatchesFallback(manifest, fallback)
+  } catch (error) {
+    return diagnoseManifestFailure(fallback, new Error(`Updater manifest is invalid: ${error instanceof Error ? error.message : String(error)}`), options)
+  }
+  return installFromManifest(manifest, options)
+}
+
 async function main() {
-  if (!manifestPath) throw new Error('Usage: install-helper.mjs <manifest-path> [parent-pid]')
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  await waitForParent(parentPid)
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  const fallback = {
+    currentAppPath: fallbackCurrentAppPath,
+    resultManifestPath: fallbackResultManifestPath,
+    journalPath: fallbackJournalPath,
+    installId: fallbackInstallId,
+    logPath: fallbackLogPath,
+    stagedAppPath: fallbackStagedAppPath,
+    candidateAppPath: fallbackCandidateAppPath,
+    backupAppPath: fallbackBackupAppPath,
+    relaunchTarget: fallbackCurrentAppPath,
+  }
   const watchdogPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'install-watchdog.mjs')
-  const watchdog = spawn(process.execPath, [watchdogPath, manifest.journalPath, String(process.pid)], {
+  const watchdog = spawn(process.execPath, [
+    watchdogPath,
+    fallbackJournalPath ?? '',
+    String(process.pid),
+    fallbackCurrentAppPath ?? '',
+    fallbackResultManifestPath ?? '',
+    fallbackInstallId ?? '',
+    fallbackLogPath ?? '',
+    fallbackBackupAppPath ?? '',
+    fallbackCandidateAppPath ?? '',
+  ], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
   })
   watchdog.unref()
-  await installFromManifest(manifest)
+  await waitForParent(parentPid)
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  await installFromManifestPath(manifestPath, { fallback })
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -2,7 +2,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { awaitInstallOutcome, recoverInterruptedInstall, relaunchEnvironment } from './install-watchdog.mjs'
+import {
+  awaitInstallOutcome,
+  handleInterruptedInstall,
+  recoverInterruptedInstall,
+  relaunchEnvironment,
+} from './install-watchdog.mjs'
 
 const roots = []
 afterEach(() => {
@@ -50,5 +55,134 @@ describe('updater watchdog', () => {
     expect(journal.phase).toBe('relaunching')
     expect(recoverInterruptedInstall(journal)).toBe(true)
     expect(fs.readFileSync(path.join(currentAppPath, 'version'), 'utf8')).toBe('previous')
+  })
+
+  for (const phase of ['preflighting', 'prepared', 'candidateCopied', 'backupPromoted', 'candidatePromoted', 'relaunching', 'rollbackPrepared', 'rollbackFailed', 'rollbackRelaunchFailed']) {
+    it(`records diagnostics and relaunches the previous app after interruption at ${phase}`, () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-watchdog-phase-'))
+      roots.push(root)
+      const currentAppPath = path.join(root, 'Cranberri.app')
+      const backupAppPath = path.join(root, '.Cranberri.previous.app')
+      const resultManifestPath = path.join(root, 'result.json')
+      const journalPath = path.join(root, 'journal.json')
+      const afterBackup = ['backupPromoted', 'candidatePromoted', 'relaunching', 'rollbackPrepared', 'rollbackFailed', 'rollbackRelaunchFailed'].includes(phase)
+      if (phase !== 'backupPromoted') {
+        fs.mkdirSync(currentAppPath)
+        fs.writeFileSync(path.join(currentAppPath, 'version'), afterBackup ? 'candidate' : 'previous')
+      }
+      if (afterBackup) {
+        fs.mkdirSync(backupAppPath)
+        fs.writeFileSync(path.join(backupAppPath, 'version'), 'previous')
+      }
+      const journal = {
+        phase,
+        currentAppPath,
+        backupAppPath,
+        candidateAppPath: path.join(root, '.Cranberri.candidate.app'),
+        resultManifestPath,
+        journalPath,
+        installId: `phase-${phase}`,
+      }
+      fs.writeFileSync(journalPath, JSON.stringify(journal))
+      const launched = []
+
+      expect(handleInterruptedInstall(journal, { launchApp: (appPath) => launched.push(appPath) })).toMatchObject({
+        recovered: true,
+        relaunched: true,
+      })
+      expect(launched).toEqual([currentAppPath])
+      expect(fs.readFileSync(path.join(currentAppPath, 'version'), 'utf8')).toBe('previous')
+      expect(JSON.parse(fs.readFileSync(resultManifestPath, 'utf8'))).toMatchObject({
+        success: false,
+        phase: phase === 'relaunching' ? 'relaunching' : 'preparing',
+      })
+      expect(JSON.parse(fs.readFileSync(journalPath, 'utf8')).phase).toBe('rolledBack')
+    })
+  }
+
+  it.each(['healthAcknowledged', 'rolledBack'])('leaves terminal phase %s untouched', (phase) => {
+    const launched = []
+    expect(handleInterruptedInstall({ phase }, { launchApp: (appPath) => launched.push(appPath) })).toEqual({
+      recovered: false,
+      relaunched: false,
+    })
+    expect(launched).toEqual([])
+  })
+
+  it('does not restore a stale backup during a pre-backup phase', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-watchdog-stale-backup-'))
+    roots.push(root)
+    const currentAppPath = path.join(root, 'Cranberri.app')
+    const backupAppPath = path.join(root, '.Cranberri.previous.app')
+    const journalPath = path.join(root, 'journal.json')
+    const resultManifestPath = path.join(root, 'result.json')
+    fs.mkdirSync(currentAppPath)
+    fs.mkdirSync(backupAppPath)
+    fs.writeFileSync(path.join(currentAppPath, 'version'), 'still-current')
+    fs.writeFileSync(path.join(backupAppPath, 'version'), 'stale-backup')
+    const journal = {
+      phase: 'preflighting', currentAppPath, backupAppPath, journalPath,
+      resultManifestPath, installId: 'stale-backup',
+    }
+    const launched = []
+
+    expect(handleInterruptedInstall(journal, { launchApp: (appPath) => launched.push(appPath) })).toMatchObject({
+      recovered: true,
+      relaunched: true,
+    })
+
+    expect(launched).toEqual([currentAppPath])
+    expect(fs.readFileSync(path.join(currentAppPath, 'version'), 'utf8')).toBe('still-current')
+    expect(fs.readFileSync(path.join(backupAppPath, 'version'), 'utf8')).toBe('stale-backup')
+  })
+
+  it.each(['prepared', 'candidateCopied', 'backupPromoted'])('preserves an owned candidate after interruption at %s', (phase) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-watchdog-candidate-'))
+    roots.push(root)
+    const currentAppPath = path.join(root, 'Cranberri.app')
+    const candidateAppPath = path.join(root, '.Cranberri.candidate.app')
+    const backupAppPath = path.join(root, '.Cranberri.previous.app')
+    const journalPath = path.join(root, 'journal.json')
+    const resultManifestPath = path.join(root, 'result.json')
+    if (phase === 'backupPromoted') fs.mkdirSync(backupAppPath)
+    else fs.mkdirSync(currentAppPath)
+    fs.mkdirSync(candidateAppPath)
+    fs.writeFileSync(path.join(candidateAppPath, 'version'), 'candidate')
+    if (phase === 'backupPromoted') fs.writeFileSync(path.join(backupAppPath, 'version'), 'previous')
+    const installId = `candidate-${phase}`
+
+    expect(handleInterruptedInstall({
+      phase, currentAppPath, candidateAppPath, backupAppPath, journalPath,
+      resultManifestPath, installId,
+    }, { launchApp: () => undefined })).toMatchObject({ recovered: true, relaunched: true })
+
+    expect(fs.existsSync(candidateAppPath)).toBe(false)
+    expect(fs.readFileSync(`${candidateAppPath}.failed-${installId}/version`, 'utf8')).toBe('candidate')
+    expect(fs.existsSync(currentAppPath)).toBe(true)
+  })
+
+  it('uses trusted fallbacks when the journal is missing or invalid', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-watchdog-fallback-'))
+    roots.push(root)
+    const currentAppPath = path.join(root, 'Cranberri.app')
+    const backupAppPath = path.join(root, '.Cranberri.previous.app')
+    const journalPath = path.join(root, 'journal.json')
+    const resultManifestPath = path.join(root, 'result.json')
+    fs.mkdirSync(currentAppPath)
+    fs.mkdirSync(backupAppPath)
+    fs.writeFileSync(path.join(currentAppPath, 'version'), 'candidate')
+    fs.writeFileSync(path.join(backupAppPath, 'version'), 'previous')
+    fs.writeFileSync(journalPath, '{bad-json')
+    const launched = []
+
+    expect(handleInterruptedInstall(null, {
+      fallback: { currentAppPath, backupAppPath, journalPath, resultManifestPath, installId: 'fallback' },
+      launchApp: (appPath) => launched.push(appPath),
+      detail: 'Updater journal is missing or invalid',
+    })).toMatchObject({ recovered: true, relaunched: true })
+
+    expect(launched).toEqual([currentAppPath])
+    expect(fs.readFileSync(path.join(currentAppPath, 'version'), 'utf8')).toBe('previous')
+    expect(JSON.parse(fs.readFileSync(resultManifestPath, 'utf8')).message).toMatch(/journal is missing or invalid/)
   })
 })
