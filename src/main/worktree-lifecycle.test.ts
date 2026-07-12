@@ -72,6 +72,25 @@ describe('managed worktree lifecycle', () => {
     expect(fs.existsSync(replacement.path)).toBe(true)
   })
 
+  it('reclaims enough archived worktrees when the configured cap is lowered', async () => {
+    const { repo, managedRoot, store } = fixture()
+    const lifecycle = new WorktreeLifecycle(store)
+    for (const taskId of ['old-a', 'old-b', 'old-c']) {
+      const record = await lifecycle.create({
+        projectId: 'project-12345678', projectName: 'Project', taskId,
+        taskName: taskId, localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 3,
+      })
+      await lifecycle.archive(record.id)
+    }
+
+    const replacement = await lifecycle.create({
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'replacement',
+      taskName: 'Replacement', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 1,
+    })
+
+    expect(store.read().managedWorktrees.filter((item) => item.lifecycle !== 'removed')).toEqual([replacement])
+  })
+
   it('records canonical ownership and a sidecar outside the checkout', async () => {
     const { repo, managedRoot, store } = fixture()
     const record = await new WorktreeLifecycle(store).create({
@@ -111,6 +130,28 @@ describe('managed worktree lifecycle', () => {
     expect(removed.privateRef).toBe('refs/cranberri/tasks/task-12345678')
     expect(git(repo, 'rev-parse', removed.privateRef!)).toBe(record.baseSha)
     expect(fs.existsSync(record.path)).toBe(false)
+  })
+
+  it('sweeps expired archives while preserving worktrees inside retention', async () => {
+    const { repo, managedRoot, store } = fixture()
+    const lifecycle = new WorktreeLifecycle(store)
+    const expired = await lifecycle.create({
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'expired',
+      taskName: 'Expired', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 2,
+    })
+    const retained = await lifecycle.create({
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'retained',
+      taskName: 'Retained', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 2,
+    })
+    const now = Date.now()
+    await lifecycle.archive(expired.id, now - 8 * 86_400_000)
+    await lifecycle.archive(retained.id, now - 6 * 86_400_000)
+
+    const removed = await lifecycle.sweepRetention({ retentionDays: 7, now })
+
+    expect(removed.map((item) => item.id)).toEqual([expired.id])
+    expect(store.read().managedWorktrees.find((item) => item.id === expired.id)?.lifecycle).toBe('removed')
+    expect(store.read().managedWorktrees.find((item) => item.id === retained.id)?.lifecycle).toBe('archived')
   })
 
   it('fails closed for dirty, process-owning, and ownership-mismatched worktrees', async () => {

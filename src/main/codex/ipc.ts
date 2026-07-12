@@ -60,7 +60,7 @@ import { normalizeEnvironmentToml } from '../environments/parser'
 import { environmentDefaultRequestSchema, environmentIdentityRequestSchema, environmentProjectRequestSchema, environmentRevisionRequestSchema, environmentSaveRequestSchema } from '../../shared/environments'
 import { projectIdRequestSchema } from '../../shared/worktrees'
 import { gitStatusPorcelain, listSelectableRefs, refreshGitRefs } from '../git-worktrees'
-import { taskCoordinator, taskStore, environmentRunner, environmentStore } from '../worktree-runtime'
+import { taskCoordinator, taskStore, environmentRunner, environmentStore, worktreeLifecycle } from '../worktree-runtime'
 import { assertTaskRunnable } from '../tasks'
 import { authorityChangedEventSchema } from '../../shared/state-events'
 
@@ -1384,7 +1384,9 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
       await c.archiveThread(task.threadId)
       forgetCatalogThread(task.threadId)
     }
-    return { task: await taskCoordinator.archive(taskId) }
+    const archived = await taskCoordinator.archive(taskId)
+    await worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
+    return { task: archived }
   })
 
   ipcMain.handle('tasks:delete', async (_, raw: unknown) => {

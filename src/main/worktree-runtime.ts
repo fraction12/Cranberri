@@ -4,6 +4,7 @@ import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
 import { WorktreeLifecycle } from './worktree-lifecycle'
 import { reconcileStartup } from './startup-recovery'
+import { readSettings } from './settings'
 
 export const taskStore = new TaskStore()
 export const worktreeLifecycle = new WorktreeLifecycle(taskStore)
@@ -14,4 +15,8 @@ export const environmentRunner = new EnvironmentRunner({
   environmentStore,
 })
 export const taskCoordinator = new TaskCoordinator(taskStore, worktreeLifecycle)
-export const recoverStartupRuntime = () => reconcileStartup({ taskStore })
+export const recoverStartupRuntime = async () => {
+  const report = await reconcileStartup({ taskStore })
+  await worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
+  return report
+}

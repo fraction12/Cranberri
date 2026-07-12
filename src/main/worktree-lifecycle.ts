@@ -178,6 +178,30 @@ export class WorktreeLifecycle {
     })
   }
 
+  sweepRetention(options: { retentionDays: number; now?: number }): Promise<ManagedWorktree[]> {
+    return this.serialize(async () => {
+      const now = options.now ?? Date.now()
+      const cutoff = now - options.retentionDays * DAY_MS
+      const candidates = this.store.read().managedWorktrees
+        .filter((item) => item.lifecycle === 'archived' && item.archivedAt !== null && item.archivedAt <= cutoff)
+        .sort((left, right) => (left.archivedAt ?? left.updatedAt) - (right.archivedAt ?? right.updatedAt))
+      const removed: ManagedWorktree[] = []
+      for (const candidate of candidates) {
+        try {
+          removed.push(await this.removeInternal(candidate.id))
+        } catch (error) {
+          await this.updateRecord(candidate.id, (current) => ({
+            ...current,
+            lifecycle: 'cleanupBlocked',
+            cleanupReason: error instanceof Error ? error.message : 'Retention cleanup safety check failed',
+            updatedAt: now,
+          }))
+        }
+      }
+      return removed
+    })
+  }
+
   private async createInternal(request: CreateRequest): Promise<ManagedWorktree> {
     let state = this.store.read()
     let activeCount = state.managedWorktrees.filter((item) => item.lifecycle !== 'removed').length
@@ -188,7 +212,8 @@ export class WorktreeLifecycle {
       for (const candidate of candidates) {
         try {
           await this.removeInternal(candidate.id)
-          break
+          activeCount -= 1
+          if (activeCount < request.cap) break
         } catch (error) {
           await this.updateRecord(candidate.id, (current) => ({
             ...current,
