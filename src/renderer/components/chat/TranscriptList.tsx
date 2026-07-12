@@ -1,9 +1,10 @@
 import { ReasoningGroup, TranscriptMessage } from './Transcript'
+import { TurnActivity } from './TurnActivity'
 import { renderSkillText } from './composer-text'
 import { memo, type ReactNode } from 'react'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
-import type { CodexMessage, CodexSkillInfo, CodexThread } from '@/shared/codex'
+import type { CodexActivityTurn, CodexMessage, CodexSkillInfo, CodexThread, PendingApproval } from '@/shared/codex'
 
 function isVisibleSystemError(message: CodexMessage): boolean {
   return message.role === 'system' && /^Error:/i.test(message.content.trim())
@@ -45,17 +46,106 @@ function CompactMessage({ message }: { message: CodexMessage }) {
   )
 }
 
+function ActivityTranscript({
+  thread,
+  skills,
+  resolvingApprovalId,
+  onResolveApproval,
+}: {
+  thread: CodexThread
+  skills: CodexSkillInfo[]
+  resolvingApprovalId?: string | null
+  onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
+}) {
+  const nodes: ReactNode[] = []
+  const turns = thread.activityTurns ?? []
+  const turnById = new Map(turns.map((turn) => [turn.id, turn]))
+  const renderedTurns = new Set<string>()
+  const fallbackTurnId = [...turns].reverse().find((turn) => turn.status === 'running')?.id ?? turns.at(-1)?.id
+  const messagesByTurn = new Map<string, CodexMessage[]>()
+  const turnIdByItem = new Map<string, string>()
+  const approvalsByTurn = new Map<string, PendingApproval[]>()
+  for (const message of thread.messages) {
+    if (!message.turnId) continue
+    const turnMessages = messagesByTurn.get(message.turnId)
+    if (turnMessages) turnMessages.push(message)
+    else messagesByTurn.set(message.turnId, [message])
+  }
+  for (const turn of turns) {
+    for (const item of turn.items) turnIdByItem.set(item.id, turn.id)
+  }
+  for (const approval of thread.pendingApprovals) {
+    const turnId = approval.targetItemId ? turnIdByItem.get(approval.targetItemId) ?? fallbackTurnId : fallbackTurnId
+    if (!turnId) continue
+    const turnApprovals = approvalsByTurn.get(turnId)
+    if (turnApprovals) turnApprovals.push(approval)
+    else approvalsByTurn.set(turnId, [approval])
+  }
+
+  const renderTurn = (turn: CodexActivityTurn) => {
+    if (renderedTurns.has(turn.id)) return
+    renderedTurns.add(turn.id)
+    nodes.push(
+      <TurnActivity
+        key={`activity-${turn.id}`}
+        turn={turn}
+        messages={messagesByTurn.get(turn.id) ?? []}
+        approvals={approvalsByTurn.get(turn.id) ?? []}
+        resolvingApprovalId={resolvingApprovalId}
+        onResolveApproval={onResolveApproval}
+      />,
+    )
+  }
+
+  for (const message of thread.messages) {
+    const turn = message.turnId ? turnById.get(message.turnId) : undefined
+    if (turn && !renderedTurns.has(turn.id)) {
+      if (message.role === 'user') {
+        nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
+        renderTurn(turn)
+        continue
+      }
+      renderTurn(turn)
+    }
+
+    if (turn && (belongsInReasoningGroup(message) || message.role === 'compact')) continue
+    if (message.role === 'compact') {
+      nodes.push(<CompactMessage key={message.id} message={message} />)
+      continue
+    }
+    nodes.push(<TranscriptMessage key={message.id} msg={message} skills={skills} renderSkillText={renderSkillText} />)
+  }
+
+  for (const turn of turns) renderTurn(turn)
+  return <>{nodes}</>
+}
+
 export const TranscriptList = memo(function TranscriptList({
   thread,
   skills,
   expandedGroupIds,
   onToggleGroup,
+  resolvingApprovalId,
+  onResolveApproval,
 }: {
   thread: CodexThread | undefined
   skills: CodexSkillInfo[]
   expandedGroupIds: Set<string>
   onToggleGroup: (key: string) => void
+  resolvingApprovalId?: string | null
+  onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
 }) {
+  if (thread?.activityTurns && thread.activityTurns.length > 0) {
+    return (
+      <ActivityTranscript
+        thread={thread}
+        skills={skills}
+        resolvingApprovalId={resolvingApprovalId}
+        onResolveApproval={onResolveApproval}
+      />
+    )
+  }
+
   const nodes: ReactNode[] = []
   let reasoningBuffer: CodexMessage[] = []
   let reasoningBufferStartIndex = -1

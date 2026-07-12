@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   NEW_THREAD_EMPTY_STATE,
+  didReaderMoveTranscriptUp,
+  isTranscriptNearBottom,
   sessionThreadIdFromWindowId,
   shouldRestoreDraftAfterSendError,
   shouldSendComposerOnEnter,
@@ -51,10 +53,29 @@ describe('ChatWindow composer rendering', () => {
     expect(shouldRestoreDraftAfterSendError(undefined, Object.assign(new Error('turn failed'), { threadCreated: true }))).toBe(false)
   })
 
-  it('keeps Enter from submitting or clearing a follow-up while Codex is running', () => {
-    expect(shouldSendComposerOnEnter('Enter', false, false)).toBe(true)
-    expect(shouldSendComposerOnEnter('Enter', false, true)).toBe(false)
-    expect(shouldSendComposerOnEnter('Enter', true, false)).toBe(false)
+  it('submits Enter as a follow-up even while Codex is running', () => {
+    expect(shouldSendComposerOnEnter('Enter', false)).toBe(true)
+    expect(shouldSendComposerOnEnter('Enter', true)).toBe(false)
+  })
+
+  it('only pins streaming output when the reader is near the bottom', () => {
+    expect(isTranscriptNearBottom(1_000, 420, 500)).toBe(true)
+    expect(isTranscriptNearBottom(1_000, 200, 500)).toBe(false)
+  })
+
+  it('distinguishes reader scrolling from responsive transcript layout changes', () => {
+    expect(didReaderMoveTranscriptUp(
+      { scrollTop: 420, clientHeight: 500 },
+      { scrollTop: 200, clientHeight: 500 },
+    )).toBe(true)
+    expect(didReaderMoveTranscriptUp(
+      { scrollTop: 420, clientHeight: 500 },
+      { scrollTop: 200, clientHeight: 320 },
+    )).toBe(false)
+    expect(didReaderMoveTranscriptUp(
+      { scrollTop: 420, clientHeight: 500 },
+      { scrollTop: 500, clientHeight: 500 },
+    )).toBe(false)
   })
 
   it('avoids duplicating transcript send errors in a toast', () => {

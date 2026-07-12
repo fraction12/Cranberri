@@ -342,6 +342,93 @@ describe('CodexClient worker session normalization', () => {
 })
 
 describe('CodexClient live worker notifications', () => {
+  it('forwards typed turn and item lifecycle identity to the renderer', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<Record<string, unknown>> = []
+    client.on('event', (event) => events.push(event as unknown as Record<string, unknown>))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/started',
+      params: { threadId: 'thread-1', turn: { id: 'turn-1', startedAt: 10 } },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/started',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        startedAtMs: 10_100,
+        item: { id: 'command-1', type: 'commandExecution', command: 'npm test', status: 'inProgress' },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/started',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        startedAtMs: 10_110,
+        item: { id: 'commentary-1', type: 'agentMessage', phase: 'commentary', text: '' },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/agentMessage/delta',
+      params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'commentary-1', delta: 'Checking the state.' },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        completedAtMs: 10_200,
+        item: { id: 'command-1', type: 'commandExecution', command: 'npm test', status: 'completed', exitCode: 0 },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', completedAt: 11, durationMs: 1_000 } },
+    })
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run_start', threadId: 'thread-1', turnId: 'turn-1', startedAt: 10_000 }),
+      expect.objectContaining({
+        type: 'item_started',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'command-1',
+        startedAt: 10_100,
+        item: expect.objectContaining({ type: 'commandExecution', command: 'npm test' }),
+      }),
+      expect.objectContaining({
+        type: 'item_completed',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'command-1',
+        completedAt: 10_200,
+      }),
+      expect.objectContaining({
+        type: 'agent_message_delta',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'commentary-1',
+        phase: 'commentary',
+      }),
+      expect.objectContaining({
+        type: 'run_end',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        completedAt: 11_000,
+        durationMs: 1_000,
+      }),
+    ]))
+  })
+
   it('routes child and nested lifecycle updates to their immediate parent without regressing interruption', () => {
     const client = new CodexClient('/tmp/cranberri-client-test')
     const events: Array<{ type: string; threadId?: string; worker?: { threadId: string; status: string; message?: string } }> = []

@@ -148,6 +148,16 @@ describe('Transcript markdown rendering', () => {
     expect(html).not.toContain('data-code-preview="true"')
   })
 
+  it('keeps semantic markdown structure while streaming', () => {
+    const html = renderToStaticMarkup(
+      <>{formatCodexText('Working now\n\n- first\n- second', { streaming: true })}</>,
+    )
+
+    expect(html).toContain('data-streaming-markdown="true"')
+    expect(html).toContain('<p')
+    expect(html).toContain('<ul')
+  })
+
   it('hides response actions until streaming completes', () => {
     const pending = renderToStaticMarkup(
       <TranscriptMessage

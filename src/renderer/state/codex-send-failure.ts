@@ -1,4 +1,5 @@
 import type { CodexThread } from '@/shared/codex'
+import { appendCodexTurnError, completeCodexActivityTurn } from './codex-turn-activity'
 
 export function applyCodexSendFailure(
   thread: CodexThread,
@@ -6,15 +7,26 @@ export function applyCodexSendFailure(
   messageId: string,
   timestamp: number,
 ): CodexThread {
+  const activeTurn = [...(thread.activityTurns ?? [])].reverse().find((turn) => turn.status === 'running')
+  const failedThread = activeTurn
+    ? appendCodexTurnError(
+        completeCodexActivityTurn(thread, activeTurn.id, 'failed', timestamp),
+        activeTurn.id,
+        message,
+        timestamp,
+      )
+    : thread
   return {
-    ...thread,
+    ...failedThread,
     isRunning: false,
     currentActivity: undefined,
-    messages: [...thread.messages, {
-      id: messageId,
-      role: 'system',
-      content: `Error: ${message}`,
-      timestamp,
-    }],
+    messages: activeTurn
+      ? thread.messages
+      : [...thread.messages, {
+          id: messageId,
+          role: 'system',
+          content: `Error: ${message}`,
+          timestamp,
+        }],
   }
 }

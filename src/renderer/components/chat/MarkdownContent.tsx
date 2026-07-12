@@ -158,6 +158,20 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 }
 
+const STREAMING_MARKDOWN_COMPONENTS: Components = {
+  ...MARKDOWN_COMPONENTS,
+  pre({ children }) {
+    return (
+      <pre className={cn(
+        typeStyle({ role: 'code' }),
+        'my-4 overflow-x-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3',
+      )}>
+        {children}
+      </pre>
+    )
+  },
+}
+
 interface FormatCodexTextOptions {
   hideAppDirectives?: boolean
   streaming?: boolean
@@ -168,8 +182,13 @@ export function formatCodexText(text: string, options: FormatCodexTextOptions = 
   if (!markdown) return null
   if (options.streaming) {
     return (
-      <div data-streaming-markdown="true" className={cn(typeStyle({ role: 'prose' }), 'whitespace-pre-wrap break-words')}>
-        {markdown}
+      <div data-streaming-markdown="true" className="break-words">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={STREAMING_MARKDOWN_COMPONENTS}
+        >
+          {markdown}
+        </ReactMarkdown>
       </div>
     )
   }

@@ -6,8 +6,31 @@ export function sessionThreadIdFromWindowId(windowId: string): string | null {
   return windowId.slice(SESSION_WINDOW_PREFIX.length) || null
 }
 
-export function shouldSendComposerOnEnter(key: string, shiftKey: boolean, isRunning: boolean): boolean {
-  return key === 'Enter' && !shiftKey && !isRunning
+export function shouldSendComposerOnEnter(key: string, shiftKey: boolean): boolean {
+  return key === 'Enter' && !shiftKey
+}
+
+export function isTranscriptNearBottom(
+  scrollHeight: number,
+  scrollTop: number,
+  clientHeight: number,
+  threshold = 80,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= threshold
+}
+
+export interface TranscriptScrollPosition {
+  scrollTop: number
+  clientHeight: number
+}
+
+export function didReaderMoveTranscriptUp(
+  previous: TranscriptScrollPosition | null,
+  current: TranscriptScrollPosition,
+): boolean {
+  return previous !== null
+    && previous.clientHeight === current.clientHeight
+    && current.scrollTop < previous.scrollTop - 1
 }
 
 export function shouldRestoreDraftAfterSendError(threadId: string | undefined, error: unknown): boolean {

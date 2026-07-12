@@ -3,6 +3,7 @@ import type { CodexEvent } from '../../shared/codex'
 const HIGH_VOLUME_EVENT_TYPES = new Set<CodexEvent['type']>([
   'agent_message_delta',
   'item_started',
+  'item_completed',
   'log',
 ])
 

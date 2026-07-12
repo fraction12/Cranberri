@@ -24,4 +24,25 @@ describe('applyCodexSendFailure', () => {
       ],
     })
   })
+
+  it('settles an optimistic activity turn with an inline failure', () => {
+    const thread: CodexThread = {
+      id: 'thread-1',
+      title: 'Thread',
+      repoId: 'repo-1',
+      messages: [{ id: 'user-1', role: 'user', content: 'hello', timestamp: 1, turnId: 'local:user-1' }],
+      activityTurns: [{ id: 'local:user-1', status: 'running', startedAt: 1, items: [] }],
+      pendingApprovals: [],
+      isRunning: true,
+    }
+
+    const result = applyCodexSendFailure(thread, 'model unavailable', 'error-1', 10)
+
+    expect(result.activityTurns?.[0]).toMatchObject({
+      status: 'failed',
+      completedAt: 10,
+      items: [expect.objectContaining({ status: 'failed', title: 'Turn failed', detail: 'model unavailable' })],
+    })
+    expect(result.messages).toEqual(thread.messages)
+  })
 })

@@ -3,6 +3,7 @@ import type { CodexMessage, CodexThread } from '../../shared/codex'
 export interface StreamingMessageUpdate {
   threadId: string
   itemId: string
+  turnId?: string
   role: 'assistant' | 'reasoning'
   text: string
   pending: boolean
@@ -41,6 +42,7 @@ export function applyStreamingMessageUpdates(
           content: update.text,
           timestamp: Date.now(),
           pending: update.pending,
+          turnId: update.turnId,
         })
         continue
       }
@@ -60,6 +62,7 @@ export function applyStreamingMessageUpdates(
         role: update.role,
         content: update.text || current.content,
         pending: update.pending,
+        turnId: update.turnId ?? current.turnId,
       }
       messages[index] = nextMessage
     }
