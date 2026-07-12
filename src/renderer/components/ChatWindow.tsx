@@ -11,6 +11,7 @@ import { useRecovery } from '../state/recovery'
 import { invalidateSessions } from '../state/session-invalidation'
 import { useChatComposer, type ChatComposerSubmission } from '../state/use-chat-composer'
 import { ChatComposer } from './chat/ChatComposer'
+import { taskHandoffProposal } from './chat/task-handoff'
 import {
   NEW_THREAD_EMPTY_STATE,
   didReaderMoveTranscriptUp,
@@ -103,7 +104,12 @@ export function ChatWindow({ id }: { id: string }) {
   const [composerInset, setComposerInset] = useState(188)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
-  const [handoffPrompt, setHandoffPrompt] = useState<{ taskId: string; location: 'local' | 'worktree'; branch: string } | null>(null)
+  const [handoffPrompt, setHandoffPrompt] = useState<{
+    taskId: string
+    location: 'local' | 'worktree'
+    branch: string
+    createBranch: boolean
+  } | null>(null)
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -424,11 +430,17 @@ export function ChatWindow({ id }: { id: string }) {
             }
             return
           }
+          const proposal = taskHandoffProposal({
+            taskId: activeTask.id,
+            location: activeTask.location,
+            activeBranch: activeTaskBranch ?? null,
+            recordedWorktreeBranch,
+          })
           setHandoffError(null)
           setHandoffPrompt({
             taskId: activeTask.id,
             location: activeTask.location,
-            branch: activeTask.baseRef?.replace(/^refs\/(heads|remotes)\//, '') ?? `codex/task-${activeTask.id.slice(0, 8)}`,
+            ...proposal,
           })
         }}
         onRetrySetup={activeTask.state === 'failed' && activeTask.environmentRevision ? async () => {
@@ -479,7 +491,7 @@ export function ChatWindow({ id }: { id: string }) {
           setHandoffBusy(true)
           setHandoffError(null)
           const operation = handoffPrompt.location === 'worktree'
-            ? tasks.handoffToLocal({ taskId: handoffPrompt.taskId, branch, createBranch: true })
+            ? tasks.handoffToLocal({ taskId: handoffPrompt.taskId, branch, createBranch: handoffPrompt.createBranch })
             : tasks.handoffToWorktree({ taskId: handoffPrompt.taskId, branch })
           void operation
             .then(() => setHandoffPrompt(null))

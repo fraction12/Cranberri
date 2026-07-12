@@ -17,6 +17,7 @@ const useRendererScreenshots = process.env.CRANBERRI_SMOKE_RENDERER_SCREENSHOTS 
 const typographyUat = process.env.CRANBERRI_SMOKE_TYPOGRAPHY_UAT === '1'
 const dropdownUat = process.env.CRANBERRI_SMOKE_DROPDOWN_UAT === '1'
 const composerUatOnly = process.env.CRANBERRI_SMOKE_COMPOSER_UAT_ONLY === '1'
+const handoffUatOnly = process.env.CRANBERRI_SMOKE_HANDOFF_UAT_ONLY === '1'
 const realCodexTimeoutMs = Number(process.env.CRANBERRI_SMOKE_REAL_TIMEOUT_MS ?? 180_000)
 const capturedSmokeScreenshots = new Set()
 let screenshotElectronApp = null
@@ -1050,6 +1051,64 @@ async function runSessionWorkspaceSmoke() {
   }
 }
 
+async function runPackagedHandoffUat(page, secondaryRepoPath) {
+  smokeStep('packaged handoff UAT')
+  const secondaryRepoName = path.basename(secondaryRepoPath)
+  const secondaryRepo = page.locator('[data-repo-id="smoke-repo-secondary"]')
+  await secondaryRepo.hover()
+  await secondaryRepo.getByRole('button', { name: `New session in ${secondaryRepoName}` }).click()
+  await page.getByRole('menuitem', { name: /New Local session/ }).click()
+  await page.waitForFunction(async () => (await window.cranberri.repos.list()).activeRepoId === 'smoke-repo-secondary', undefined, { timeout: 10_000 })
+  const composer = page.getByRole('textbox', { name: 'Chat message' })
+  await composer.fill('cranberri packaged handoff uat')
+  await page.getByLabel('Send message').click()
+  await page.getByText('Fake Codex received: cranberri packaged handoff uat').waitFor({ timeout: 20_000 })
+  await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 20_000 })
+  await page.getByRole('button', { name: 'Task actions' }).click()
+  await page.getByRole('menuitem', { name: 'Continue in worktree' }).click()
+  await page.getByText('Worktree · from main', { exact: true }).waitFor({ timeout: 20_000 })
+  const identity = await page.evaluate(async () => {
+    const snapshot = await window.cranberri.tasks.snapshot()
+    const task = snapshot.tasks.find((candidate) => candidate.projectId === 'smoke-repo-secondary'
+      && candidate.location === 'worktree'
+      && candidate.threadId)
+    if (!task) throw new Error('Continued worktree task was not found')
+    const worktree = snapshot.managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
+    if (!worktree) throw new Error('Continued worktree record was not found')
+    return { taskId: task.id, worktreePath: worktree.path, proposedBranch: `codex/task-${task.id.slice(0, 8)}` }
+  })
+
+  await page.getByRole('button', { name: 'Task actions' }).click()
+  await page.getByRole('menuitem', { name: 'Test in Local' }).click()
+  const localDialog = page.getByRole('dialog', { name: 'Test branch in Local?' })
+  const branchInput = localDialog.getByRole('textbox', { name: 'Branch' })
+  await branchInput.waitFor({ timeout: 10_000 })
+  if (await branchInput.inputValue() !== identity.proposedBranch) {
+    throw new Error('Detached worktree did not propose a new task branch')
+  }
+  await localDialog.getByRole('button', { name: 'Continue' }).click()
+  await page.getByText(`Local · ${identity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
+  await page.waitForFunction(async ({ taskId, proposedBranch }) => {
+    const status = await window.cranberri.tasks.status(taskId)
+    const repos = await window.cranberri.repos.list()
+    const project = repos.projects.find((candidate) => candidate.id === status.task.projectId)
+    return status.task.location === 'local'
+      && status.task.checkoutId === project?.localCheckoutId
+      && status.worktree?.branch === proposedBranch
+  }, identity, { timeout: 20_000 })
+
+  await page.getByRole('button', { name: 'Task actions' }).click()
+  await page.getByRole('menuitem', { name: 'Return to worktree' }).click()
+  const worktreeDialog = page.getByRole('dialog', { name: 'Move branch to a worktree?' })
+  await worktreeDialog.getByRole('textbox', { name: 'Branch' }).waitFor({ timeout: 10_000 })
+  await worktreeDialog.getByRole('button', { name: 'Continue' }).click()
+  await page.getByText(`Worktree · ${identity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
+  await page.waitForFunction(async ({ taskId, worktreePath }) => {
+    const status = await window.cranberri.tasks.status(taskId)
+    return status.task.location === 'worktree' && status.worktree?.path === worktreePath
+  }, identity, { timeout: 20_000 })
+}
+
 async function runRepoWorkspaceSmoke() {
   smokeStep('repo workspace setup')
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-repo-'))
@@ -1070,6 +1129,10 @@ async function runRepoWorkspaceSmoke() {
       smokeStep('repo and chat basics')
       await page.getByText(repoPath).waitFor({ timeout: 10_000 })
       await page.getByText('Local · main', { exact: true }).waitFor({ timeout: 10_000 })
+      if (handoffUatOnly) {
+        await runPackagedHandoffUat(page, secondaryRepoPath)
+        return
+      }
       const primaryRepoName = path.basename(repoPath)
       const primaryRepo = page.locator('[data-repo-id="smoke-repo"]')
       await primaryRepo.hover()
@@ -3444,6 +3507,44 @@ async function runRepoWorkspaceSmoke() {
           && task.threadId)
       }, undefined, { timeout: 20_000 })
       await captureSmokeScreenshot(page, 'local-session-continued-in-worktree')
+      const handoffIdentity = await page.evaluate(async () => {
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.projectId === 'smoke-repo-secondary'
+          && candidate.location === 'worktree'
+          && candidate.threadId)
+        if (!task) throw new Error('Continued worktree task was not found')
+        const worktree = snapshot.managedWorktrees.find((candidate) => candidate.id === task.worktreeId)
+        if (!worktree) throw new Error('Continued worktree record was not found')
+        return { taskId: task.id, worktreePath: worktree.path, proposedBranch: `codex/task-${task.id.slice(0, 8)}` }
+      })
+      await page.getByRole('button', { name: 'Task actions' }).click()
+      await page.getByRole('menuitem', { name: 'Test in Local' }).click()
+      const localHandoffDialog = page.getByRole('dialog', { name: 'Test branch in Local?' })
+      await localHandoffDialog.getByRole('textbox', { name: 'Branch' }).waitFor({ timeout: 10_000 })
+      if (await localHandoffDialog.getByRole('textbox', { name: 'Branch' }).inputValue() !== handoffIdentity.proposedBranch) {
+        throw new Error('Detached worktree did not propose a new task branch')
+      }
+      await localHandoffDialog.getByRole('button', { name: 'Continue' }).click()
+      await page.getByText(`Local · ${handoffIdentity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
+      await page.waitForFunction(async ({ taskId, proposedBranch }) => {
+        const status = await window.cranberri.tasks.status(taskId)
+        const repos = await window.cranberri.repos.list()
+        const project = repos.projects.find((candidate) => candidate.id === status.task.projectId)
+        return status.task.location === 'local'
+          && status.task.checkoutId === project?.localCheckoutId
+          && status.worktree?.branch === proposedBranch
+      }, handoffIdentity, { timeout: 20_000 })
+      await page.getByRole('button', { name: 'Task actions' }).click()
+      await page.getByRole('menuitem', { name: 'Return to worktree' }).click()
+      const worktreeHandoffDialog = page.getByRole('dialog', { name: 'Move branch to a worktree?' })
+      await worktreeHandoffDialog.getByRole('textbox', { name: 'Branch' }).waitFor({ timeout: 10_000 })
+      await worktreeHandoffDialog.getByRole('button', { name: 'Continue' }).click()
+      await page.getByText(`Worktree · ${handoffIdentity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
+      await page.waitForFunction(async ({ taskId, worktreePath }) => {
+        const status = await window.cranberri.tasks.status(taskId)
+        return status.task.location === 'worktree' && status.worktree?.path === worktreePath
+      }, handoffIdentity, { timeout: 20_000 })
+      if (handoffUatOnly) return
       await page.evaluate(async () => {
         const created = await window.cranberri.tasks.createWorktreeDraft({
           projectId: 'smoke-repo-secondary',
