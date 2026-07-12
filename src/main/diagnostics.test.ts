@@ -33,7 +33,7 @@ vi.mock('electron-log/main', () => ({
 }))
 
 import { moduleLoadCheck, pathCheck } from './health'
-import { electronLogPath, sanitizeTelemetryPayload } from './telemetry'
+import { appendBoundedJsonLine, electronLogPath, sanitizeTelemetryPayload } from './telemetry'
 
 const tempDirs: string[] = []
 
@@ -65,6 +65,21 @@ describe('diagnostics helpers', () => {
 
   it('exposes the native electron log path', () => {
     expect(electronLogPath()).toBe('/tmp/cranberri.log')
+  })
+
+  it('keeps the JSONL diagnostic log within its retention budget', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-telemetry-'))
+    tempDirs.push(dir)
+    const filePath = path.join(dir, 'debug-telemetry.jsonl')
+
+    await appendBoundedJsonLine(filePath, `${JSON.stringify({ id: 1, value: 'a'.repeat(40) })}\n`, 120)
+    await appendBoundedJsonLine(filePath, `${JSON.stringify({ id: 2, value: 'b'.repeat(40) })}\n`, 120)
+    await appendBoundedJsonLine(filePath, `${JSON.stringify({ id: 3, value: 'c'.repeat(40) })}\n`, 120)
+
+    const content = fs.readFileSync(filePath, 'utf8')
+    expect(Buffer.byteLength(content)).toBeLessThanOrEqual(120)
+    expect(content).toContain('"id":3')
+    expect(content.split('\n').filter(Boolean).every((line) => JSON.parse(line))).toBeTruthy()
   })
 
   it('checks file paths without throwing', () => {

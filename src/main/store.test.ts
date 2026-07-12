@@ -49,4 +49,17 @@ describe('LocalEventStore', () => {
     expect(store.readEvents()).toEqual([])
     store.close()
   })
+
+  it('prunes old events to the configured retention limit', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-store-'))
+    tempDirs.push(dir)
+    const store = new LocalEventStore(localStorePath(dir), { maxEvents: 3 })
+
+    for (let index = 0; index < 5; index += 1) {
+      store.appendEvent({ source: 'test', type: `event-${index}` })
+    }
+
+    expect(store.readEvents(10).map((event) => event.type)).toEqual(['event-2', 'event-3', 'event-4'])
+    store.close()
+  })
 })

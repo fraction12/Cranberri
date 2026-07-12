@@ -12,16 +12,24 @@ export interface LocalEventInput {
 
 export type LocalEventRecord = TelemetryEventRecord
 
+const DEFAULT_MAX_EVENTS = 10_000
+
+interface LocalEventStoreOptions {
+  maxEvents?: number
+}
+
 export function localStorePath(userDataPath: string): string {
   return path.join(userDataPath, 'cranberri.sqlite3')
 }
 
 export class LocalEventStore {
   private readonly db: Database.Database
+  private readonly maxEvents: number
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: LocalEventStoreOptions = {}) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true })
     this.db = new Database(dbPath)
+    this.maxEvents = Math.max(1, Math.floor(options.maxEvents ?? DEFAULT_MAX_EVENTS))
     this.db.pragma('journal_mode = WAL')
     this.migrate()
   }
@@ -52,6 +60,7 @@ export class LocalEventStore {
       type: event.type,
       payloadJson,
     })
+    this.pruneEvents()
     return {
       id: Number(result.lastInsertRowid),
       timestamp,
@@ -59,6 +68,15 @@ export class LocalEventStore {
       type: event.type,
       payload: event.payload ?? {},
     }
+  }
+
+  private pruneEvents(): void {
+    this.db.prepare(`
+      DELETE FROM local_events
+      WHERE id NOT IN (
+        SELECT id FROM local_events ORDER BY id DESC LIMIT ?
+      )
+    `).run(this.maxEvents)
   }
 
   readEvents(limit = 400): LocalEventRecord[] {

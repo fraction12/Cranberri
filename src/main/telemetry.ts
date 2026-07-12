@@ -5,6 +5,7 @@ import path from 'node:path'
 import { LocalEventStore, localStorePath } from './store'
 
 const MAX_VALUE_LENGTH = 600
+const MAX_JSONL_BYTES = 5 * 1024 * 1024
 const SENSITIVE_KEY_PATTERN = /token|secret|password|authorization|cookie|api[-_]?key|credential/i
 let telemetryStore: LocalEventStore | null = null
 
@@ -50,13 +51,39 @@ export async function logTelemetry(source: string, type: string, payload: unknow
     payload: sanitizedPayload,
   }
   await fs.mkdir(path.dirname(telemetryPath()), { recursive: true })
-  await fs.appendFile(telemetryPath(), `${JSON.stringify(entry)}\n`, 'utf8')
+  await appendBoundedJsonLine(telemetryPath(), `${JSON.stringify(entry)}\n`)
   try {
     getTelemetryStore().appendEvent(entry)
   } catch (error) {
     console.warn('Failed to write telemetry event store:', error)
   }
   log.info('[telemetry]', source, type, sanitizedPayload)
+}
+
+export async function appendBoundedJsonLine(
+  filePath: string,
+  line: string,
+  maxBytes = MAX_JSONL_BYTES,
+): Promise<void> {
+  const boundedBytes = Math.max(1, Math.floor(maxBytes))
+  const lineBytes = Buffer.byteLength(line, 'utf8')
+  let existing = ''
+  try {
+    const stats = await fs.stat(filePath)
+    if (stats.size + lineBytes <= boundedBytes) {
+      await fs.appendFile(filePath, line, 'utf8')
+      return
+    }
+    existing = await fs.readFile(filePath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+
+  const entries = `${existing}${line}`.split('\n').filter(Boolean)
+  while (entries.length > 1 && Buffer.byteLength(`${entries.join('\n')}\n`, 'utf8') > boundedBytes) {
+    entries.shift()
+  }
+  await fs.writeFile(filePath, entries.length > 0 ? `${entries.join('\n')}\n` : '', 'utf8')
 }
 
 export function initTelemetryIpc(): void {
