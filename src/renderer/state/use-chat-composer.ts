@@ -296,6 +296,17 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
   }, [buildDraft, loaded, ownerKey, persist])
 
   useEffect(() => {
+    const flush = (event: Event) => {
+      const draft = buildDraft()
+      if (!draft || !loaded) return
+      const detail = (event as CustomEvent<{ writes: Promise<unknown>[] }>).detail
+      detail?.writes.push(persist(draft))
+    }
+    window.addEventListener('cranberri:flush-persistence', flush)
+    return () => window.removeEventListener('cranberri:flush-persistence', flush)
+  }, [buildDraft, loaded, persist])
+
+  useEffect(() => {
     Promise.all([window.cranberri.codex.skills(), window.cranberri.codex.plugins()])
       .then(([skillResult, pluginResult]) => {
         setSkills(skillResult.skills)

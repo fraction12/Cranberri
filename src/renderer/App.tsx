@@ -86,6 +86,15 @@ function AppShell() {
       console.error('Failed to acknowledge updater health:', error)
     })
   }, [recovery.loaded])
+
+  useEffect(() => window.cranberri.update.onFlushRequest(({ requestId }) => {
+    const writes: Promise<unknown>[] = []
+    window.dispatchEvent(new CustomEvent('cranberri:flush-persistence', { detail: { writes } }))
+    void Promise.all(writes).then(
+      () => window.cranberri.update.acknowledgeFlush(requestId),
+      (error) => window.cranberri.update.acknowledgeFlush(requestId, error instanceof Error ? error.message : 'Workspace flush failed'),
+    )
+  }), [])
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null)
   const activeRailResizeCleanupRef = useRef<(() => void) | null>(null)

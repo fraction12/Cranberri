@@ -220,6 +220,12 @@ const api = {
     status: () => ipcRenderer.invoke('updater:status') as Promise<import('@/shared/update').UpdateInfo>,
     install: () => ipcRenderer.invoke('updater:install') as Promise<import('@/shared/update').InstallResult>,
     acknowledgeHealth: () => ipcRenderer.invoke('updater:ack-health') as Promise<{ ok: true }>,
+    acknowledgeFlush: (requestId: string, errorMessage?: string | null) => ipcRenderer.invoke('updater:flush-ack', requestId, errorMessage) as Promise<{ ok: boolean }>,
+    onFlushRequest: (cb: (request: { requestId: string }) => void) => {
+      const handler = (_: unknown, request: { requestId: string }) => cb(request)
+      ipcRenderer.on('updater:flush-request', handler)
+      return () => ipcRenderer.off('updater:flush-request', handler)
+    },
     onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => {
       const handler = (_: unknown, payload: import('@/shared/update').UpdateEvent) => cb(payload)
       ipcRenderer.on('updater:event', handler)

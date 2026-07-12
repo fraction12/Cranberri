@@ -14,6 +14,7 @@ import { assertUpdateQuiescent } from './updater-preflight'
 const UPDATE_CHANNEL = 'updater:event'
 const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
 const USER_AGENT = 'CranberriUpdater/0.1.0'
+const flushWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>()
 
 function getUserData(...segments: string[]): string {
   return path.join(app.getPath('userData'), ...segments)
@@ -360,6 +361,8 @@ async function installUpdate(): Promise<InstallResult> {
     const stagedAppPath = channel === 'beta'
       ? await prepareBetaUpdate(stagingDir, logPath)
       : await prepareStableUpdate(stagingDir, logPath)
+    await assertUpdateQuiescent()
+    await requestRendererFlush()
     emitProgress({ phase: 'readyToInstall', message: 'Ready to install', percent: 95 })
     setStatus({ status: 'readyToInstall', phase: 'readyToInstall', phaseMessage: 'Ready to install' })
 
@@ -418,6 +421,20 @@ async function installUpdate(): Promise<InstallResult> {
     setStatus({ status: 'failed', failedPhase: currentStatus.phase, failureMessage: message, logPath })
     return { success: false, phase: currentStatus.phase, message, logPath }
   }
+}
+
+function requestRendererFlush(timeoutMs = 5_000): Promise<void> {
+  const win = getMainWindow()
+  if (!win || win.isDestroyed()) return Promise.reject(new Error('Workspace window is unavailable for update flush'))
+  const requestId = crypto.randomUUID()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      flushWaiters.delete(requestId)
+      reject(new Error('Timed out while saving workspace state before update'))
+    }, timeoutMs)
+    flushWaiters.set(requestId, { resolve, reject, timer })
+    win.webContents.send('updater:flush-request', { requestId })
+  })
 }
 
 async function acknowledgeInstalledCandidate(): Promise<void> {
@@ -661,6 +678,15 @@ function readPendingResult(): InstallResult | null {
 }
 
 export function initUpdaterIpc(): void {
+  ipcMain.handle('updater:flush-ack', (_, requestId: string, errorMessage?: string | null) => {
+    const waiter = flushWaiters.get(requestId)
+    if (!waiter) return { ok: false }
+    clearTimeout(waiter.timer)
+    flushWaiters.delete(requestId)
+    if (errorMessage) waiter.reject(new Error(errorMessage))
+    else waiter.resolve()
+    return { ok: true }
+  })
   ipcMain.handle('updater:check', async () => {
     setStatus({ status: 'checking' })
     const result = await performCheck()

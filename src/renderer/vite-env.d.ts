@@ -26,6 +26,8 @@ declare global {
         status: () => Promise<import('@/shared/update').UpdateInfo>
         install: () => Promise<import('@/shared/update').InstallResult>
         acknowledgeHealth: () => Promise<{ ok: true }>
+        acknowledgeFlush: (requestId: string, errorMessage?: string | null) => Promise<{ ok: boolean }>
+        onFlushRequest: (cb: (request: { requestId: string }) => void) => (() => void)
         onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => (() => void)
         pendingResult: () => Promise<import('@/shared/update').InstallResult | null>
         clearResult: () => Promise<{ ok: boolean }>

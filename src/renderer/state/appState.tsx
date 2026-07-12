@@ -49,6 +49,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(id)
   }, [loaded, state])
 
+  useEffect(() => {
+    const flush = (event: Event) => {
+      if (!loaded) return
+      const detail = (event as CustomEvent<{ writes: Promise<unknown>[] }>).detail
+      detail?.writes.push(window.cranberri.appState.write(state))
+    }
+    window.addEventListener('cranberri:flush-persistence', flush)
+    return () => window.removeEventListener('cranberri:flush-persistence', flush)
+  }, [loaded, state])
+
   const updateAppState = useCallback((updater: (state: CranberriAppState) => CranberriAppState) => {
     setState((current) => updater(current))
   }, [])
