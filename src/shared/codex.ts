@@ -336,7 +336,7 @@ export interface CodexSdkThreadItem {
   type?: string
   text?: string
   phase?: string | null
-  content?: Array<{ type?: string; text?: string }> | string[]
+  content?: Array<Record<string, unknown> | string>
   summary?: string[]
   command?: string
   cwd?: unknown

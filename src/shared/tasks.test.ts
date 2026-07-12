@@ -72,4 +72,23 @@ describe('first-turn idempotency', () => {
     expect(persistedFirstTurnState([turn('Something else')], tagged)).toBe('conflicting')
     expect(persistedFirstTurnState([turn('Ship it'), turn('Follow-up')], tagged)).toBe('conflicting')
   })
+
+  it('compares multimodal first-turn inputs and ordering exactly', () => {
+    const input = withFirstTurnIdempotencyKey([
+      { type: 'text', text: 'Inspect these', text_elements: [{ byteRange: { start: 0, end: 7 }, placeholder: null }] },
+      { type: 'image', url: 'data:image/png;base64,abc', detail: 'high' },
+      { type: 'localImage', path: '/tmp/capture.png', detail: 'low' },
+      { type: 'skill', name: 'review', path: '/skills/review/SKILL.md' },
+    ], 'send-multimodal')
+    const persisted = withoutFirstTurnIdempotencyKey(input)
+    const turn = (content: Array<Record<string, unknown>>) => ({
+      id: 'turn-1', items: [{ id: 'user-1', type: 'userMessage', content }],
+    })
+
+    expect(persistedFirstTurnState([turn(persisted)], input)).toBe('matching')
+    expect(persistedFirstTurnState([turn([...persisted].reverse())], input)).toBe('conflicting')
+    expect(persistedFirstTurnState([turn(persisted.map((item, index) => (
+      index === 1 ? { ...item, detail: 'low' } : item
+    )))], input)).toBe('conflicting')
+  })
 })

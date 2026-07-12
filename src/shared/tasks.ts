@@ -104,27 +104,41 @@ export function taskFirstTurnIdempotencyKey(task: Task): string | null {
 export type PersistedFirstTurnState = 'empty' | 'matching' | 'conflicting'
 export type FirstTurnRecoveryAction = 'send' | 'acknowledge' | 'alreadyAcknowledged' | 'notFirstTurn' | 'needsAttention'
 
+function canonicalFirstTurnInput(item: Record<string, unknown> | string): Record<string, unknown> | null {
+  if (typeof item === 'string') return { type: 'text', text: item, text_elements: [] }
+  if (item.type === 'text' && typeof item.text === 'string') {
+    return {
+      type: 'text',
+      text: item.text,
+      text_elements: Array.isArray(item.text_elements) ? item.text_elements : [],
+    }
+  }
+  if (item.type === 'image' && typeof item.url === 'string') {
+    return { type: 'image', url: item.url, ...(typeof item.detail === 'string' ? { detail: item.detail } : {}) }
+  }
+  if (item.type === 'localImage' && typeof item.path === 'string') {
+    return { type: 'localImage', path: item.path, ...(typeof item.detail === 'string' ? { detail: item.detail } : {}) }
+  }
+  if ((item.type === 'skill' || item.type === 'mention') && typeof item.name === 'string' && typeof item.path === 'string') {
+    return { type: item.type, name: item.name, path: item.path }
+  }
+  return null
+}
+
 export function persistedFirstTurnState(
   turns: readonly CodexSdkTurn[],
   expectedInput: readonly Record<string, unknown>[],
 ): PersistedFirstTurnState {
   if (turns.length === 0) return 'empty'
   if (turns.length !== 1) return 'conflicting'
-  const expectedText = withoutFirstTurnIdempotencyKey(expectedInput)
-    .filter((item) => item.type === 'text' && typeof item.text === 'string')
-    .map((item) => item.text as string)
-  if (expectedText.length === 0) return 'conflicting'
-  const actualText = (turns[0]?.items ?? []).flatMap((item) => {
+  const expected = withoutFirstTurnIdempotencyKey(expectedInput).map(canonicalFirstTurnInput)
+  if (expected.length === 0 || expected.some((item) => item === null)) return 'conflicting'
+  const actual = (turns[0]?.items ?? []).flatMap((item) => {
     if (item.type !== 'userMessage' || !Array.isArray(item.content)) return []
-    return item.content.flatMap((content) => (
-      typeof content === 'string'
-        ? [content]
-        : content.type === 'text' && typeof content.text === 'string'
-          ? [content.text]
-          : []
-    ))
+    return [item.content.map(canonicalFirstTurnInput)]
   })
-  return JSON.stringify(actualText) === JSON.stringify(expectedText) ? 'matching' : 'conflicting'
+  if (actual.length !== 1 || actual[0].some((item) => item === null)) return 'conflicting'
+  return JSON.stringify(actual[0]) === JSON.stringify(expected) ? 'matching' : 'conflicting'
 }
 
 export function firstTurnRecoveryAction(
