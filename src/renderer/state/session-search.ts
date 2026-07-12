@@ -1,4 +1,5 @@
 import type { CodexSdkThreadItem, CodexSessionSummary, CodexSessionThread } from '@/shared/codex'
+import { codexItemText } from '@/shared/codex-turn-activity'
 import { codexWorkerControlDisplayText } from '@/shared/codex-worker-control'
 
 export interface SessionSearchResult {
@@ -153,7 +154,7 @@ function itemToTranscriptItem(turnId: string, item: CodexSdkThreadItem): Transcr
 }
 
 function contentText(item: CodexSdkThreadItem): string {
-  return item.content?.map((part) => part.text).filter(Boolean).join('\n') ?? ''
+  return codexItemText(item)
 }
 
 function normalizeTerms(query: string): string[] {

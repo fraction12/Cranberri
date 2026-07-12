@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import type { CodexMessage, CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput, CodexWorker } from '@/shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexThread, CodexTurnSettings, CodexUserInput, CodexWorker } from '@/shared/codex'
 import {
   codexWorkerIsActive,
   mergeCodexWorker,
@@ -10,9 +10,17 @@ import { useRepos } from './repos'
 import { useOptionalTasks } from './tasks'
 import { applyCodexSendFailure } from './codex-send-failure'
 import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
+import {
+  appendCodexSteeringItem,
+  appendCodexTurnError,
+  applyCodexItemLifecycle,
+  completeCodexActivityTurn,
+  createOptimisticCodexTurn,
+  hydrateCodexTranscript,
+  reconcileCodexTurnStarted,
+} from './codex-turn-activity'
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
 import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
-import { codexWorkerControlDisplayText } from '@/shared/codex-worker-control'
 import type { Task } from '@/shared/tasks'
 
 interface CodexThreadStateApi {
@@ -33,6 +41,7 @@ interface CodexActionsApi {
   getThreadSnapshot: (threadId: string) => CodexThread | undefined
   createThread: (windowId: string, initialContent?: string, settings?: CodexTurnSettings, initialInput?: CodexUserInput[]) => Promise<CodexThread>
   sendMessage: (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings) => Promise<void>
+  steerThread: (threadId: string, content: string, input?: CodexUserInput[]) => Promise<void>
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
   abort: (threadId: string) => Promise<void>
@@ -61,10 +70,6 @@ const CodexThreadStateContext = createContext<CodexThreadStateApi | null>(null)
 const CodexWindowStateContext = createContext<CodexWindowStateApi | null>(null)
 const CodexActionsContext = createContext<CodexActionsApi | null>(null)
 
-function itemText(item: { content?: Array<{ text?: string }> }): string {
-  return item.content?.map((part) => part.text).filter(Boolean).join('\n') ?? ''
-}
-
 function agentMessageRole(phase: string | null | undefined): 'assistant' | 'reasoning' {
   // Only explicit commentary / reasoning phases belong in the collapsible reasoning group.
   // Everything else — including missing, unknown, or final_answer phases — renders as a
@@ -73,50 +78,22 @@ function agentMessageRole(phase: string | null | undefined): 'assistant' | 'reas
   return 'assistant'
 }
 
-function threadToMessages(thread: CodexSessionThread): CodexMessage[] {
-  const messages: CodexMessage[] = []
-  for (const turn of thread.turns) {
-    const timestamp = (turn.startedAt ?? thread.updatedAt ?? Date.now() / 1000) * 1000
-    for (const item of turn.items ?? []) {
-      if (item.type === 'userMessage') {
-        const content = codexWorkerControlDisplayText(itemText(item))
-        if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'user', content, timestamp })
-      } else if (item.type === 'agentMessage' && item.text) {
-        messages.push({
-          id: item.id ?? crypto.randomUUID(),
-          role: agentMessageRole(item.phase),
-          content: item.text,
-          timestamp,
-        })
-      } else if (item.type === 'reasoning') {
-        const content = [...(item.summary ?? []), ...(Array.isArray(item.content) ? item.content as unknown as string[] : [])].filter(Boolean).join('\n')
-        if (content) messages.push({ id: item.id ?? crypto.randomUUID(), role: 'reasoning', content, timestamp })
-      } else if (item.type === 'contextCompaction' || item.type === 'compaction') {
-        const completed = Boolean(turn.completedAt) || turn.status === 'completed'
-        messages.push({
-          id: item.id ?? crypto.randomUUID(),
-          role: 'compact',
-          content: completed ? 'Context compacted' : 'Compacting context',
-          timestamp: ((completed ? turn.completedAt : turn.startedAt) ?? thread.updatedAt ?? Date.now() / 1000) * 1000,
-          pending: !completed,
-        })
-      }
-    }
-  }
-  return messages
-}
-
 function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread {
+  const transcript = hydrateCodexTranscript(session)
   const lastTurn = [...session.turns].reverse().find((turn) => turn.durationMs)
   const statusType = session.status && typeof session.status === 'object'
     ? (session.status as { type?: unknown }).type
     : session.status
-  const isRunning = statusType === 'active' || statusType === 'running' || statusType === 'inProgress'
+  const isRunning = statusType === 'active'
+    || statusType === 'running'
+    || statusType === 'inProgress'
+    || transcript.activityTurns.some((turn) => turn.status === 'running')
   return {
     id: session.id,
     title: session.title,
     repoId,
-    messages: threadToMessages(session),
+    messages: transcript.messages,
+    activityTurns: transcript.activityTurns,
     pendingApprovals: [],
     isRunning,
     currentActivity: isRunning ? 'Working' : undefined,
@@ -194,6 +171,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
   const queueStreamingMessage = useCallback((
     threadId: string,
+    turnId: string | undefined,
     itemId: string,
     role: 'assistant' | 'reasoning',
     pending: boolean,
@@ -202,6 +180,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const key = streamingMessageKey(threadId, itemId)
     pendingStreamingUpdatesRef.current.set(key, {
       threadId,
+      turnId,
       itemId,
       role,
       text: streamingBuffersRef.current[key] ?? '',
@@ -235,14 +214,14 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         const role = agentMessageRole(e.phase)
         const key = streamingMessageKey(threadId, e.itemId)
         streamingBuffersRef.current[key] = (streamingBuffersRef.current[key] ?? '') + e.delta
-        queueStreamingMessage(threadId, e.itemId, role, true)
+        queueStreamingMessage(threadId, e.turnId, e.itemId, role, true)
         return
       }
 
       if (e.type === 'agent_message_completed') {
         const key = streamingMessageKey(threadId, e.itemId)
         if (e.text) streamingBuffersRef.current[key] = e.text
-        queueStreamingMessage(threadId, e.itemId, agentMessageRole(e.phase), false, true)
+        queueStreamingMessage(threadId, e.turnId, e.itemId, agentMessageRole(e.phase), false, true)
         return
       }
 
@@ -274,7 +253,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         }
         if (idx === -1) return prev
         const next = [...prev]
-        const thread = { ...next[idx] }
+        let thread = { ...next[idx] }
 
         switch (e.type) {
           case 'thread_name_updated':
@@ -305,26 +284,56 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             break
           }
           case 'run_start':
+            if (e.turnId) {
+              thread = reconcileCodexTurnStarted(thread, e.turnId, e.startedAt ?? Date.now())
+            }
             thread.isRunning = true
-            thread.runStartedAt = Date.now()
+            thread.runStartedAt = e.startedAt ?? thread.runStartedAt ?? Date.now()
             thread.lastRunDurationMs = undefined
             thread.currentActivity = 'Working'
             break
-          case 'item_started':
+          case 'item_started': {
+            if (e.turnId && e.item) {
+              thread = applyCodexItemLifecycle(thread, e.turnId, e.item, 'started', e.startedAt ?? Date.now())
+            }
             thread.isRunning = true
-            thread.currentActivity = e.itemType === 'reasoning' ? 'Thinking' : e.itemType === 'function_call' ? 'Calling tool' : 'Working'
+            const activeItem = thread.activityTurns?.find((turn) => turn.id === e.turnId)?.items.at(-1)
+            thread.currentActivity = activeItem?.title ?? (e.itemType === 'reasoning' ? 'Thinking' : e.itemType === 'function_call' ? 'Calling tool' : 'Working')
             break
+          }
+          case 'item_completed': {
+            if (e.turnId && e.item) {
+              thread = applyCodexItemLifecycle(thread, e.turnId, e.item, 'completed', e.completedAt ?? Date.now())
+            }
+            const runningItem = thread.activityTurns
+              ?.find((turn) => turn.id === e.turnId)
+              ?.items.findLast((item) => item.status === 'running')
+            thread.currentActivity = runningItem?.title ?? 'Working'
+            break
+          }
           case 'run_end': {
+            thread = completeCodexActivityTurn(
+              thread,
+              e.turnId,
+              e.status ?? (e.error ? 'failed' : 'completed'),
+              e.completedAt ?? Date.now(),
+              e.durationMs,
+            )
             thread.isRunning = false
             thread.currentActivity = undefined
-            thread.lastRunDurationMs = thread.lastRunDurationMs ?? (thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined)
-            if (e.error) {
-              thread.messages = [...thread.messages, {
-                id: crypto.randomUUID(),
-                role: 'system',
-                content: `Error: ${e.error}`,
-                timestamp: Date.now(),
-              }]
+            thread.lastRunDurationMs = e.durationMs ?? thread.lastRunDurationMs ?? (thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined)
+            if (e.error && e.status !== 'interrupted') {
+              const hasActivityTurn = (thread.activityTurns?.length ?? 0) > 0
+              if (hasActivityTurn) {
+                thread = appendCodexTurnError(thread, e.turnId, e.error, e.completedAt ?? Date.now())
+              } else {
+                thread.messages = [...thread.messages, {
+                  id: crypto.randomUUID(),
+                  role: 'system',
+                  content: `Error: ${e.error}`,
+                  timestamp: Date.now(),
+                }]
+              }
             }
             break
           }
@@ -339,6 +348,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
                   content: 'Compacting context',
                   timestamp: Date.now(),
                   pending: true,
+                  turnId: e.turnId,
                 }]
               }
             } else {
@@ -351,6 +361,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
                   content,
                   timestamp: Date.now(),
                   pending: false,
+                  turnId: e.turnId,
                 }]
               } else {
                 thread.messages = thread.messages.map((m) =>
@@ -381,6 +392,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             thread.isRunning = false
             thread.currentActivity = undefined
             thread.lastRunDurationMs = thread.runStartedAt ? Date.now() - thread.runStartedAt : undefined
+            thread = completeCodexActivityTurn(thread, undefined, 'completed', Date.now(), thread.lastRunDurationMs)
             break
           }
         }
@@ -422,22 +434,27 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const { threadId, title } = await window.cranberri.codex.createThread(activeRepo.path, settings)
     const pendingTitle = pendingThreadTitlesRef.current[threadId]
     delete pendingThreadTitlesRef.current[threadId]
+    const initialMessageId = initialContent ? crypto.randomUUID() : undefined
+    const initialStartedAt = Date.now()
+    const initialTurn = initialMessageId ? createOptimisticCodexTurn(initialMessageId, initialStartedAt) : undefined
     const thread: CodexThread = {
       id: threadId,
       title: pendingTitle ?? title ?? 'New thread',
       repoId: activeRepo.id,
       messages: initialContent
         ? [{
-            id: crypto.randomUUID(),
+            id: initialMessageId!,
             role: 'user',
             content: initialContent,
-            timestamp: Date.now(),
+            timestamp: initialStartedAt,
+            turnId: initialTurn?.id,
           }]
         : [],
+      activityTurns: initialTurn ? [initialTurn] : [],
       pendingApprovals: [],
       isRunning: !!initialContent,
       currentActivity: initialContent ? 'Working' : undefined,
-      runStartedAt: initialContent ? Date.now() : undefined,
+      runStartedAt: initialContent ? initialStartedAt : undefined,
       workers: [],
     }
     setThreads((prev) => [...prev, thread])
@@ -464,6 +481,9 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     logRendererTelemetry('chat:user:send', { threadId, contentLength: content.length, settings: settings ? { model: settings.model, effort: settings.effort, speed: settings.speed, approvalMode: settings.approvalMode } : null })
 
     let shouldResume = false
+    const messageId = crypto.randomUUID()
+    const startedAt = Date.now()
+    const optimisticTurn = createOptimisticCodexTurn(messageId, startedAt)
     setThreads((prev) => {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
@@ -473,14 +493,16 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         ...next[idx],
         isHistorical: false,
         messages: [...next[idx].messages, {
-          id: crypto.randomUUID(),
+          id: messageId,
           role: 'user',
           content,
-          timestamp: Date.now(),
+          timestamp: startedAt,
+          turnId: optimisticTurn.id,
         }],
+        activityTurns: [...(next[idx].activityTurns ?? []), optimisticTurn],
         isRunning: true,
         currentActivity: shouldResume ? 'Resuming' : 'Working',
-        runStartedAt: Date.now(),
+        runStartedAt: startedAt,
         lastRunDurationMs: undefined,
       }
       return next
@@ -545,7 +567,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const idx = prev.findIndex((t) => t.id === threadId)
       if (idx === -1) return prev
       const next = [...prev]
-      next[idx] = { ...next[idx], isRunning: false, currentActivity: undefined }
+      const stopped = completeCodexActivityTurn(next[idx], undefined, 'interrupted', Date.now())
+      next[idx] = { ...stopped, isRunning: false, currentActivity: undefined }
       return next
     })
   }, [activeRepo])
@@ -556,6 +579,40 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (!repo) throw new Error('The worker repository is no longer available.')
     return repo.path
   }, [activeRepo, repos])
+
+  const steerThread = useCallback(async (
+    threadId: string,
+    content: string,
+    input?: CodexUserInput[],
+  ): Promise<void> => {
+    const itemId = `steer:${crypto.randomUUID()}`
+    const timestamp = Date.now()
+    logRendererTelemetry('chat:user:steer', { threadId, contentLength: content.length })
+    setThreads((current) => current.map((thread) => thread.id === threadId
+      ? appendCodexSteeringItem(thread, content, timestamp, itemId)
+      : thread))
+
+    try {
+      await window.cranberri.codex.steerThread(
+        repoPathForThread(threadId),
+        threadId,
+        input ?? [{ type: 'text', text: content }],
+      )
+    } catch (error) {
+      setThreads((current) => current.map((thread) => thread.id === threadId
+        ? {
+            ...thread,
+            activityTurns: thread.activityTurns?.map((turn) => ({
+              ...turn,
+              items: turn.items.map((item) => item.id === itemId
+                ? { ...item, status: 'failed' as const, title: 'Direction not sent' }
+                : item),
+            })),
+          }
+        : thread))
+      throw error
+    }
+  }, [repoPathForThread])
 
   const updateWorker = useCallback((parentThreadId: string, worker: CodexWorker): void => {
     setWorkersByParent((current) => upsertWorkerGraph(current, parentThreadId, worker))
@@ -688,17 +745,21 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
 
     let hydrated: CodexThread
     if (initialContent) {
+      const messageId = crypto.randomUUID()
+      const startedAt = Date.now()
+      const optimisticTurn = createOptimisticCodexTurn(messageId, startedAt)
       const initialTitle = initialContent.split('\n')[0]?.trim().slice(0, 160) || 'New session'
       const meaningfulPendingTitle = pendingTitle && pendingTitle !== 'Untitled session' ? pendingTitle : null
       hydrated = {
         id: task.threadId,
         title: meaningfulPendingTitle ?? initialTitle,
         repoId: task.projectId,
-        messages: [{ id: crypto.randomUUID(), role: 'user', content: initialContent, timestamp: Date.now() }],
+        messages: [{ id: messageId, role: 'user', content: initialContent, timestamp: startedAt, turnId: optimisticTurn.id }],
+        activityTurns: [optimisticTurn],
         pendingApprovals: [],
         isRunning: true,
         currentActivity: 'Working',
-        runStartedAt: Date.now(),
+        runStartedAt: startedAt,
         workers: [],
       }
     } else {
@@ -788,6 +849,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     getThreadSnapshot,
     createThread,
     sendMessage,
+    steerThread,
     compactThread,
     approve,
     abort,
@@ -819,6 +881,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     bindTaskWindow,
     markThreadSendFailed,
     sendMessage,
+    steerThread,
     stopWorker,
     switchThread,
     unarchiveSession,

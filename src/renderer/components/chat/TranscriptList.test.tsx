@@ -61,6 +61,26 @@ describe('TranscriptList', () => {
     expect(html).toContain('Calling tool')
   })
 
+  it('renders a typed activity turn between its user prompt and final answer', () => {
+    const html = renderTranscript(thread([
+      { ...message('user-1', 'user', 'Inspect chat'), turnId: 'turn-1' },
+      { ...message('reasoning-1', 'reasoning', 'Reading state'), turnId: 'turn-1' },
+      { ...message('assistant-1', 'assistant', 'The chat is fixed.'), turnId: 'turn-1' },
+    ], {
+      isRunning: true,
+      activityTurns: [{
+        id: 'turn-1',
+        status: 'running',
+        startedAt: Date.now(),
+        items: [{ id: 'reasoning-1', kind: 'reasoning', status: 'running', title: 'Thinking' }],
+      }],
+    }))
+
+    expect(html.indexOf('Inspect chat')).toBeLessThan(html.indexOf('Working'))
+    expect(html.indexOf('Reading state')).toBeLessThan(html.indexOf('The chat is fixed.'))
+    expect(html.match(/Reading state/g)).toHaveLength(1)
+  })
+
   it('only applies the latest run duration to the latest reasoning group', () => {
     const html = renderTranscript(thread([
       message('user-1', 'user', 'First request'),

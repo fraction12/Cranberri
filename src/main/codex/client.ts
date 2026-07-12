@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker, CodexRuntimeContext, CodexServerRequestHandler, CodexTransportCapabilities } from '../../shared/codex'
+import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkThreadItem, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker, CodexRuntimeContext, CodexServerRequestHandler, CodexTransportCapabilities } from '../../shared/codex'
 import {
   codexWorkerIsActive,
   mergeCodexWorker,
@@ -193,6 +193,7 @@ export class CodexClient extends EventEmitter {
   private startPromise: Promise<void> | null = null
   private activeRunThreads = new Set<string>()
   private currentTurnIdByThread = new Map<string, string>()
+  private agentMessagePhasesByThread = new Map<string, Map<string, string>>()
   private pendingApprovalsByThread = new Map<string, boolean>()
   private parentThreadByWorker = new Map<string, string>()
   private workerByThread = new Map<string, CodexWorker>()
@@ -374,6 +375,7 @@ export class CodexClient extends EventEmitter {
     this.startPromise = null
     this.activeRunThreads.clear()
     this.currentTurnIdByThread.clear()
+    this.agentMessagePhasesByThread.clear()
     this.parentThreadByWorker.clear()
     this.workerByThread.clear()
     this.runtimeByThread.clear()
@@ -756,17 +758,21 @@ export class CodexClient extends EventEmitter {
     }
   }
 
-  private emitRunStart(threadId: string): void {
+  private emitRunStart(threadId: string, turnId?: string, startedAt?: number): void {
     if (threadId) this.activeRunThreads.add(threadId)
-    this.emit('event', { type: 'run_start', threadId } as CodexEvent)
+    this.emit('event', { type: 'run_start', threadId, turnId, startedAt } as CodexEvent)
   }
 
-  private emitRunEnd(threadId: string, error?: string): void {
+  private emitRunEnd(
+    threadId: string,
+    error?: string,
+    turn?: { turnId?: string; status?: 'running' | 'completed' | 'failed' | 'interrupted'; completedAt?: number; durationMs?: number },
+  ): void {
     if (threadId) {
-      if (!this.activeRunThreads.has(threadId) && !error) return
+      if (!this.activeRunThreads.has(threadId) && !error && !turn?.turnId) return
       this.activeRunThreads.delete(threadId)
     }
-    this.emit('event', { type: 'run_end', threadId, error } as CodexEvent)
+    this.emit('event', { type: 'run_end', threadId, error, ...turn } as CodexEvent)
   }
 
   private rememberWorkersFromItem(parentThreadId: string, item: unknown): void {
@@ -843,9 +849,10 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'turn/started': {
-        const turnId = (params as { turn?: { id?: string } }).turn?.id
+        const turn = (params as { turn?: { id?: string; startedAt?: number | null } }).turn
+        const turnId = turn?.id
         if (turnId) this.currentTurnIdByThread.set(threadId, turnId)
-        this.emitRunStart(threadId)
+        this.emitRunStart(threadId, turnId, typeof turn?.startedAt === 'number' ? turn.startedAt * 1000 : Date.now())
         this.updateKnownWorker(threadId, { status: 'running', updatedAt: Date.now() })
         break
       }
@@ -864,7 +871,7 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'turn/completed': {
-        const turn = (params as { turn?: { status?: string; error?: { message?: string } } }).turn
+        const turn = (params as { turn?: { id?: string; status?: string; error?: { message?: string }; completedAt?: number | null; durationMs?: number | null } }).turn
         const error = turn?.error?.message
         const workerStatus = turn?.status === 'interrupted'
           ? 'interrupted'
@@ -872,7 +879,17 @@ export class CodexClient extends EventEmitter {
             ? 'errored'
             : 'completed'
         this.currentTurnIdByThread.delete(threadId)
-        this.emitRunEnd(threadId, error)
+        this.agentMessagePhasesByThread.delete(threadId)
+        this.emitRunEnd(threadId, error, {
+          turnId: turn?.id,
+          status: turn?.status === 'interrupted'
+            ? 'interrupted'
+            : turn?.status === 'failed' || error
+              ? 'failed'
+              : 'completed',
+          completedAt: typeof turn?.completedAt === 'number' ? turn.completedAt * 1000 : Date.now(),
+          durationMs: typeof turn?.durationMs === 'number' ? turn.durationMs : undefined,
+        })
         this.updateKnownWorker(threadId, {
           status: workerStatus,
           message: error ?? (workerStatus === 'errored' ? 'Worker turn failed' : ''),
@@ -900,14 +917,28 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/started': {
-        const item = (params as { item?: { id?: string; type?: string } }).item
+        const payload = params as { turnId?: string; startedAtMs?: number; item?: CodexSdkThreadItem }
+        const item = payload.item
         const itemType = item?.type ?? 'unknown'
-        this.emit('event', { type: 'item_started', threadId, itemId: item?.id, itemType } as CodexEvent)
+        if (itemType === 'agentMessage' && item?.id && item.phase) {
+          const phases = this.agentMessagePhasesByThread.get(threadId) ?? new Map<string, string>()
+          phases.set(item.id, item.phase)
+          this.agentMessagePhasesByThread.set(threadId, phases)
+        }
+        this.emit('event', {
+          type: 'item_started',
+          threadId,
+          turnId: payload.turnId,
+          itemId: item?.id,
+          itemType,
+          item,
+          startedAt: payload.startedAtMs ?? Date.now(),
+        } as CodexEvent)
         this.rememberWorkersFromItem(threadId, item)
         const toolEvent = createToolEventFromItem(threadId, item, 'started')
         if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (itemType === 'contextCompaction') {
-          this.emit('event', { type: 'context_compaction', threadId, state: 'started' } as CodexEvent)
+          this.emit('event', { type: 'context_compaction', threadId, turnId: payload.turnId, state: 'started' } as CodexEvent)
         }
         break
       }
@@ -938,16 +969,21 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/agentMessage/delta': {
-        const itemId = (params as { itemId?: string }).itemId
-        const delta = (params as { delta?: string }).delta ?? ''
-        const phase = (params as { item?: { phase?: string } }).item?.phase
-        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase } as CodexEvent)
+        const payload = params as { turnId?: string; itemId?: string; delta?: string; item?: { phase?: string } }
+        const itemId = payload.itemId
+        const delta = payload.delta ?? ''
+        const phase = itemId
+          ? payload.item?.phase ?? this.agentMessagePhasesByThread.get(threadId)?.get(itemId)
+          : undefined
+        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, turnId: payload.turnId, itemId, delta, phase } as CodexEvent)
         break
       }
-      case 'item/reasoning/textDelta': {
-        const itemId = (params as { itemId?: string }).itemId
-        const delta = (params as { delta?: string }).delta ?? ''
-        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase: 'commentary' } as CodexEvent)
+      case 'item/reasoning/textDelta':
+      case 'item/reasoning/summaryTextDelta': {
+        const payload = params as { turnId?: string; itemId?: string; delta?: string }
+        const itemId = payload.itemId
+        const delta = payload.delta ?? ''
+        if (itemId && delta) this.emit('event', { type: 'agent_message_delta', threadId, turnId: payload.turnId, itemId, delta, phase: 'commentary' } as CodexEvent)
         break
       }
       case 'item/commandExecution/outputDelta': {
@@ -956,15 +992,29 @@ export class CodexClient extends EventEmitter {
         break
       }
       case 'item/completed': {
-        const item = (params as { item?: { id?: string; type?: string; text?: string; phase?: string } }).item
+        const payload = params as { turnId?: string; completedAtMs?: number; item?: CodexSdkThreadItem }
+        const item = payload.item
+        this.emit('event', {
+          type: 'item_completed',
+          threadId,
+          turnId: payload.turnId,
+          itemId: item?.id,
+          itemType: item?.type ?? 'unknown',
+          item,
+          completedAt: payload.completedAtMs ?? Date.now(),
+        } as CodexEvent)
         this.rememberWorkersFromItem(threadId, item)
         const toolEvent = createToolEventFromItem(threadId, item, 'completed')
         if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         if (item?.type === 'contextCompaction') {
-          this.emit('event', { type: 'context_compaction', threadId, state: 'completed' } as CodexEvent)
+          this.emit('event', { type: 'context_compaction', threadId, turnId: payload.turnId, state: 'completed' } as CodexEvent)
         }
         if (item?.type === 'agentMessage' && item.id) {
-          this.emit('event', { type: 'agent_message_completed', threadId, itemId: item.id, text: item.text ?? '', phase: item.phase } as CodexEvent)
+          const phases = this.agentMessagePhasesByThread.get(threadId)
+          const phase = item.phase ?? phases?.get(item.id)
+          this.emit('event', { type: 'agent_message_completed', threadId, turnId: payload.turnId, itemId: item.id, text: item.text ?? '', phase: phase ?? undefined } as CodexEvent)
+          phases?.delete(item.id)
+          if (phases?.size === 0) this.agentMessagePhasesByThread.delete(threadId)
         }
         break
       }

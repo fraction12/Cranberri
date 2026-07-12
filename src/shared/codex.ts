@@ -272,6 +272,63 @@ export interface CodexMessage {
   id: string
   timestamp: number
   pending?: boolean
+  turnId?: string
+}
+
+export type CodexActivityItemKind =
+  | 'commentary'
+  | 'reasoning'
+  | 'plan'
+  | 'command'
+  | 'file_change'
+  | 'web_search'
+  | 'mcp_tool'
+  | 'dynamic_tool'
+  | 'collaboration'
+  | 'subagent'
+  | 'image'
+  | 'sleep'
+  | 'review'
+  | 'compaction'
+  | 'steering'
+  | 'other'
+
+export type CodexActivityItemStatus = 'running' | 'completed' | 'failed' | 'declined'
+export type CodexActivityTurnStatus = 'running' | 'completed' | 'failed' | 'interrupted'
+
+export interface CodexActivityItem {
+  id: string
+  kind: CodexActivityItemKind
+  status: CodexActivityItemStatus
+  title: string
+  detail?: string
+  content?: string
+  startedAt?: number
+  completedAt?: number
+  durationMs?: number
+}
+
+export interface CodexActivityTurn {
+  id: string
+  status: CodexActivityTurnStatus
+  startedAt: number
+  completedAt?: number
+  durationMs?: number
+  items: CodexActivityItem[]
+}
+
+export interface CodexSdkCommandAction {
+  type?: string
+  command?: string
+  name?: string
+  path?: unknown
+  query?: string | null
+}
+
+export interface CodexSdkFileChange {
+  path?: string
+  kind?: unknown
+  diff?: string
 }
 
 export interface CodexSdkThreadItem {
@@ -279,8 +336,25 @@ export interface CodexSdkThreadItem {
   type?: string
   text?: string
   phase?: string | null
-  content?: Array<{ type?: string; text?: string }>
+  content?: Array<{ type?: string; text?: string }> | string[]
   summary?: string[]
+  command?: string
+  cwd?: unknown
+  commandActions?: CodexSdkCommandAction[]
+  aggregatedOutput?: string | null
+  exitCode?: number | null
+  durationMs?: number | null
+  changes?: CodexSdkFileChange[]
+  server?: string
+  namespace?: string | null
+  arguments?: unknown
+  result?: unknown
+  error?: unknown
+  success?: boolean | null
+  query?: string
+  action?: unknown
+  path?: unknown
+  review?: string
   tool?: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'spawn_agent' | 'send_input' | 'resume_agent' | 'close_agent' | string
   status?: unknown
   senderThreadId?: string
@@ -385,6 +459,7 @@ export interface CodexThread {
   title: string
   repoId: string
   messages: CodexMessage[]
+  activityTurns?: CodexActivityTurn[]
   pendingApprovals: PendingApproval[]
   isRunning: boolean
   currentActivity?: string
@@ -401,17 +476,18 @@ export interface CodexThread {
 
 export type CodexEvent =
   | { type: 'thread_name_updated'; threadId: string; title: string }
-  | { type: 'agent_message_delta'; threadId: string; itemId: string; delta: string; phase?: 'commentary' | 'final_answer' | string }
-  | { type: 'agent_message_completed'; threadId: string; itemId: string; text: string; phase?: 'commentary' | 'final_answer' | string }
+  | { type: 'agent_message_delta'; threadId: string; turnId?: string; itemId: string; delta: string; phase?: 'commentary' | 'final_answer' | string }
+  | { type: 'agent_message_completed'; threadId: string; turnId?: string; itemId: string; text: string; phase?: 'commentary' | 'final_answer' | string }
   | { type: 'tool_call'; threadId: string; tool: ToolCall }
   | { type: 'tool_event'; threadId: string; event: ToolEventRecord }
   | { type: 'approval_request'; threadId: string; approval: PendingApproval }
   | { type: 'approval_completed'; threadId: string; reviewId: string; action: 'approved' | 'denied' | 'timedOut' | 'aborted' }
-  | { type: 'run_start'; threadId: string }
-  | { type: 'run_end'; threadId: string; error?: string }
+  | { type: 'run_start'; threadId: string; turnId?: string; startedAt?: number }
+  | { type: 'run_end'; threadId: string; turnId?: string; status?: CodexActivityTurnStatus; completedAt?: number; durationMs?: number; error?: string }
   | { type: 'context_usage'; threadId: string; usedTokens: number; contextWindow: number }
-  | { type: 'context_compaction'; threadId: string; state: 'started' | 'completed' | 'failed'; message?: string }
+  | { type: 'context_compaction'; threadId: string; turnId?: string; state: 'started' | 'completed' | 'failed'; message?: string }
   | { type: 'worker_updated'; threadId: string; worker: CodexWorker }
   | { type: 'final_answer'; threadId: string; text: string }
-  | { type: 'item_started'; threadId: string; itemId?: string; itemType: string }
+  | { type: 'item_started'; threadId: string; turnId?: string; itemId?: string; itemType: string; item?: CodexSdkThreadItem; startedAt?: number }
+  | { type: 'item_completed'; threadId: string; turnId?: string; itemId?: string; itemType: string; item?: CodexSdkThreadItem; completedAt?: number }
   | { type: 'log'; level: string; text: string }

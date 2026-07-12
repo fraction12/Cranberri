@@ -15,6 +15,7 @@ import type {
 import type { ToolEventRecord } from '../../shared/tools'
 import type { CodexWorkerControlAction } from '../../shared/codex-worker-control'
 import { createToolEventFromItem } from '../tools'
+import { codexItemText } from '../../shared/codex-turn-activity'
 
 const FAKE_SHELL_SENTINEL = 'cranberri-shell-private-sentinel'
 
@@ -70,7 +71,7 @@ function sessionSummary(thread: FakeThreadRecord, allThreads: Iterable<FakeThrea
     agentNickname: thread.agentNickname,
     agentRole: thread.agentRole,
     title: thread.title,
-    preview: thread.turns.at(-1)?.items?.find((item) => item.type === 'userMessage')?.content?.map((part) => part.text).join('\n') ?? '',
+    preview: codexItemText(thread.turns.at(-1)?.items?.find((item) => item.type === 'userMessage') ?? {}),
     cwd: thread.cwd,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
@@ -207,6 +208,9 @@ export class FakeCodexClient extends EventEmitter {
     }
     const turnId = `fake-turn-${this.nextTurn++}`
     const itemId = `${turnId}-assistant`
+    const reasoningId = `${turnId}-reasoning`
+    const commandId = `${turnId}-command`
+    const fileChangeId = `${turnId}-tool`
     const userText = firstText(input)
     if (userText.includes('cranberri-smoke-reject-turn')) {
       throw new Error('Fake Codex rejected turn')
@@ -217,12 +221,16 @@ export class FakeCodexClient extends EventEmitter {
       ? `\nsettings:${settings?.model ?? 'default'}|${settings?.effort ?? 'default'}|${settings?.speed ?? 'default'}`
       : ''
     const response = `Fake Codex received: ${userText || 'empty message'}${visualLine}${settingsLine}\ncranberri-fake-codex-stream-complete`
+    const isChatTrailSmoke = userText.includes('cranberri-chat-trail-smoke')
+    const completionDelayMs = isChatTrailSmoke ? 3_000 : 100
+    const responseStartDelayMs = isChatTrailSmoke ? completionDelayMs - 250 : 10
     thread.updatedAt = Date.now()
+    thread.status = 'running'
     thread.turns.push({
       id: turnId,
       startedAt: thread.updatedAt / 1000,
       completedAt: null,
-      status: 'running',
+      status: 'inProgress',
       items: [
         {
           id: `${turnId}-user`,
@@ -233,12 +241,50 @@ export class FakeCodexClient extends EventEmitter {
     })
 
     if (thread.parentThreadId) {
-      thread.status = 'running'
       this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Working on new instruction'))
     }
 
-    this.emit('event', { type: 'run_start', threadId } satisfies CodexEvent)
-    this.emit('event', { type: 'item_started', threadId, itemId, itemType: 'agentMessage' } satisfies CodexEvent)
+    const startedAt = thread.updatedAt
+    this.emit('event', { type: 'run_start', threadId, turnId, startedAt } satisfies CodexEvent)
+    this.emit('event', {
+      type: 'item_started',
+      threadId,
+      turnId,
+      itemId: reasoningId,
+      itemType: 'reasoning',
+      item: { id: reasoningId, type: 'reasoning', summary: [], content: [] },
+      startedAt,
+    } satisfies CodexEvent)
+    this.emit('event', { type: 'agent_message_delta', threadId, turnId, itemId: reasoningId, delta: 'Inspecting the chat turn lifecycle.', phase: 'commentary' } satisfies CodexEvent)
+    this.emit('event', {
+      type: 'item_started',
+      threadId,
+      turnId,
+      itemId: commandId,
+      itemType: 'commandExecution',
+      item: {
+        id: commandId,
+        type: 'commandExecution',
+        command: `rg ${FAKE_SHELL_SENTINEL}`,
+        commandActions: [{ type: 'search', command: 'rg', query: FAKE_SHELL_SENTINEL }],
+        status: 'inProgress',
+      },
+      startedAt: startedAt + 1,
+    } satisfies CodexEvent)
+    this.emit('event', {
+      type: 'item_started',
+      threadId,
+      turnId,
+      itemId: fileChangeId,
+      itemType: 'fileChange',
+      item: {
+        id: fileChangeId,
+        type: 'fileChange',
+        changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+        status: 'inProgress',
+      },
+      startedAt: startedAt + 2,
+    } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running') } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'running') } satisfies CodexEvent)
     if (userText.includes('cranberri-approval-smoke-request')) {
@@ -252,42 +298,99 @@ export class FakeCodexClient extends EventEmitter {
     const chunks = ['Fake Codex received: ', userText || 'empty message', visualLine, settingsLine, '\ncranberri-fake-codex-stream-complete']
     chunks.forEach((delta, index) => {
       setTimeout(() => {
-        this.emit('event', { type: 'agent_message_delta', threadId, itemId, delta, phase: 'final_answer' } satisfies CodexEvent)
-      }, 10 + index * 20)
+        this.emit('event', { type: 'agent_message_delta', threadId, turnId, itemId, delta, phase: 'final_answer' } satisfies CodexEvent)
+      }, responseStartDelayMs + index * 20)
     })
     setTimeout(() => {
       const turn = thread.turns.at(-1)
       if (turn) {
         turn.completedAt = Date.now() / 1000
-        turn.durationMs = 80
+        turn.durationMs = completionDelayMs
         turn.status = 'completed'
         turn.items = [
           ...(turn.items ?? []),
+          { id: reasoningId, type: 'reasoning', summary: ['Inspected the chat turn lifecycle.'], content: [] },
+          {
+            id: commandId,
+            type: 'commandExecution',
+            command: `rg ${FAKE_SHELL_SENTINEL}`,
+            commandActions: [{ type: 'search', command: 'rg', query: FAKE_SHELL_SENTINEL }],
+            status: 'completed',
+            exitCode: 0,
+            durationMs: 31,
+          },
+          {
+            id: fileChangeId,
+            type: 'fileChange',
+            changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+            status: 'completed',
+          },
           { id: itemId, type: 'agentMessage', text: response, phase: 'final_answer' },
         ]
       }
-      this.emit('event', { type: 'agent_message_completed', threadId, itemId, text: response, phase: 'final_answer' } satisfies CodexEvent)
+      const completedAt = Date.now()
+      this.emit('event', {
+        type: 'item_completed',
+        threadId,
+        turnId,
+        itemId: reasoningId,
+        itemType: 'reasoning',
+        item: { id: reasoningId, type: 'reasoning', summary: ['Inspected the chat turn lifecycle.'], content: [] },
+        completedAt,
+      } satisfies CodexEvent)
+      this.emit('event', {
+        type: 'item_completed',
+        threadId,
+        turnId,
+        itemId: commandId,
+        itemType: 'commandExecution',
+        item: {
+          id: commandId,
+          type: 'commandExecution',
+          command: `rg ${FAKE_SHELL_SENTINEL}`,
+          commandActions: [{ type: 'search', command: 'rg', query: FAKE_SHELL_SENTINEL }],
+          status: 'completed',
+          exitCode: 0,
+          durationMs: 31,
+        },
+        completedAt,
+      } satisfies CodexEvent)
+      this.emit('event', {
+        type: 'item_completed',
+        threadId,
+        turnId,
+        itemId: fileChangeId,
+        itemType: 'fileChange',
+        item: {
+          id: fileChangeId,
+          type: 'fileChange',
+          changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+          status: 'completed',
+        },
+        completedAt,
+      } satisfies CodexEvent)
+      this.emit('event', { type: 'agent_message_completed', threadId, turnId, itemId, text: response, phase: 'final_answer' } satisfies CodexEvent)
       this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
       this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
       this.emit('event', { type: 'context_usage', threadId, usedTokens: 128, contextWindow: 258400 } satisfies CodexEvent)
       this.emit('event', { type: 'final_answer', threadId, text: response } satisfies CodexEvent)
+      thread.status = 'completed'
+      thread.updatedAt = Date.now()
       if (thread.parentThreadId) {
-        thread.status = 'completed'
-        thread.updatedAt = Date.now()
         this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Instruction complete'))
       }
-      this.emit('event', { type: 'run_end', threadId } satisfies CodexEvent)
-    }, 100)
+      this.emit('event', { type: 'run_end', threadId, turnId, status: 'completed', completedAt, durationMs: completionDelayMs } satisfies CodexEvent)
+    }, completionDelayMs)
   }
 
   async steerThread(threadId: string, input: CodexUserInput[]): Promise<void> {
     const worker = this.requireThread(threadId)
-    if (!worker.parentThreadId) throw new Error('Only fake workers can be steered.')
-    if (worker.status !== 'running' && worker.status !== 'pendingInit') {
+    const turn = worker.turns.at(-1)
+    const turnStatus = turn?.status
+    if (turnStatus !== 'running' && turnStatus !== 'inProgress' && worker.status !== 'running' && worker.status !== 'pendingInit') {
       throw new Error('This fake worker does not have an active turn to steer.')
     }
     const instruction = firstText(input)
-    const turn = worker.turns.at(-1)
     if (turn) {
       turn.items = [
         ...(turn.items ?? []),
@@ -299,7 +402,7 @@ export class FakeCodexClient extends EventEmitter {
       ]
     }
     worker.updatedAt = Date.now()
-    this.emit('event', fakeWorkerEvent(worker.parentThreadId, worker, `Steered: ${instruction}`))
+    if (worker.parentThreadId) this.emit('event', fakeWorkerEvent(worker.parentThreadId, worker, `Steered: ${instruction}`))
   }
 
   async controlWorker(
@@ -413,7 +516,7 @@ export class FakeCodexClient extends EventEmitter {
     thread.status = 'interrupted'
     thread.updatedAt = Date.now()
     if (thread.parentThreadId) this.emit('event', fakeWorkerEvent(thread.parentThreadId, thread, 'Stopped by user'))
-    this.emit('event', { type: 'run_end', threadId, error: 'Interrupted' } satisfies CodexEvent)
+    this.emit('event', { type: 'run_end', threadId, status: 'interrupted', error: 'Interrupted' } satisfies CodexEvent)
   }
 
   async getRateLimits(): Promise<CodexRateLimitsReadResult> {

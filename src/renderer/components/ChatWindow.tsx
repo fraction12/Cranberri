@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { toast } from 'sonner'
 import {
+  ArrowDown,
   ArrowUp,
   Check,
   Image,
@@ -19,6 +20,8 @@ import { AttachmentChips } from './chat/AttachmentChips'
 import { INSERT_CHAT_CONTEXT_EVENT, insertChatContextDetailFromEvent } from './chat/chat-context-events'
 import {
   NEW_THREAD_EMPTY_STATE,
+  didReaderMoveTranscriptUp,
+  isTranscriptNearBottom,
   sessionThreadIdFromWindowId,
   shouldRestoreDraftAfterSendError,
   shouldSendComposerOnEnter,
@@ -50,7 +53,7 @@ import { PlanModePill } from './chat/PlanModePill'
 import { DraftSessionHeader } from './chat/DraftSessionHeader'
 import { TaskHeader } from './chat/TaskHeader'
 import { TaskSetupStatus } from './chat/TaskSetupStatus'
-import { buttonStyle, cn, menuSurface } from '../lib/ui'
+import { cn, menuSurface } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import {
   appendDictationTranscript,
@@ -86,7 +89,7 @@ const COMPOSER_SCRIM_CLASS = [
 ].join(' ')
 const COMPOSER_CARD_CLASS = [
   'pointer-events-auto relative mx-auto w-full max-w-[780px] rounded-[18px]',
-  'bg-app-surface/95 p-3 shadow-xl ring-1 ring-app-border/75 transition-shadow duration-fast ease-standard focus-within:ring-2 focus-within:ring-app-accent/40',
+  'bg-app-surface p-3 shadow-xl ring-1 ring-app-border/75 transition-shadow duration-fast ease-standard focus-within:ring-2 focus-within:ring-app-accent/40',
 ].join(' ')
 const COMPOSER_MIN_HEIGHT = 44
 const COMPOSER_MAX_HEIGHT = 160
@@ -147,6 +150,7 @@ export function ChatWindow({ id }: { id: string }) {
   const {
     createThread,
     sendMessage,
+    steerThread,
     compactThread,
     approve,
     abort,
@@ -202,6 +206,7 @@ export function ChatWindow({ id }: { id: string }) {
   const [skillIndex, setSkillIndex] = useState(0)
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
   const [composerInset, setComposerInset] = useState(188)
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -211,6 +216,7 @@ export function ChatWindow({ id }: { id: string }) {
   const selectionRef = useRef({ start: 0, end: 0 })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottomRef = useRef(true)
+  const lastTranscriptPositionRef = useRef<{ scrollTop: number; clientHeight: number } | null>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const restoredSessionRef = useRef<string | null>(null)
 
@@ -275,6 +281,10 @@ export function ChatWindow({ id }: { id: string }) {
     const container = scrollContainerRef.current
     if (!container) return
     container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+    lastTranscriptPositionRef.current = {
+      scrollTop: container.scrollTop,
+      clientHeight: container.clientHeight,
+    }
   }, [])
 
   const syncComposerScroll = useCallback(() => {
@@ -369,6 +379,7 @@ export function ChatWindow({ id }: { id: string }) {
   useLayoutEffect(() => {
     if (!threadId) return
     shouldScrollToBottomRef.current = true
+    setShowJumpToLatest(false)
     scrollTranscriptToBottom()
     const frame = requestAnimationFrame(scrollTranscriptToBottom)
     return () => cancelAnimationFrame(frame)
@@ -380,17 +391,38 @@ export function ChatWindow({ id }: { id: string }) {
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    if (!shouldScrollToBottomRef.current) return
+    if (!shouldScrollToBottomRef.current) {
+      setShowJumpToLatest(true)
+      return
+    }
     scrollTranscriptToBottom()
-  }, [composerInset, thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
+    setShowJumpToLatest(false)
+  }, [composerInset, thread?.activityTurns, thread?.messages, thread?.pendingApprovals, thread?.isRunning, scrollTranscriptToBottom])
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    const threshold = 80
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-    shouldScrollToBottomRef.current = distanceFromBottom <= threshold
-  }, [])
+    const position = {
+      scrollTop: container.scrollTop,
+      clientHeight: container.clientHeight,
+    }
+    const readerMovedUp = didReaderMoveTranscriptUp(lastTranscriptPositionRef.current, position)
+    lastTranscriptPositionRef.current = position
+    const nearBottom = isTranscriptNearBottom(container.scrollHeight, container.scrollTop, container.clientHeight)
+    if (!nearBottom && shouldScrollToBottomRef.current && !readerMovedUp) {
+      setShowJumpToLatest(false)
+      scrollTranscriptToBottom()
+      return
+    }
+    shouldScrollToBottomRef.current = nearBottom
+    setShowJumpToLatest(!nearBottom)
+  }, [scrollTranscriptToBottom])
+
+  const jumpToLatest = useCallback(() => {
+    shouldScrollToBottomRef.current = true
+    setShowJumpToLatest(false)
+    scrollTranscriptToBottom()
+  }, [scrollTranscriptToBottom])
 
   const rememberSelection = () => {
     const textarea = textareaRef.current
@@ -500,7 +532,7 @@ export function ChatWindow({ id }: { id: string }) {
       toast.error(taskInputBlockReason)
       return
     }
-    if (isRunning && !thread?.parentThreadId) return
+    const steeringActiveTurn = isRunning && !thread?.parentThreadId
     const text = input.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
     const draftInput = input
@@ -522,6 +554,8 @@ export function ChatWindow({ id }: { id: string }) {
         if (threadId) {
           if (thread?.parentThreadId) {
             await messageWorker(thread.parentThreadId, threadId, message.displayText, message.input)
+          } else if (steeringActiveTurn) {
+            await steerThread(threadId, message.displayText, message.input)
           } else {
             await sendMessage(threadId, message.displayText, message.input, turnSettings)
           }
@@ -583,12 +617,12 @@ export function ChatWindow({ id }: { id: string }) {
       }
     } catch (error) {
       if (preparedThreadId) markThreadSendFailed(preparedThreadId, error)
-      if (thread?.parentThreadId || shouldRestoreDraftAfterSendError(threadId, error)) {
+      if (thread?.parentThreadId || steeringActiveTurn || shouldRestoreDraftAfterSendError(threadId, error)) {
         setInput(draftInput)
         setAttachments(draftAttachments)
         setContextInputParts(draftContextInputParts)
       }
-      if (thread?.parentThreadId || shouldToastAfterSendError(threadId, draftInput, error)) {
+      if (thread?.parentThreadId || steeringActiveTurn || shouldToastAfterSendError(threadId, draftInput, error)) {
         toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
       }
     } finally {
@@ -681,8 +715,7 @@ export function ChatWindow({ id }: { id: string }) {
   const isRunning = thread?.isRunning ?? false
   const isWorkerThread = Boolean(thread?.parentThreadId)
   const hasComposerContent = Boolean(input.trim() || attachments.length > 0 || contextInputParts.length > 0)
-  const workerCanSend = isWorkerThread && hasComposerContent
-  const primaryActionIsStop = isRunning && !workerCanSend
+  const primaryActionIsStop = isRunning && !hasComposerContent
   const handlePrimaryAction = async () => {
     if (!primaryActionIsStop) {
       await handleSend()
@@ -856,37 +889,25 @@ export function ChatWindow({ id }: { id: string }) {
               skills={skills}
               expandedGroupIds={expandedGroupIds}
               onToggleGroup={toggleTranscriptGroup}
+              resolvingApprovalId={resolvingApprovalId}
+              onResolveApproval={(approvalId, decision) => { void resolveApproval(approvalId, decision) }}
             />
-            {thread?.pendingApprovals.map((approval) => (
-              <div
-                key={approval.id}
-                className="rounded-lg bg-app-surface px-3.5 py-3 ring-1 ring-app-border/60"
-              >
-                <div className={typeStyle({ role: 'status', tone: 'warning' })}>Approval needed</div>
-                <div className={cn(typeStyle({ role: 'body', tone: 'secondary' }), 'mb-3 mt-1')}>{approval.description}</div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void resolveApproval(approval.id, 'approve')}
-                    disabled={resolvingApprovalId !== null}
-                    className={buttonStyle({ tone: 'primary', size: 'small' })}
-                  >
-                    <Check className="h-3 w-3" /> Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void resolveApproval(approval.id, 'deny')}
-                    disabled={resolvingApprovalId !== null}
-                    className={buttonStyle({ tone: 'secondary', size: 'small' })}
-                  >
-                    <X className="h-3 w-3" /> Deny
-                  </button>
-                </div>
-              </div>
-            ))}
             <div ref={messagesEndRef} data-chat-transcript-end="true" />
           </div>
         </div>
+
+        {showJumpToLatest && (
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            aria-label="Jump to latest message"
+            title="Jump to latest message"
+            className="absolute left-1/2 z-[850] flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-app-surface text-app-text shadow-lg ring-1 ring-app-border/80 hover:bg-app-surface-2"
+            style={{ bottom: composerInset + 10 }}
+          >
+            <ArrowDown className="h-4 w-4" />
+          </button>
+        )}
 
         <div className={COMPOSER_SCRIM_CLASS}>
           <div
@@ -1063,7 +1084,7 @@ export function ChatWindow({ id }: { id: string }) {
                     return
                   }
                 }
-                if (shouldSendComposerOnEnter(e.key, e.shiftKey, isRunning && !isWorkerThread)) {
+                if (shouldSendComposerOnEnter(e.key, e.shiftKey)) {
                   e.preventDefault()
                   void handleSend()
                 }
@@ -1072,7 +1093,7 @@ export function ChatWindow({ id }: { id: string }) {
                 isRunning
                   ? isWorkerThread
                     ? 'Steer this worker through its parent...'
-                    : 'Keep typing while Codex works...'
+                    : 'Send a follow-up while Codex works...'
                   : goalMode
                     ? 'Describe your goal, define measurable outcomes for best results'
                     : taskInputBlockReason

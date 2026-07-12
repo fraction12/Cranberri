@@ -25,13 +25,13 @@ describe('applyStreamingMessageUpdates', () => {
     const inactive = thread('thread-2')
     const threads = [active, inactive]
     const result = applyStreamingMessageUpdates(threads, [
-      { threadId: active.id, itemId: 'message-1', role: 'assistant', text: 'Hello', pending: true },
+      { threadId: active.id, turnId: 'turn-1', itemId: 'message-1', role: 'assistant', text: 'Hello', pending: true },
       { threadId: active.id, itemId: 'message-2', role: 'reasoning', text: 'Thinking', pending: true },
     ])
 
     expect(result).not.toBe(threads)
     expect(result[0].messages).toEqual([
-      expect.objectContaining({ id: 'message-1', role: 'assistant', content: 'Hello', pending: true }),
+      expect.objectContaining({ id: 'message-1', role: 'assistant', content: 'Hello', pending: true, turnId: 'turn-1' }),
       expect.objectContaining({ id: 'message-2', role: 'reasoning', content: 'Thinking', pending: true }),
     ])
     expect(result[1]).toBe(inactive)
