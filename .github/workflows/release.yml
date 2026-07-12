@@ -52,6 +52,21 @@ jobs:
       - name: Package DMG and updater zip
         run: npm run package
 
+      - name: Verify updater helper rollback
+        run: npm run test:updater-helper
+
+      - name: Validate release metadata and digest
+        env:
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: npm run validate:release
+
+      - name: Packaged startup smoke
+        run: CRANBERRI_SMOKE_ONLY=fresh npm run smoke:electron
+
+      - name: Packaged worktree handoff UAT
+        run: CRANBERRI_SMOKE_ONLY=repo CRANBERRI_SMOKE_HANDOFF_UAT_ONLY=1 npm run smoke:electron
+
       - name: Verify packaged runtime budgets
         run: npm run measure:runtime
 
@@ -73,6 +88,7 @@ jobs:
             dist/Cranberri-*-arm64.dmg \
             dist/Cranberri-*-arm64-mac.zip \
             dist/Cranberri-*-arm64-mac.zip.blockmap \
+            dist/release-manifest.json \
             --target "$GITHUB_SHA" \
             --title "$title" \
             --generate-notes \

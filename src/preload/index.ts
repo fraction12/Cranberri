@@ -219,6 +219,7 @@ const api = {
     check: () => ipcRenderer.invoke('updater:check') as Promise<import('@/shared/update').UpdateInfo>,
     status: () => ipcRenderer.invoke('updater:status') as Promise<import('@/shared/update').UpdateInfo>,
     install: () => ipcRenderer.invoke('updater:install') as Promise<import('@/shared/update').InstallResult>,
+    acknowledgeHealth: () => ipcRenderer.invoke('updater:ack-health') as Promise<{ ok: true }>,
     onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => {
       const handler = (_: unknown, payload: import('@/shared/update').UpdateEvent) => cb(payload)
       ipcRenderer.on('updater:event', handler)

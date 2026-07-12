@@ -25,6 +25,7 @@ declare global {
         check: () => Promise<import('@/shared/update').UpdateInfo>
         status: () => Promise<import('@/shared/update').UpdateInfo>
         install: () => Promise<import('@/shared/update').InstallResult>
+        acknowledgeHealth: () => Promise<{ ok: true }>
         onEvent: (cb: (event: import('@/shared/update').UpdateEvent) => void) => (() => void)
         pendingResult: () => Promise<import('@/shared/update').InstallResult | null>
         clearResult: () => Promise<{ ok: boolean }>

@@ -143,6 +143,13 @@ async function main() {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
   await waitForParent(parentPid)
   await new Promise((resolve) => setTimeout(resolve, 500))
+  const watchdogPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'install-watchdog.mjs')
+  const watchdog = spawn(process.execPath, [watchdogPath, manifest.journalPath, String(process.pid)], {
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  })
+  watchdog.unref()
   await installFromManifest(manifest)
 }
 

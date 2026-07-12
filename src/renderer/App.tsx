@@ -8,7 +8,7 @@ import type { SettingsTabValue } from './components/SettingsDialog'
 import { AppToaster } from './components/AppToaster'
 import { UpdateResultToast } from './components/UpdateResultToast'
 import { useRepoWatchInvalidation } from './state/search'
-import { RecoveryProvider } from './state/recovery'
+import { RecoveryProvider, useRecovery } from './state/recovery'
 import { availableRailWidth, LEFT_RAIL_MIN_WIDTH, RAIL_RESIZER_WIDTH, railMaxWidth, RIGHT_RAIL_MIN_WIDTH } from './app-layout'
 import { TooltipProvider } from './components/ui/Tooltip'
 
@@ -70,6 +70,7 @@ function beginRailResize({ initialWidth, widthAt, onWidth, onFinish }: RailResiz
 
 function AppShell() {
   useRepoWatchInvalidation()
+  const recovery = useRecovery()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTabValue>('general')
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -78,6 +79,13 @@ function AppShell() {
   const [rightRailWidth, setRightRailWidth] = useState(RIGHT_RAIL_MIN_WIDTH)
   const leftRailWidthRef = useRef(leftRailWidth)
   const rightRailWidthRef = useRef(rightRailWidth)
+
+  useEffect(() => {
+    if (!recovery.loaded) return
+    void window.cranberri.update.acknowledgeHealth().catch((error) => {
+      console.error('Failed to acknowledge updater health:', error)
+    })
+  }, [recovery.loaded])
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null)
   const activeRailResizeCleanupRef = useRef<(() => void) | null>(null)

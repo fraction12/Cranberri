@@ -3,15 +3,14 @@ import { toast } from 'sonner'
 import { useUpdate } from '../state/update'
 
 export function UpdateResultToast() {
-  const { pendingResult, clearResult } = useUpdate()
+  const { pendingResult } = useUpdate()
 
   useEffect(() => {
     if (!pendingResult) return
     const message = pendingResult.message ?? (pendingResult.success ? 'Update installed' : 'Update failed')
     if (pendingResult.success) toast.success(message)
     else toast.error(message)
-    void clearResult().catch((error) => console.error('Failed to clear update result:', error))
-  }, [clearResult, pendingResult])
+  }, [pendingResult])
 
   return null
 }

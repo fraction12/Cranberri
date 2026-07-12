@@ -1,7 +1,8 @@
 import { app, ipcMain, BrowserWindow, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import https from 'node:https'
 import simpleGit from 'simple-git'
 import { buildInfo } from '@/shared/buildInfo'
@@ -53,6 +54,17 @@ interface ReleaseUpdate {
   release: GitHubRelease
   asset: ReleaseAsset
   latestCommit: string
+  manifest: ReleaseManifest
+}
+
+interface ReleaseManifest {
+  version: 1
+  tag: string
+  packageVersion: string
+  commit: string
+  channel: 'stable' | 'beta'
+  asset: { name: string; sha256: string; bytes: number }
+  bundle: { identifier: string; version: string; architecture: 'arm64'; minimumSystemVersion: string | null }
 }
 
 interface SourceRepo {
@@ -194,7 +206,33 @@ async function resolveReleaseUpdate(): Promise<ReleaseUpdate | null> {
   const release = await fetchLatestRelease()
   const asset = pickReleaseAsset(release)
   if (!asset) return null
-  return { release, asset, latestCommit: await resolveReleaseCommit(release) }
+  const manifestAsset = release.assets.find((candidate) => candidate.name === 'release-manifest.json')
+  if (!manifestAsset) throw new Error('Release integrity manifest is missing')
+  const manifest = parseReleaseManifest(JSON.parse((await requestBuffer(manifestAsset.browser_download_url)).toString('utf8')))
+  if (manifest.tag !== release.tag_name) throw new Error('Release tag does not match its integrity manifest')
+  if (manifest.asset.name !== asset.name) throw new Error('Release asset does not match its integrity manifest')
+  if (manifest.packageVersion !== manifest.bundle.version || release.tag_name !== `v${manifest.packageVersion}`) {
+    throw new Error('Release version metadata is inconsistent')
+  }
+  return { release, asset, latestCommit: await resolveReleaseCommit(release), manifest }
+}
+
+function parseReleaseManifest(value: unknown): ReleaseManifest {
+  const manifest = value as Partial<ReleaseManifest>
+  if (manifest.version !== 1
+    || typeof manifest.tag !== 'string'
+    || typeof manifest.packageVersion !== 'string'
+    || typeof manifest.commit !== 'string'
+    || (manifest.channel !== 'stable' && manifest.channel !== 'beta')
+    || typeof manifest.asset?.name !== 'string'
+    || !/^[a-f0-9]{64}$/i.test(manifest.asset.sha256 ?? '')
+    || typeof manifest.asset?.bytes !== 'number'
+    || manifest.bundle?.identifier !== 'com.dushyantgarg.cranberri'
+    || manifest.bundle?.architecture !== 'arm64'
+    || typeof manifest.bundle?.version !== 'string') {
+    throw new Error('Release integrity manifest is invalid')
+  }
+  return manifest as ReleaseManifest
 }
 
 type UpdateBlockedReasonLiteral = 'developmentMode' | 'noRelease' | 'noArtifact' | 'noSourceRepo' | 'dirtySourceRepo' | 'sourceNotGitHub' | 'gitFetchFailed' | 'releaseCheckFailed' | 'comparisonUnknown'
@@ -479,7 +517,7 @@ async function prepareStableUpdate(stagingDir: string, logPath: string): Promise
   }
 
   emitProgress({ phase: 'fetching', message: `Downloading ${update.asset.name}`, percent: 20 })
-  return stageReleaseAsset(update.asset, stagingDir, logPath)
+  return stageReleaseAsset(update.asset, update.manifest, stagingDir, logPath)
 }
 
 async function prepareBetaUpdate(stagingDir: string, logPath: string): Promise<string> {
@@ -522,7 +560,7 @@ async function stageSource(repoPath: string, commit: string, stagingDir: string,
   await runLogged(['git', 'checkout', commit], sourceDir, logPath)
 }
 
-async function stageReleaseAsset(asset: ReleaseAsset, stagingDir: string, logPath: string): Promise<string> {
+async function stageReleaseAsset(asset: ReleaseAsset, manifest: ReleaseManifest, stagingDir: string, logPath: string): Promise<string> {
   const downloadDir = path.join(stagingDir, 'download')
   const extractDir = path.join(stagingDir, 'extracted')
   fs.rmSync(downloadDir, { recursive: true, force: true })
@@ -532,7 +570,12 @@ async function stageReleaseAsset(asset: ReleaseAsset, stagingDir: string, logPat
 
   const assetPath = path.join(downloadDir, asset.name)
   fs.appendFileSync(logPath, `\nDownloading ${asset.browser_download_url}\n`)
-  fs.writeFileSync(assetPath, await requestBuffer(asset.browser_download_url))
+  const downloaded = await requestBuffer(asset.browser_download_url)
+  const digest = crypto.createHash('sha256').update(downloaded).digest('hex')
+  if (digest !== manifest.asset.sha256 || downloaded.byteLength !== manifest.asset.bytes) {
+    throw new Error('Downloaded update failed integrity verification')
+  }
+  fs.writeFileSync(assetPath, downloaded)
   fs.appendFileSync(logPath, `Downloaded ${asset.name} (${fs.statSync(assetPath).size} bytes)\n`)
 
   if (!asset.name.endsWith('.zip')) {
@@ -545,7 +588,21 @@ async function stageReleaseAsset(asset: ReleaseAsset, stagingDir: string, logPat
   if (!stagedAppPath) {
     throw new Error(`Cranberri.app not found inside ${asset.name}`)
   }
+  validateStagedApp(stagedAppPath, manifest)
   return stagedAppPath
+}
+
+function validateStagedApp(appPath: string, manifest: ReleaseManifest): void {
+  const plistPath = path.join(appPath, 'Contents', 'Info.plist')
+  const executablePath = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
+  if (!fs.existsSync(plistPath) || !fs.existsSync(executablePath)) throw new Error('Staged app bundle is incomplete')
+  const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' })) as Record<string, unknown>
+  if (plist.CFBundleIdentifier !== manifest.bundle.identifier
+    || plist.CFBundleShortVersionString !== manifest.bundle.version) {
+    throw new Error('Staged app metadata does not match the release manifest')
+  }
+  const executableDescription = execFileSync('/usr/bin/file', [executablePath], { encoding: 'utf8' })
+  if (!executableDescription.includes('arm64')) throw new Error('Staged app architecture is not arm64')
 }
 
 function findAppBundle(root: string): string | null {
@@ -604,7 +661,6 @@ function readPendingResult(): InstallResult | null {
 }
 
 export function initUpdaterIpc(): void {
-  void acknowledgeInstalledCandidate()
   ipcMain.handle('updater:check', async () => {
     setStatus({ status: 'checking' })
     const result = await performCheck()
@@ -622,9 +678,16 @@ export function initUpdaterIpc(): void {
     return readPendingResult()
   })
 
-  ipcMain.handle('updater:clear-result', () => {
+  ipcMain.handle('updater:ack-health', async () => {
+    await acknowledgeInstalledCandidate()
+    setStatus({ status: 'upToDate', phase: null, phaseMessage: null, failedPhase: null, failureMessage: null })
+    return { ok: true }
+  })
+
+  ipcMain.handle('updater:clear-result', async () => {
     try {
-      fs.rmSync(getUserData('updater-result.json'), { force: true })
+      const resultPath = getUserData('updater-result.json')
+      if (fs.existsSync(resultPath)) await shell.trashItem(resultPath)
       return { ok: true }
     } catch {
       return { ok: false }
@@ -652,6 +715,10 @@ export function initUpdaterIpc(): void {
 
   const pending = readPendingResult()
   if (pending) {
-    setStatus({ status: 'failed', failedPhase: pending.phase, failureMessage: pending.message ?? 'Update failed', logPath: pending.logPath })
+    if (pending.success) {
+      setStatus({ status: 'installing', phase: 'relaunching', phaseMessage: pending.message, failedPhase: null, failureMessage: null, logPath: pending.logPath })
+    } else {
+      setStatus({ status: 'failed', failedPhase: pending.phase, failureMessage: pending.message ?? 'Update failed', logPath: pending.logPath })
+    }
   }
 }
