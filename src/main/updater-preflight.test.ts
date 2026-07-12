@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Task } from '@/shared/tasks'
-import { taskUpdateBlockers } from './updater-preflight-model'
+import { supportsMinimumSystemVersion, taskUpdateBlockers } from './updater-preflight-model'
 
 function task(patch: Partial<Task> = {}): Task {
   return {
@@ -31,5 +31,18 @@ describe('updater quiescence', () => {
       'Task task is changing worktree state',
       'Environment setup is running for task task',
     ])
+  })
+})
+
+describe('updater system compatibility', () => {
+  it('accepts equal, older, and unspecified minimum versions', () => {
+    expect(supportsMinimumSystemVersion('15.5.0', null)).toBe(true)
+    expect(supportsMinimumSystemVersion('15.5.0', '15.5')).toBe(true)
+    expect(supportsMinimumSystemVersion('15.5.0', '14.6')).toBe(true)
+  })
+
+  it('rejects a candidate requiring a newer macOS version', () => {
+    expect(supportsMinimumSystemVersion('15.5.0', '15.6')).toBe(false)
+    expect(supportsMinimumSystemVersion('15.5.0', '16.0')).toBe(false)
   })
 })

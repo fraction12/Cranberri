@@ -115,8 +115,8 @@ export async function installFromManifest(manifest, options = {}) {
   if (fs.existsSync(manifest.backupAppPath)) throw new Error('A previous updater backup still awaits health acknowledgement')
   if (fs.existsSync(manifest.candidateAppPath)) throw new Error('An updater candidate already exists')
 
-  journal(manifest, 'prepared')
   try {
+    journal(manifest, 'prepared')
     fs.cpSync(manifest.stagedAppPath, manifest.candidateAppPath, {
       recursive: true,
       preserveTimestamps: true,

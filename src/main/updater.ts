@@ -10,6 +10,7 @@ import { readSettings } from './settings'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
 import { assertUpdateQuiescent } from './updater-preflight'
+import { supportsMinimumSystemVersion } from './updater-preflight-model'
 
 const UPDATE_CHANNEL = 'updater:event'
 const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
@@ -641,6 +642,9 @@ function validateStagedApp(appPath: string, manifest: ReleaseManifest): void {
   if (plist.CFBundleIdentifier !== manifest.bundle.identifier
     || plist.CFBundleShortVersionString !== manifest.bundle.version) {
     throw new Error('Staged app metadata does not match the release manifest')
+  }
+  if (!supportsMinimumSystemVersion(process.getSystemVersion(), manifest.bundle.minimumSystemVersion)) {
+    throw new Error(`This update requires macOS ${manifest.bundle.minimumSystemVersion} or newer`)
   }
   const executableDescription = execFileSync('/usr/bin/file', [executablePath], { encoding: 'utf8' })
   if (!executableDescription.includes('arm64')) throw new Error('Staged app architecture is not arm64')

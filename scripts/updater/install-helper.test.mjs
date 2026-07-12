@@ -42,7 +42,7 @@ describe('atomic updater helper', () => {
     expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('relaunching')
   })
 
-  for (const phase of ['candidateCopied', 'backupPromoted', 'candidatePromoted']) {
+  for (const phase of ['prepared', 'candidateCopied', 'backupPromoted', 'candidatePromoted', 'relaunching']) {
     it(`restores the previous app after failure at ${phase}`, async () => {
       const { manifest } = fixture()
       process.env.CRANBERRI_UPDATER_FAIL_AFTER = phase
