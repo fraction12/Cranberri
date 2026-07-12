@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -24,6 +24,21 @@ if (plist.CFBundleShortVersionString !== packageJson.version) throw new Error(`B
 const executableDescription = execFileSync('/usr/bin/file', [executablePath], { encoding: 'utf8' })
 if (!executableDescription.includes('arm64')) throw new Error(`Packaged executable is not arm64: ${executableDescription.trim()}`)
 
+const codesign = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', appPath], { encoding: 'utf8' })
+const signatureOutput = `${codesign.stdout ?? ''}\n${codesign.stderr ?? ''}`.trim()
+const signature = /not signed at all|code object is not signed/i.test(signatureOutput) || !signatureOutput
+  ? 'unsigned'
+  : /Authority=Developer ID Application:/i.test(signatureOutput)
+    ? 'developerId'
+    : /Signature=adhoc/i.test(signatureOutput)
+      ? 'adHoc'
+      : 'other'
+if (signature === 'other') throw new Error('Packaged app uses an unsupported signing identity')
+if (signature !== 'unsigned') {
+  const verification = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath], { encoding: 'utf8' })
+  if (verification.status !== 0) throw new Error(`Packaged app signature verification failed: ${verification.stderr.trim()}`)
+}
+
 const zipName = fs.readdirSync(path.join(root, 'dist')).find((name) => new RegExp(`^Cranberri-${packageJson.version.replaceAll('.', '\\.')}.*arm64-mac\\.zip$`).test(name))
 if (!zipName) throw new Error('Packaged updater ZIP was not found')
 const zipPath = path.join(root, 'dist', zipName)
@@ -41,6 +56,7 @@ const manifest = {
     version: plist.CFBundleShortVersionString,
     architecture: 'arm64',
     minimumSystemVersion: plist.LSMinimumSystemVersion ?? null,
+    signature,
   },
   schemas: { appState: 3, taskStore: 1, composerDrafts: 1 },
 }

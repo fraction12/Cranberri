@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Task } from '@/shared/tasks'
-import { supportsMinimumSystemVersion, taskUpdateBlockers } from './updater-preflight-model'
+import {
+  releaseProvenanceError,
+  signatureStatusFromCodesign,
+  supportsMinimumSystemVersion,
+  taskUpdateBlockers,
+} from './updater-preflight-model'
 
 function task(patch: Partial<Task> = {}): Task {
   return {
@@ -44,5 +49,30 @@ describe('updater system compatibility', () => {
   it('rejects a candidate requiring a newer macOS version', () => {
     expect(supportsMinimumSystemVersion('15.5.0', '15.6')).toBe(false)
     expect(supportsMinimumSystemVersion('15.5.0', '16.0')).toBe(false)
+  })
+})
+
+describe('updater release provenance', () => {
+  const valid = {
+    releaseTag: 'v1.2.3', releaseCommit: 'abc', manifestTag: 'v1.2.3',
+    manifestCommit: 'abc', manifestChannel: 'stable' as const,
+  }
+
+  it('accepts an exact stable release manifest', () => {
+    expect(releaseProvenanceError(valid)).toBeNull()
+  })
+
+  it('rejects channel, tag, and commit drift', () => {
+    expect(releaseProvenanceError({ ...valid, manifestChannel: 'beta' })).toMatch(/stable-channel/)
+    expect(releaseProvenanceError({ ...valid, manifestTag: 'v1.2.4' })).toMatch(/tag/)
+    expect(releaseProvenanceError({ ...valid, manifestCommit: 'def' })).toMatch(/commit/)
+  })
+
+  it('classifies packaged signature policy', () => {
+    expect(signatureStatusFromCodesign(null)).toBe('unsigned')
+    expect(signatureStatusFromCodesign('code object is not signed at all')).toBe('unsigned')
+    expect(signatureStatusFromCodesign('Signature=adhoc')).toBe('adHoc')
+    expect(signatureStatusFromCodesign('Authority=Developer ID Application: Example')).toBe('developerId')
+    expect(signatureStatusFromCodesign('Authority=Apple Development: Example')).toBe('other')
   })
 })

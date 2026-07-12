@@ -6,7 +6,7 @@ This checklist covers stable GitHub artifacts and beta source builds. Stable rel
 
 1. Package Cranberri as a macOS `.app` via `npm run package` or `npm run package:dir`.
 2. Build metadata (`src/shared/buildInfo.json`) is embedded with `commit`, `branch`, `version`, and `packaged: true`.
-3. The packaged app compares its commit to `origin/main` in a configured Cranberri source repo.
+3. Stable releases bind tag, commit, channel, bundle compatibility, signing state, and artifact digest in `release-manifest.json`; beta builds compare the packaged commit to `origin/main` in the configured source repo.
 4. If behind, the app can build the latest `main` in a hidden staging area under `~/Library/Application Support/Cranberri/updater-staging`.
 5. Cranberri blocks install while tasks, workers, setup jobs, terminals, or handoffs are active and flushes workspace/draft state.
 6. A detached helper copies a candidate beside the installed app, journals same-volume rename promotion, and keeps the previous app until the recovered renderer acknowledges health.
@@ -18,7 +18,7 @@ This checklist covers stable GitHub artifacts and beta source builds. Stable rel
 - `package.json` — new scripts: `copy:updater-helper`, `build:metadata`, `package`, `package:dir`.
 - `scripts/build-metadata.mjs` — writes `src/shared/buildInfo.json` from `git` and `package.json`.
 - `scripts/updater/install-helper.mjs` and `install-watchdog.mjs` — journaled promotion, rollback, and relaunch.
-- `scripts/validate-release.mjs` — tag, package, bundle, architecture, and SHA-256 release validation.
+- `scripts/validate-release.mjs` — tag, commit, package, bundle, architecture, signing-state, and SHA-256 release validation.
 - `src/shared/buildInfo.ts` + `src/shared/buildInfo.json` — typed build metadata.
 - `src/shared/update.ts` — updater domain types and zod schemas.
 - `src/main/updater.ts` — source-repo resolution, `origin/main` comparison, staging build, install orchestration.

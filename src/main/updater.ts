@@ -1,7 +1,7 @@
 import { app, ipcMain, BrowserWindow, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import https from 'node:https'
 import simpleGit from 'simple-git'
@@ -10,7 +10,12 @@ import { readSettings } from './settings'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
 import { assertUpdateQuiescent } from './updater-preflight'
-import { supportsMinimumSystemVersion } from './updater-preflight-model'
+import {
+  releaseProvenanceError,
+  signatureStatusFromCodesign,
+  supportsMinimumSystemVersion,
+  type UpdateSignatureStatus,
+} from './updater-preflight-model'
 
 const UPDATE_CHANNEL = 'updater:event'
 const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
@@ -66,7 +71,13 @@ interface ReleaseManifest {
   commit: string
   channel: 'stable' | 'beta'
   asset: { name: string; sha256: string; bytes: number }
-  bundle: { identifier: string; version: string; architecture: 'arm64'; minimumSystemVersion: string | null }
+  bundle: {
+    identifier: string
+    version: string
+    architecture: 'arm64'
+    minimumSystemVersion: string | null
+    signature: UpdateSignatureStatus
+  }
   schemas: { appState: number; taskStore: number; composerDrafts: number }
 }
 
@@ -212,12 +223,20 @@ async function resolveReleaseUpdate(): Promise<ReleaseUpdate | null> {
   const manifestAsset = release.assets.find((candidate) => candidate.name === 'release-manifest.json')
   if (!manifestAsset) throw new Error('Release integrity manifest is missing')
   const manifest = parseReleaseManifest(JSON.parse((await requestBuffer(manifestAsset.browser_download_url)).toString('utf8')))
-  if (manifest.tag !== release.tag_name) throw new Error('Release tag does not match its integrity manifest')
   if (manifest.asset.name !== asset.name) throw new Error('Release asset does not match its integrity manifest')
   if (manifest.packageVersion !== manifest.bundle.version || release.tag_name !== `v${manifest.packageVersion}`) {
     throw new Error('Release version metadata is inconsistent')
   }
-  return { release, asset, latestCommit: await resolveReleaseCommit(release), manifest }
+  const latestCommit = await resolveReleaseCommit(release)
+  const provenanceError = releaseProvenanceError({
+    releaseTag: release.tag_name,
+    releaseCommit: latestCommit,
+    manifestTag: manifest.tag,
+    manifestCommit: manifest.commit,
+    manifestChannel: manifest.channel,
+  })
+  if (provenanceError) throw new Error(provenanceError)
+  return { release, asset, latestCommit, manifest }
 }
 
 function parseReleaseManifest(value: unknown): ReleaseManifest {
@@ -225,14 +244,17 @@ function parseReleaseManifest(value: unknown): ReleaseManifest {
   if (manifest.version !== 1
     || typeof manifest.tag !== 'string'
     || typeof manifest.packageVersion !== 'string'
-    || typeof manifest.commit !== 'string'
+    || !/^[a-f0-9]{40}$/i.test(manifest.commit ?? '')
     || (manifest.channel !== 'stable' && manifest.channel !== 'beta')
     || typeof manifest.asset?.name !== 'string'
     || !/^[a-f0-9]{64}$/i.test(manifest.asset.sha256 ?? '')
-    || typeof manifest.asset?.bytes !== 'number'
+    || !Number.isSafeInteger(manifest.asset?.bytes)
+    || (manifest.asset?.bytes ?? 0) <= 0
     || manifest.bundle?.identifier !== 'com.dushyantgarg.cranberri'
     || manifest.bundle?.architecture !== 'arm64'
     || typeof manifest.bundle?.version !== 'string'
+    || (manifest.bundle?.minimumSystemVersion !== null && typeof manifest.bundle?.minimumSystemVersion !== 'string')
+    || !['developerId', 'adHoc', 'unsigned'].includes(manifest.bundle?.signature ?? '')
     || manifest.schemas?.appState !== 3
     || manifest.schemas?.taskStore !== 1
     || manifest.schemas?.composerDrafts !== 1) {
@@ -410,12 +432,28 @@ async function installUpdate(): Promise<InstallResult> {
       : { ...process.env, CRANBERRI_UPDATER: '1', ELECTRON_RUN_AS_NODE: '1' }
     const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
     const helperOut = fs.openSync(helperLogPath, 'a')
-    spawn(helperRunner, [helperPath, manifestPath, String(process.pid)], {
-      detached: true,
-      stdio: ['ignore', helperOut, helperOut],
-      env: helperEnv,
-    }).unref()
-    fs.closeSync(helperOut)
+    try {
+      const helper = spawn(helperRunner, [helperPath, manifestPath, String(process.pid)], {
+        detached: true,
+        stdio: ['ignore', helperOut, helperOut],
+        env: helperEnv,
+      })
+      await new Promise<void>((resolve, reject) => {
+        const onSpawn = () => {
+          helper.off('error', onError)
+          resolve()
+        }
+        const onError = (error: Error) => {
+          helper.off('spawn', onSpawn)
+          reject(error)
+        }
+        helper.once('spawn', onSpawn)
+        helper.once('error', onError)
+      })
+      helper.unref()
+    } finally {
+      fs.closeSync(helperOut)
+    }
 
     app.quit()
     return { success: true, phase: 'relaunching', message: 'Quitting to install update', logPath }
@@ -640,7 +678,8 @@ function validateStagedApp(appPath: string, manifest: ReleaseManifest): void {
   if (!fs.existsSync(plistPath) || !fs.existsSync(executablePath)) throw new Error('Staged app bundle is incomplete')
   const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' })) as Record<string, unknown>
   if (plist.CFBundleIdentifier !== manifest.bundle.identifier
-    || plist.CFBundleShortVersionString !== manifest.bundle.version) {
+    || plist.CFBundleShortVersionString !== manifest.bundle.version
+    || (plist.LSMinimumSystemVersion ?? null) !== manifest.bundle.minimumSystemVersion) {
     throw new Error('Staged app metadata does not match the release manifest')
   }
   if (!supportsMinimumSystemVersion(process.getSystemVersion(), manifest.bundle.minimumSystemVersion)) {
@@ -648,6 +687,20 @@ function validateStagedApp(appPath: string, manifest: ReleaseManifest): void {
   }
   const executableDescription = execFileSync('/usr/bin/file', [executablePath], { encoding: 'utf8' })
   if (!executableDescription.includes('arm64')) throw new Error('Staged app architecture is not arm64')
+  const signature = appSignatureStatus(appPath)
+  if (signature !== manifest.bundle.signature) {
+    throw new Error('Staged app signature does not match the release manifest')
+  }
+  if (signature !== 'unsigned') {
+    const verification = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath], { encoding: 'utf8' })
+    if (verification.status !== 0) throw new Error('Staged app signature verification failed')
+  }
+}
+
+function appSignatureStatus(appPath: string): UpdateSignatureStatus {
+  const result = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', appPath], { encoding: 'utf8' })
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim()
+  return signatureStatusFromCodesign(output || null)
 }
 
 function findAppBundle(root: string): string | null {
