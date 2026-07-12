@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow } from 'electron'
+import { app, ipcMain, BrowserWindow, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -319,13 +319,20 @@ async function installUpdate(): Promise<InstallResult> {
     setStatus({ status: 'readyToInstall', phase: 'readyToInstall', phaseMessage: 'Ready to install' })
 
     const currentAppPath = getCurrentAppPath()
-    const backupAppPath = getUserData('updater-backup', 'Cranberri.app')
+    const installId = crypto.randomUUID()
+    const installDirectory = path.dirname(currentAppPath)
+    const backupAppPath = path.join(installDirectory, '.Cranberri.previous.app')
+    const candidateAppPath = path.join(installDirectory, `.Cranberri.candidate-${installId}.app`)
     const resultManifestPath = getUserData('updater-result.json')
+    const journalPath = getUserData('updater-journal.json')
 
     const manifest: InstallManifest = {
+      installId,
       currentAppPath,
       stagedAppPath,
+      candidateAppPath,
       backupAppPath,
+      journalPath,
       logPath,
       resultManifestPath,
       relaunchTarget: currentAppPath,
@@ -365,6 +372,35 @@ async function installUpdate(): Promise<InstallResult> {
     const message = error instanceof Error ? error.message : String(error)
     setStatus({ status: 'failed', failedPhase: currentStatus.phase, failureMessage: message, logPath })
     return { success: false, phase: currentStatus.phase, message, logPath }
+  }
+}
+
+async function acknowledgeInstalledCandidate(): Promise<void> {
+  const journalPath = getUserData('updater-journal.json')
+  if (!fs.existsSync(journalPath)) return
+  try {
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      phase?: unknown
+      backupAppPath?: unknown
+      currentAppPath?: unknown
+      installId?: unknown
+    }
+    if (journal.phase !== 'relaunching'
+      || typeof journal.backupAppPath !== 'string'
+      || typeof journal.currentAppPath !== 'string'
+      || typeof journal.installId !== 'string') return
+    if (path.resolve(journal.currentAppPath) !== path.resolve(getCurrentAppPath())) return
+    const acknowledged = {
+      ...journal,
+      phase: 'healthAcknowledged',
+      updatedAt: new Date().toISOString(),
+    }
+    const temporary = `${journalPath}.${process.pid}.tmp`
+    fs.writeFileSync(temporary, JSON.stringify(acknowledged, null, 2), { mode: 0o600 })
+    fs.renameSync(temporary, journalPath)
+    if (fs.existsSync(journal.backupAppPath)) await shell.trashItem(journal.backupAppPath)
+  } catch (error) {
+    console.error('Failed to acknowledge updater health:', error)
   }
 }
 
@@ -561,6 +597,7 @@ function readPendingResult(): InstallResult | null {
 }
 
 export function initUpdaterIpc(): void {
+  void acknowledgeInstalledCandidate()
   ipcMain.handle('updater:check', async () => {
     setStatus({ status: 'checking' })
     const result = await performCheck()

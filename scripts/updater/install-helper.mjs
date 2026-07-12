@@ -1,166 +1,154 @@
 #!/usr/bin/env node
-/* eslint-disable no-func-assign */
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const [, , manifestPath, parentPid] = process.argv
-
-if (!manifestPath) {
-  console.error('Usage: install-helper.mjs <manifest-path> [parent-pid]')
-  process.exit(1)
-}
 
 function log(message) {
   console.log(`[cranberri-updater] ${message}`)
 }
 
+function atomicJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const temporary = `${filePath}.${process.pid}.tmp`
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600 })
+  fs.renameSync(temporary, filePath)
+}
+
+function journal(manifest, phase, detail = null) {
+  atomicJson(manifest.journalPath, {
+    version: 1,
+    installId: manifest.installId,
+    phase,
+    detail,
+    currentAppPath: manifest.currentAppPath,
+    candidateAppPath: manifest.candidateAppPath,
+    backupAppPath: manifest.backupAppPath,
+    updatedAt: new Date().toISOString(),
+  })
+  if (process.env.CRANBERRI_UPDATER_FAIL_AFTER === phase) {
+    throw new Error(`Injected updater failure after ${phase}`)
+  }
+}
+
 async function waitForParent(pid) {
   if (!pid || pid === '0') return
   const target = Number.parseInt(pid, 10)
-  if (Number.isNaN(target)) return
-  log(`Waiting for parent process ${target} to exit...`)
+  if (!Number.isSafeInteger(target) || target <= 0) return
   for (;;) {
     try {
       process.kill(target, 0)
     } catch {
-      log('Parent process exited.')
       return
     }
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 250))
   }
 }
 
-function rmrf(target) {
-  if (!fs.existsSync(target)) return
-  fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-}
-
-function cpR(src, dest) {
-  fs.mkdirSync(path.dirname(dest), { recursive: true })
-  const result = spawn('cp', ['-R', src, dest], { stdio: 'inherit' })
-  return new Promise((resolve, reject) => {
-    result.on('error', reject)
-    result.on('exit', (code) => {
-      if (code === 0) resolve()
-      else reject(new Error(`cp -R exited with code ${code}`))
-    })
-  })
-}
-
-async function relaunch(appPath) {
-  const executable = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
-  if (!fs.existsSync(executable)) {
-    throw new Error(`Executable not found at ${executable}`)
+function validateManifest(manifest) {
+  const required = ['installId', 'currentAppPath', 'stagedAppPath', 'candidateAppPath', 'backupAppPath', 'journalPath', 'resultManifestPath']
+  for (const key of required) {
+    if (typeof manifest[key] !== 'string' || !manifest[key]) throw new Error(`Invalid manifest: missing ${key}`)
   }
-  log(`Relaunching ${appPath}`)
-  const child = spawn('open', ['-n', appPath], {
-    detached: true,
-    stdio: 'ignore',
-  })
-  child.unref()
-}
-
-async function main() {
-  let manifest
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  } catch (error) {
-    log(`Failed to read manifest: ${error.message}`)
-    process.exit(1)
+  if (!manifest.currentAppPath.endsWith('.app') || !manifest.stagedAppPath.endsWith('.app')) {
+    throw new Error('Updater paths must reference macOS app bundles')
   }
-
-  const {
-    currentAppPath,
-    stagedAppPath,
-    backupAppPath,
-    resultManifestPath,
-  } = manifest
-
-  if (!currentAppPath || !stagedAppPath || !backupAppPath || !resultManifestPath) {
-    log('Invalid manifest: missing required paths')
-    process.exit(1)
-  }
-
-  for (const p of [currentAppPath, stagedAppPath]) {
-    if (!fs.existsSync(p)) {
-      log(`Required path does not exist: ${p}`)
-      writeResult(resultManifestPath, false, 'replacing', `Missing path: ${p}`, manifest)
-      process.exit(1)
+  const installDirectory = path.resolve(path.dirname(manifest.currentAppPath))
+  for (const sibling of [manifest.candidateAppPath, manifest.backupAppPath]) {
+    if (path.resolve(path.dirname(sibling)) !== installDirectory) {
+      throw new Error('Candidate and backup must be on the installed app volume')
     }
   }
-
-  // Write a helper log next to the result manifest for debugging.
-  const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
-  const originalLog = log
-  const fileLog = (message) => {
-    originalLog(message)
-    try {
-      fs.appendFileSync(helperLogPath, `${new Date().toISOString()} ${message}\n`)
-    } catch {
-      // ignore
-    }
-  }
-  log = fileLog
-  log(`Helper starting. manifest=${manifestPath} parentPid=${parentPid}`)
-
-  await waitForParent(parentPid)
-
-  // Allow a small settle window after the parent exits.
-  await new Promise((resolve) => setTimeout(resolve, 1000))
-
-  try {
-    log(`Backing up current app to ${backupAppPath}`)
-    rmrf(backupAppPath)
-    fs.mkdirSync(path.dirname(backupAppPath), { recursive: true })
-    await cpR(currentAppPath, backupAppPath)
-
-    log(`Replacing current app with staged app`)
-    rmrf(currentAppPath)
-    await cpR(stagedAppPath, currentAppPath)
-
-    log(`Verifying replacement`)
-    const relaunchTarget = manifest.relaunchTarget || currentAppPath
-    if (!fs.existsSync(relaunchTarget)) {
-      throw new Error(`Relaunch target missing after replacement: ${relaunchTarget}`)
-    }
-
-    log(`Staged app present at ${stagedAppPath}`)
-
-    writeResult(resultManifestPath, true, 'relaunching', 'Update installed successfully', manifest)
-    await relaunch(relaunchTarget)
-    log('Relaunch initiated. Helper exiting.')
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    log(`Install failed: ${message}`)
-    // Try to restore backup if replacement failed and backup exists.
-    try {
-      if (fs.existsSync(backupAppPath) && !fs.existsSync(currentAppPath)) {
-        log('Restoring backup app')
-        await cpR(backupAppPath, currentAppPath)
-      }
-    } catch (restoreError) {
-      const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError)
-      log(`Restore failed: ${restoreMessage}`)
-    }
-    writeResult(resultManifestPath, false, 'replacing', message, manifest)
-    process.exit(1)
+  if (new Set([manifest.currentAppPath, manifest.stagedAppPath, manifest.candidateAppPath, manifest.backupAppPath]).size !== 4) {
+    throw new Error('Updater paths must be distinct')
   }
 }
 
-function writeResult(resultPath, success, phase, message, manifest) {
-  const payload = {
+function writeResult(manifest, success, phase, message) {
+  atomicJson(manifest.resultManifestPath, {
     success,
     phase,
     message,
-    logPath: manifest?.logPath ?? null,
+    logPath: manifest.logPath ?? null,
     completedAt: new Date().toISOString(),
-  }
-  fs.mkdirSync(path.dirname(resultPath), { recursive: true })
-  fs.writeFileSync(resultPath, JSON.stringify(payload, null, 2))
+  })
 }
 
-main().catch((error) => {
-  log(`Unhandled error: ${error.message}`)
-  process.exit(1)
-})
+function preserveResidual(residualPath, installId) {
+  if (!fs.existsSync(residualPath)) return null
+  const preserved = `${residualPath}.failed-${installId}`
+  fs.renameSync(residualPath, preserved)
+  return preserved
+}
+
+function rollback(manifest, cause) {
+  let rollbackError = null
+  try {
+    if (fs.existsSync(manifest.backupAppPath)) {
+      if (fs.existsSync(manifest.currentAppPath)) preserveResidual(manifest.currentAppPath, manifest.installId)
+      fs.renameSync(manifest.backupAppPath, manifest.currentAppPath)
+    }
+    journal(manifest, 'rolledBack', cause.message)
+  } catch (error) {
+    rollbackError = error instanceof Error ? error.message : String(error)
+    journal(manifest, 'rollbackFailed', rollbackError)
+  }
+  return rollbackError
+}
+
+function relaunch(appPath) {
+  const executable = path.join(appPath, 'Contents', 'MacOS', 'Cranberri')
+  if (!fs.existsSync(executable)) throw new Error(`Executable not found at ${executable}`)
+  const child = spawn('/usr/bin/open', ['-n', appPath], { detached: true, stdio: 'ignore' })
+  child.unref()
+}
+
+export async function installFromManifest(manifest, options = {}) {
+  validateManifest(manifest)
+  if (!fs.existsSync(manifest.currentAppPath) || !fs.existsSync(manifest.stagedAppPath)) {
+    throw new Error('Installed or staged app bundle is unavailable')
+  }
+  if (fs.existsSync(manifest.backupAppPath)) throw new Error('A previous updater backup still awaits health acknowledgement')
+  if (fs.existsSync(manifest.candidateAppPath)) throw new Error('An updater candidate already exists')
+
+  journal(manifest, 'prepared')
+  try {
+    fs.cpSync(manifest.stagedAppPath, manifest.candidateAppPath, {
+      recursive: true,
+      preserveTimestamps: true,
+      errorOnExist: true,
+    })
+    journal(manifest, 'candidateCopied')
+    fs.renameSync(manifest.currentAppPath, manifest.backupAppPath)
+    journal(manifest, 'backupPromoted')
+    fs.renameSync(manifest.candidateAppPath, manifest.currentAppPath)
+    journal(manifest, 'candidatePromoted')
+    writeResult(manifest, true, 'relaunching', 'Update promoted; waiting for startup health acknowledgement')
+    journal(manifest, 'relaunching')
+    if (options.relaunch !== false) relaunch(manifest.relaunchTarget || manifest.currentAppPath)
+    return { success: true }
+  } catch (error) {
+    const cause = error instanceof Error ? error : new Error(String(error))
+    const rollbackError = rollback(manifest, cause)
+    const message = rollbackError ? `${cause.message}; rollback failed: ${rollbackError}` : cause.message
+    writeResult(manifest, false, rollbackError ? 'replacing' : 'backingUp', message)
+    throw new Error(message, { cause: error })
+  }
+}
+
+async function main() {
+  if (!manifestPath) throw new Error('Usage: install-helper.mjs <manifest-path> [parent-pid]')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  await waitForParent(parentPid)
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  await installFromManifest(manifest)
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    log(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  })
+}

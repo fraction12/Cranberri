@@ -79,9 +79,12 @@ export const installResultSchema = z.object({
 export type InstallResult = z.infer<typeof installResultSchema>
 
 export const installManifestSchema = z.object({
+  installId: z.string().uuid(),
   currentAppPath: z.string(),
   stagedAppPath: z.string(),
+  candidateAppPath: z.string(),
   backupAppPath: z.string(),
+  journalPath: z.string(),
   logPath: z.string(),
   resultManifestPath: z.string(),
   relaunchTarget: z.string(),
@@ -92,4 +95,3 @@ export type InstallManifest = z.infer<typeof installManifestSchema>
 export type UpdateEvent =
   | { type: 'progress'; progress: UpdateProgress }
   | { type: 'status'; status: UpdateInfo }
-
