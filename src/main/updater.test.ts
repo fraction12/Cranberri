@@ -61,6 +61,7 @@ import {
   compareSemanticVersions,
   consumePendingResult,
   stableCandidateDisposition,
+  updaterHelperEnvironment,
   validateStagedApp,
 } from './updater'
 
@@ -100,6 +101,28 @@ describe('updater source provenance', () => {
     '/Users/me/Cranberri',
   ])('rejects a non-canonical beta source remote %s', (remote) => {
     expect(canonicalCranberriRemote(remote)).toBeNull()
+  })
+})
+
+describe('updater process environment', () => {
+  it('does not inherit updater test controls from the GUI process', () => {
+    expect(updaterHelperEnvironment({
+      CRANBERRI_UPDATER_FAIL_AFTER: 'candidatePromoted',
+      CRANBERRI_UPDATER_HEALTH_TIMEOUT_MS: '1',
+      ELECTRON_RUN_AS_NODE: '1',
+      PATH: '/usr/bin',
+    }, false)).toEqual({
+      CRANBERRI_UPDATER: '1',
+      PATH: '/usr/bin',
+    })
+  })
+
+  it('enables Electron Node mode only for the Electron helper runner', () => {
+    expect(updaterHelperEnvironment({ PATH: '/usr/bin' }, true)).toEqual({
+      CRANBERRI_UPDATER: '1',
+      ELECTRON_RUN_AS_NODE: '1',
+      PATH: '/usr/bin',
+    })
   })
 })
 

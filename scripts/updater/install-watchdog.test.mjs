@@ -15,8 +15,14 @@ afterEach(() => {
 })
 
 describe('updater watchdog', () => {
-  it('removes Electron Node mode before relaunching the GUI', () => {
-    expect(relaunchEnvironment({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
+  it('removes updater controls and Electron Node mode before relaunching the GUI', () => {
+    expect(relaunchEnvironment({
+      CRANBERRI_UPDATER: '1',
+      CRANBERRI_UPDATER_FAIL_AFTER: 'candidatePromoted',
+      CRANBERRI_UPDATER_HEALTH_TIMEOUT_MS: '1',
+      ELECTRON_RUN_AS_NODE: '1',
+      PATH: '/usr/bin',
+    })).toEqual({ PATH: '/usr/bin' })
   })
 
   it('restores backup when the installer dies between promotion phases', () => {

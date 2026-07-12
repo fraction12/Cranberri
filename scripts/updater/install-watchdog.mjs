@@ -152,6 +152,9 @@ export async function awaitInstallOutcome(filePath, options = {}) {
 export function relaunchEnvironment(environment = process.env) {
   const launchEnvironment = { ...environment }
   delete launchEnvironment.ELECTRON_RUN_AS_NODE
+  for (const key of Object.keys(launchEnvironment)) {
+    if (key === 'CRANBERRI_UPDATER' || key.startsWith('CRANBERRI_UPDATER_')) delete launchEnvironment[key]
+  }
   return launchEnvironment
 }
 

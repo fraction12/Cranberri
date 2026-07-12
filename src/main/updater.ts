@@ -24,6 +24,20 @@ const CRANBERRI_REMOTE = 'github.com/fraction12/cranberri'
 const NATIVE_MODULES = ['better-sqlite3', 'bufferutil', 'node-pty', 'utf-8-validate'] as const
 const flushWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>()
 
+export function updaterHelperEnvironment(
+  environment: NodeJS.ProcessEnv,
+  useElectronRunner: boolean,
+): NodeJS.ProcessEnv {
+  const helperEnvironment = { ...environment }
+  delete helperEnvironment.ELECTRON_RUN_AS_NODE
+  for (const key of Object.keys(helperEnvironment)) {
+    if (key === 'CRANBERRI_UPDATER' || key.startsWith('CRANBERRI_UPDATER_')) delete helperEnvironment[key]
+  }
+  helperEnvironment.CRANBERRI_UPDATER = '1'
+  if (useElectronRunner) helperEnvironment.ELECTRON_RUN_AS_NODE = '1'
+  return helperEnvironment
+}
+
 function getUserData(...segments: string[]): string {
   return path.join(app.getPath('userData'), ...segments)
 }
@@ -521,9 +535,7 @@ async function installUpdate(): Promise<InstallResult> {
       : path.join(__dirname, '../updater/install-helper.mjs')
     const nodeBinary = await findNodeBinary()
     const helperRunner = nodeBinary ?? process.execPath
-    const helperEnv = nodeBinary
-      ? { ...process.env, CRANBERRI_UPDATER: '1' }
-      : { ...process.env, CRANBERRI_UPDATER: '1', ELECTRON_RUN_AS_NODE: '1' }
+    const helperEnv = updaterHelperEnvironment(process.env, !nodeBinary)
     const helperLogPath = path.join(path.dirname(resultManifestPath), 'install-helper.log')
     const helperOut = fs.openSync(helperLogPath, 'a')
     try {
