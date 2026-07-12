@@ -6,6 +6,7 @@
   "main": "out/main/index.cjs",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/ensure-electron-binary.mjs && node scripts/ensure-node-pty-helper.mjs",
     "dev": "npm run build:metadata && electron-vite dev",
     "build": "npm run build:metadata && npm run typography:audit && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
     "build:packaged": "npm run build:metadata -- --packaged && npm run typography:audit && tsc --noEmit && eslint . --max-warnings 0 && npm run copy:updater-helper && electron-vite build",
