@@ -34,6 +34,7 @@ interface CreateRequest {
 interface LifecycleDependencies {
   hasRunningProcesses(path: string): Promise<boolean>
   trashResidual(path: string): Promise<void>
+  writeOwnershipManifest(manifestPath: string, manifest: OwnershipManifest): void
 }
 
 interface OwnershipManifest {
@@ -73,6 +74,7 @@ export class WorktreeLifecycle {
         const { shell } = await import('electron')
         await shell.trashItem(residualPath)
       }),
+      writeOwnershipManifest: dependencies.writeOwnershipManifest ?? writeManifest,
     }
   }
 
@@ -204,6 +206,8 @@ export class WorktreeLifecycle {
 
   private async createInternal(request: CreateRequest): Promise<ManagedWorktree> {
     let state = this.store.read()
+    const existing = state.managedWorktrees.find((item) => item.taskId === request.taskId && item.lifecycle !== 'removed')
+    if (existing) throw new Error('Task already has a recorded managed worktree')
     let activeCount = state.managedWorktrees.filter((item) => item.lifecycle !== 'removed').length
     if (activeCount >= request.cap) {
       const candidates = state.managedWorktrees
@@ -261,9 +265,13 @@ export class WorktreeLifecycle {
     }
     const changes = request.includeLocalChanges ? await captureLocalChanges(request.localCheckoutPath, baseSha) : undefined
 
-    await createDetachedWorktree(request.localCheckoutPath, checkoutPath, baseSha, { localChanges: changes })
+    await this.store.update((current) => ({
+      ...current,
+      managedWorktrees: [...current.managedWorktrees, record],
+    }))
     try {
-      writeManifest(manifestPath, {
+      await createDetachedWorktree(request.localCheckoutPath, checkoutPath, baseSha, { localChanges: changes })
+      this.dependencies.writeOwnershipManifest(manifestPath, {
         version: 1,
         worktreeId: id,
         projectId: request.projectId,
@@ -273,12 +281,23 @@ export class WorktreeLifecycle {
         createdAt: now,
       })
       const active = { ...record, lifecycle: 'active' as const, updatedAt: Date.now() }
-      await this.store.update((current) => ({ ...current, managedWorktrees: [...current.managedWorktrees, active] }))
+      await this.store.update((current) => ({
+        ...current,
+        managedWorktrees: current.managedWorktrees.map((item) => item.id === id ? active : item),
+      }))
       return active
     } catch (error) {
       await this.store.update((current) => ({
         ...current,
-        interruptedOperations: [...current.interruptedOperations, { kind: 'create', worktreeId: id, path: checkoutPath, createdAt: now }],
+        managedWorktrees: current.managedWorktrees.map((item) => item.id === id ? {
+          ...item,
+          lifecycle: 'needsAttention' as const,
+          cleanupReason: error instanceof Error ? error.message : 'Worktree provisioning was interrupted',
+          updatedAt: Date.now(),
+        } : item),
+        interruptedOperations: current.interruptedOperations.some((operation) => operation.kind === 'create' && operation.worktreeId === id)
+          ? current.interruptedOperations
+          : [...current.interruptedOperations, { kind: 'create', worktreeId: id, path: checkoutPath, createdAt: now }],
       })).catch(() => undefined)
       throw error
     }

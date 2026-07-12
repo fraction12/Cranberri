@@ -105,6 +105,28 @@ describe('managed worktree lifecycle', () => {
     expect(fs.existsSync(path.join(record.path, '.cranberri-worktree.json'))).toBe(false)
   })
 
+  it('records provisioning intent before filesystem ownership can fail', async () => {
+    const { repo, managedRoot, store } = fixture()
+    const lifecycle = new WorktreeLifecycle(store, {
+      writeOwnershipManifest: () => { throw new Error('manifest write failed') },
+    })
+    const request = {
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'interrupted-task',
+      taskName: 'Interrupted', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 15,
+    }
+
+    await expect(lifecycle.create(request)).rejects.toThrow('manifest write failed')
+
+    const recorded = store.read().managedWorktrees[0]
+    expect(recorded).toMatchObject({ taskId: 'interrupted-task', lifecycle: 'needsAttention' })
+    expect(fs.existsSync(recorded.path)).toBe(true)
+    expect(store.read().interruptedOperations).toContainEqual(expect.objectContaining({
+      kind: 'create', worktreeId: recorded.id, path: recorded.path,
+    }))
+    await expect(lifecycle.create(request)).rejects.toThrow('already has a recorded managed worktree')
+    expect(store.read().managedWorktrees).toHaveLength(1)
+  })
+
   it('anchors a private task ref and removes only a verified clean owned worktree', async () => {
     const { repo, managedRoot, store } = fixture()
     const lifecycle = new WorktreeLifecycle(store)

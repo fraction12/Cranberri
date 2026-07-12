@@ -110,6 +110,7 @@ export class HandoffCoordinator {
     let changes: LocalChanges | null = null
     let bundlePath: string | null = null
     let localApplied = false
+    let worktreeCleared = false
     try {
       await this.begin(task, worktree, 'toLocal', request.branch)
       changes = await captureLocalChanges(worktree.path, head)
@@ -124,13 +125,17 @@ export class HandoffCoordinator {
       await this.verifyTransfer(worktree.path, localPath)
       await this.codex.resumeThread(task.threadId!, { cwd: localPath, taskId: task.id })
       await this.journal(task.id, 'resumed', bundlePath)
-      const updated = await this.commitBinding(task, worktree, 'local', request.branch)
       await this.assertUnchanged(worktree.path, changes)
       await clearTransferredChanges(worktree.path, changes)
+      worktreeCleared = true
+      const updated = await this.commitBinding(task, worktree, 'local', request.branch)
       fs.rmSync(bundlePath)
       return updated
     } catch (error) {
-      return this.failAndRollback({ task, worktree, branch: request.branch, direction: 'toLocal', changes, bundlePath, destinationApplied: localApplied, error })
+      return this.failAndRollback({
+        task, worktree, branch: request.branch, direction: 'toLocal', changes, bundlePath,
+        destinationApplied: localApplied, sourceCleared: worktreeCleared, error,
+      })
     }
   }
 
@@ -292,6 +297,7 @@ export class HandoffCoordinator {
         }
         if (project.pinnedLocalBranch) await checkoutBranch(localPath, project.pinnedLocalBranch)
         await checkoutBranch(input.worktree.path, input.branch)
+        if (input.sourceCleared && input.changes) await applyLocalChanges(input.worktree.path, input.changes)
       } else {
         if (input.destinationApplied && input.changes) {
           await this.assertUnchanged(input.worktree.path, input.changes)

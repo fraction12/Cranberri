@@ -124,6 +124,34 @@ describe('journaled handoff', () => {
     expect(fs.readFileSync(path.join(worktreePath, 'new.txt'), 'utf8')).toBe('keep me')
   })
 
+  it('keeps the journal until binding commits and restores a cleared source on commit failure', async () => {
+    const f = fixture()
+    const { worktreePath } = await activeTask(f)
+    fs.writeFileSync(path.join(worktreePath, 'new.txt'), 'keep me')
+    const update = f.store.update.bind(f.store)
+    let bindingFailed = false
+    f.store.update = async (updater) => {
+      if (!bindingFailed && f.store.read().tasks[0]?.handoff?.phase === 'resumed') {
+        bindingFailed = true
+        throw new Error('binding persist failed')
+      }
+      return update(updater)
+    }
+    const coordinator = new HandoffCoordinator(
+      f.store, f.registry, codex(), path.join(f.root, 'bundles'),
+      { hasRunningProcesses: async () => false },
+    )
+
+    await expect(coordinator.toLocal({ taskId: 'task', branch: 'feature', createBranch: true }))
+      .rejects.toThrow('binding persist failed')
+
+    expect(f.store.read().tasks[0]).toMatchObject({ location: 'worktree', state: 'active', handoff: null })
+    expect(git(f.repo, 'branch', '--show-current')).toBe('main')
+    expect(git(worktreePath, 'branch', '--show-current')).toBe('feature')
+    expect(fs.readFileSync(path.join(worktreePath, 'new.txt'), 'utf8')).toBe('keep me')
+    expect(f.store.read().localLeaseByProjectId.project).toBeNull()
+  })
+
   it('restores a safely removed archive from its private ref and exact environment revision', async () => {
     const f = fixture()
     await activeTask(f, 'revision-1')
