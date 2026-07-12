@@ -102,6 +102,34 @@ describe('startup recovery', () => {
     expect(report.windows[0]).toMatchObject({ status: 'ready', reason: 'none' })
   })
 
+  it('restores a missing legacy session target from its matching task', async () => {
+    const value = fixture()
+    await seed(value.store, [value.task])
+    value.state.workspacesByProjectId.project.windows[0] = {
+      ...value.state.workspacesByProjectId.project.windows[0],
+      type: 'browser',
+      threadId: undefined,
+      sessionTarget: undefined,
+    }
+    const writeAppState = vi.fn((state: CranberriAppState) => state)
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState,
+    })
+
+    expect(writeAppState).toHaveBeenCalledWith(expect.objectContaining({
+      workspacesByProjectId: expect.objectContaining({
+        project: expect.objectContaining({
+          windows: [expect.objectContaining({ sessionTarget: 'local', bindingRevision: 4 })],
+        }),
+      }),
+    }))
+    expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'sessionTargetRestored' })
+  })
+
   it('represents a confirmed missing thread without rebinding the window', async () => {
     const value = fixture()
     await seed(value.store, [value.task])

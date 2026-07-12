@@ -111,6 +111,7 @@ async function validateWindow(
   worktrees: ManagedWorktree[],
   checkThread: StartupRecoveryDependencies['checkThread'],
 ): Promise<{ window: WorkspaceWindowState; outcome: WindowRecoveryOutcome; changed: boolean }> {
+  let bindingRepaired = false
   const project = registry.projects.find((candidate) => candidate.id === workspaceProjectId)
   if (!project) {
     return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'needsAttention', 'projectMissing', 'The window project is no longer registered.') }
@@ -149,6 +150,14 @@ async function validateWindow(
   }
 
   if (task) {
+    if (window.sessionTarget === undefined && window.checkoutId === task.checkoutId) {
+      window = {
+        ...window,
+        sessionTarget: task.location,
+        bindingRevision: incrementBindingRevision(window.bindingRevision ?? 0),
+      }
+      bindingRepaired = true
+    }
     if (task.projectId !== project.id) {
       return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'needsAttention', 'taskMismatch', 'The bound task belongs to another project.') }
     }
@@ -227,23 +236,23 @@ async function validateWindow(
       }
     }
     const interrupted = operationOutcome(window, workspaceProjectId, task)
-    if (interrupted) return { window, changed: false, outcome: interrupted }
+    if (interrupted) return { window, changed: bindingRepaired, outcome: interrupted }
   }
 
   if (window.type !== 'chat') {
-    return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'ready', 'none', 'The window binding is ready.') }
+    return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, bindingRepaired ? 'repaired' : 'ready', bindingRepaired ? 'sessionTargetRestored' : 'none', bindingRepaired ? 'The legacy session target was restored from its authoritative task.' : 'The window binding is ready.') }
   }
   if (!window.threadId) {
-    return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'ready', 'none', 'The window binding is ready.') }
+    return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, bindingRepaired ? 'repaired' : 'ready', bindingRepaired ? 'sessionTargetRestored' : 'none', bindingRepaired ? 'The legacy session target was restored from its authoritative task.' : 'The window binding is ready.') }
   }
   const threadStatus = checkThread ? await checkThread(window.threadId, task) : 'unchecked'
   if (threadStatus === 'missing') {
     return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'needsAttention', 'threadMissing', 'The Codex thread was confirmed missing.', 'missing') }
   }
   if (threadStatus === 'unchecked') {
-    return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'retryable', 'threadUnchecked', 'Thread availability is unchecked and will be verified by the renderer.', 'unchecked') }
+    return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, 'retryable', 'threadUnchecked', 'Thread availability is unchecked and will be verified by the renderer.', 'unchecked') }
   }
-  return { window, changed: false, outcome: outcome(window, workspaceProjectId, 'ready', 'none', 'The window binding is ready.', 'available') }
+  return { window, changed: bindingRepaired, outcome: outcome(window, workspaceProjectId, bindingRepaired ? 'repaired' : 'ready', bindingRepaired ? 'sessionTargetRestored' : 'none', bindingRepaired ? 'The legacy session target was restored from its authoritative task.' : 'The window binding is ready.', 'available') }
 }
 
 export async function reconcileStartup(

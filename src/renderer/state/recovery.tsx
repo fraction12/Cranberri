@@ -26,6 +26,7 @@ export interface StartupRecoverySummary {
 const COPY_BY_REASON: Record<RecoveryReason, { title: string; description: string }> = {
   none: { title: 'Workspace recovered', description: 'This workspace is ready to use.' },
   localControlDeleted: { title: 'Workspace recovered', description: 'Cranberri restored this local workspace after startup.' },
+  sessionTargetRestored: { title: 'Workspace recovered', description: 'Cranberri restored this session binding after startup.' },
   projectMissing: { title: 'Project unavailable', description: 'Re-add this project before continuing this session.' },
   projectMismatch: { title: 'Project changed', description: 'Open this session from its original project before continuing.' },
   checkoutMissing: { title: 'Checkout unavailable', description: 'Restore the checkout for this session before continuing.' },
