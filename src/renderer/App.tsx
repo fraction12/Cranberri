@@ -323,13 +323,15 @@ function AppShell() {
           <SettingsDialog open initialTab={settingsTab} onClose={closeSettings} />
         </Suspense>
       )}
-      <Suspense fallback={null}>
-        <CommandPalette
-          open={commandPaletteOpen}
-          onOpenChange={setCommandPaletteVisibility}
-          onOpenSettings={openSettings}
-        />
-      </Suspense>
+      {commandPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            open
+            onOpenChange={setCommandPaletteVisibility}
+            onOpenSettings={openSettings}
+          />
+        </Suspense>
+      )}
       <UpdateResultToast />
       <AppToaster />
     </div>

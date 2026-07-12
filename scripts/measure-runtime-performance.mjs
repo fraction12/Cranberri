@@ -103,7 +103,23 @@ async function measureInteractions(electronApp, page, projects) {
     await sendNewSessionPrompt(page, prompts[index])
   }
 
-  const memoryBefore = await rendererWorkingSetBytes(electronApp)
+  for (const project of projects) {
+    await page.getByRole('button', { name: `Open ${project.name}` }).click()
+    const warmIdentity = await waitForExpectedIdentity(page, project)
+    if (!warmIdentity.matched) throw new Error(`Runtime warm-up identity mismatch for ${project.id}`)
+    await page.getByRole('tab', { name: 'Files' }).click()
+    await page.getByText('No changed files.').waitFor({ timeout: 10_000 })
+    await page.waitForTimeout(200)
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  }
+  for (let index = 0; index < 15; index += 1) {
+    const project = projects[index % projects.length]
+    await page.getByRole('button', { name: `Open ${project.name}` }).click()
+    const warmIdentity = await waitForExpectedIdentity(page, project)
+    if (!warmIdentity.matched) throw new Error(`Runtime switch warm-up mismatch for ${project.id}`)
+  }
+
+  const memoryBefore = await rendererRetainedHeapBytes(page)
   const windowSwitchCoherentMs = []
   const identityMismatches = []
   const projectIds = new Set()
@@ -134,7 +150,7 @@ async function measureInteractions(electronApp, page, projects) {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     windowSwitchCoherentMs.push(performance.now() - startedAt)
   }
-  const memoryAfter = await rendererWorkingSetBytes(electronApp)
+  const memoryAfter = await rendererRetainedHeapBytes(page)
   const retainedMemoryGrowthPercent = [memoryBefore > 0 ? ((memoryAfter - memoryBefore) / memoryBefore) * 100 : 0]
 
   const composer = page.getByRole('textbox', { name: 'Chat message' })
@@ -271,10 +287,20 @@ async function readActiveIdentity(page) {
 }
 
 async function sendNewSessionPrompt(page, prompt) {
-  const composer = page.getByRole('textbox', { name: 'Chat message' })
-  await composer.fill(prompt)
+  const composerRoot = page.locator('[data-chat-composer="true"]:visible')
+  const composer = composerRoot.getByRole('textbox', { name: 'Chat message' })
+  const send = composerRoot.getByLabel('Send message')
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await composer.fill(prompt)
+    for (let settled = 0; settled < 10; settled += 1) {
+      await page.waitForTimeout(100)
+      if ((await composer.textContent())?.includes(prompt) && await send.isEnabled()) break
+    }
+    if ((await composer.textContent())?.includes(prompt) && await send.isEnabled()) break
+  }
+  if (!(await send.isEnabled())) throw new Error(`Composer did not stabilize for runtime prompt: ${prompt}`)
   const startedAt = performance.now()
-  await page.locator('button[aria-label="Send message"]:visible').click()
+  await send.click()
   await page.locator('[data-turn-activity]:visible').last().waitFor({ timeout: 10_000 })
   const firstEventMs = performance.now() - startedAt
   await page.getByText(`Fake Codex received: ${prompt}`).waitFor({ timeout: 10_000 })
@@ -309,10 +335,15 @@ async function installRendererObservers(page) {
   })
 }
 
-async function rendererWorkingSetBytes(electronApp) {
-  return electronApp.evaluate(({ app }) => app.getAppMetrics()
-    .filter((metric) => metric.type === 'Tab' || metric.type === 'Browser')
-    .reduce((total, metric) => total + metric.memory.workingSetSize * 1024, 0))
+async function rendererRetainedHeapBytes(page) {
+  const session = await page.context().newCDPSession(page)
+  try {
+    await session.send('HeapProfiler.collectGarbage')
+    const usage = await session.send('Runtime.getHeapUsage')
+    return usage.usedSize
+  } finally {
+    await session.detach()
+  }
 }
 
 function createFixtureRepos(rootDir, count) {
