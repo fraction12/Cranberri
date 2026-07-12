@@ -113,7 +113,8 @@ declare global {
         onEvent: (cb: (event: CodexEvent) => void) => () => void
       }
       tasks: {
-        snapshot: () => Promise<{ projects: import('@/shared/projects').Project[]; checkouts: import('@/shared/projects').Checkout[]; tasks: import('@/shared/tasks').Task[]; managedWorktrees: import('@/shared/worktrees').ManagedWorktree[] }>
+        snapshot: () => Promise<{ revision: number; projects: import('@/shared/projects').Project[]; checkouts: import('@/shared/projects').Checkout[]; tasks: import('@/shared/tasks').Task[]; managedWorktrees: import('@/shared/worktrees').ManagedWorktree[] }>
+        onAuthorityChanged: (cb: (event: import('@/shared/state-events').AuthorityChangedEvent) => void) => () => void
         list: (projectId?: string) => Promise<{ tasks: import('@/shared/tasks').Task[] }>
         createLocalDraft: (request: import('@/shared/tasks').LocalTaskDraftRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         adoptLocalThread: (request: import('@/shared/tasks').LocalTaskAdoptRequest) => Promise<{ task: import('@/shared/tasks').Task }>

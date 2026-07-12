@@ -46,6 +46,7 @@ function fixture(): { registry: ProjectRegistry; tasks: TaskStoreState; local: s
   }
   const tasks: TaskStoreState = {
     version: 1,
+    revision: 0,
     tasks: [makeTask('task-a', 'checkout-a', 'worktree-a'), makeTask('task-b', 'checkout-b', 'worktree-b')],
     managedWorktrees: [
       { id: 'worktree-a', projectId: 'project', checkoutId: 'checkout-a', taskId: 'task-a', path: worktreeA, recordedRoot: managedRoot, gitCommonDir: commonDir, manifestPath: path.join(root, 'a.json'), baseRef: 'HEAD', baseSha: git(local, ['rev-parse', 'HEAD']), branch: null, headSha: null, archiveHeadSha: null, privateRef: null, lifecycle: 'active', cleanupReason: null, createdAt: now, updatedAt: now, archivedAt: null },

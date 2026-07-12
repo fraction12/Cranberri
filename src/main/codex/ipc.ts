@@ -62,6 +62,7 @@ import { projectIdRequestSchema } from '../../shared/worktrees'
 import { gitStatusPorcelain, listSelectableRefs, refreshGitRefs } from '../git-worktrees'
 import { taskCoordinator, taskStore, environmentRunner, environmentStore } from '../worktree-runtime'
 import { assertTaskRunnable } from '../tasks'
+import { authorityChangedEventSchema } from '../../shared/state-events'
 
 interface PluginManifest {
   name?: string
@@ -109,6 +110,8 @@ let client: CodexClientLike | null = null
 let clientStarting = false
 let clientEventHandlerAttached = false
 let codexEventBroadcast: ((event: CodexEvent) => void) | null = null
+let taskAuthorityWindowGetter: (() => Electron.BrowserWindow | null) | null = null
+let taskAuthoritySubscribed = false
 let capabilityEpochCounter = 0
 const MAX_CATALOG_TASK_CONTEXTS = 100
 const MAX_PENDING_TOOL_APPROVALS = 100
@@ -944,6 +947,16 @@ async function loadToolCatalogContext(
 }
 
 export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | null): void {
+  taskAuthorityWindowGetter = mainWindowGetter
+  if (!taskAuthoritySubscribed) {
+    taskAuthoritySubscribed = true
+    taskStore.subscribe((change) => {
+      const win = taskAuthorityWindowGetter?.()
+      if (!win || win.isDestroyed()) return
+      const event = authorityChangedEventSchema.parse({ authority: 'tasks', ...change })
+      win.webContents.send('state:authority-changed', event)
+    })
+  }
   codexEventBroadcast = (event: CodexEvent) => {
     if (event.type === 'run_end' && event.threadId) {
       const task = taskCoordinator.findByThread(event.threadId)
@@ -1038,6 +1051,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
         available: worktree.lifecycle !== 'failed' && worktree.lifecycle !== 'needsAttention',
       }))
     return {
+      revision: store.revision,
       projects: registry.projects,
       checkouts: [...registry.checkouts, ...managedCheckouts],
       tasks: store.tasks,

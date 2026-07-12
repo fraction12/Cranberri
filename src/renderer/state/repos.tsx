@@ -71,7 +71,6 @@ export function ReposProvider({ children }: { children: React.ReactNode }) {
 
   const setPinnedBranch = async (id: string, branch: string) => {
     await window.cranberri.repos.setPinnedBranch(id, branch)
-    window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
     await refresh()
   }
 

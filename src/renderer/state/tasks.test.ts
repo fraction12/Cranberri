@@ -2,12 +2,31 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Checkout } from '@/shared/projects'
 import type { Task } from '@/shared/tasks'
 import {
+  reduceTaskAuthorityRevision,
+  reduceTaskCatalogSnapshot,
   provisionAndSendFirstTurn,
   selectableRootTasks,
   taskExecutionContext,
   type TaskOperation,
   type WorktreeSubmissionApi,
 } from './tasks'
+
+describe('task authority reducers', () => {
+  it('accepts only newer task authority revisions', () => {
+    expect(reduceTaskAuthorityRevision(4, { authority: 'tasks', revision: 5, affectedIds: ['task'] })).toBe(5)
+    expect(reduceTaskAuthorityRevision(5, { authority: 'tasks', revision: 5 })).toBe(5)
+    expect(reduceTaskAuthorityRevision(5, { authority: 'tasks', revision: 3 })).toBe(5)
+  })
+
+  it('rejects stale snapshots while allowing same-revision manual refreshes', () => {
+    const current = { revision: 5, projects: [], checkouts: [], tasks: [], managedWorktrees: [] }
+    const stale = { ...current, revision: 4 }
+    const sameRevision = { ...current, projects: [{ id: 'project' }] } as typeof current
+
+    expect(reduceTaskCatalogSnapshot(current, stale)).toBe(current)
+    expect(reduceTaskCatalogSnapshot(current, sameRevision)).toBe(sameRevision)
+  })
+})
 
 function task(id: string, role: Task['role'], updatedAt: number): Task {
   return {

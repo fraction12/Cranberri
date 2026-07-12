@@ -1,13 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import type { EnvironmentRecord } from '@/shared/environments'
 import type { Checkout, Project } from '@/shared/projects'
 import type { EnvironmentJob } from '@/shared/terminal'
 import type { LocalTaskDraftRequest, Task, TaskDraftRequest, TaskHandoffRequest } from '@/shared/tasks'
 import type { GitRef, ManagedWorktree, RefRefreshResult } from '@/shared/worktrees'
+import type { AuthorityChangedEvent } from '@/shared/state-events'
 import type { TaskExecutionContext } from './execution-context'
 
 export interface TaskCatalogSnapshot {
+  revision: number
   projects: Project[]
   checkouts: Checkout[]
   tasks: Task[]
@@ -103,7 +105,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Task operation failed'
 }
 
-const EMPTY_SNAPSHOT: TaskCatalogSnapshot = { projects: [], checkouts: [], tasks: [], managedWorktrees: [] }
+const EMPTY_SNAPSHOT: TaskCatalogSnapshot = { revision: 0, projects: [], checkouts: [], tasks: [], managedWorktrees: [] }
 const IDLE_OPERATION: TaskOperation = { phase: 'idle', taskId: null, job: null, error: null }
 
 export interface TasksApi extends TaskCatalogSnapshot {
@@ -135,6 +137,17 @@ export function selectableRootTasks(tasks: Task[]): Task[] {
   return tasks
     .filter((task) => task.role !== 'worker' && task.state !== 'removed')
     .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt)
+}
+
+export function reduceTaskAuthorityRevision(current: number, event: AuthorityChangedEvent): number {
+  return event.authority === 'tasks' && event.revision > current ? event.revision : current
+}
+
+export function reduceTaskCatalogSnapshot(
+  current: TaskCatalogSnapshot,
+  next: TaskCatalogSnapshot,
+): TaskCatalogSnapshot {
+  return next.revision < current.revision ? current : next
 }
 
 export function taskExecutionContext(task: Task, checkouts: Checkout[]): TaskExecutionContext | null {
@@ -181,15 +194,19 @@ function waitForEnvironmentJob(job: EnvironmentJob, onUpdate: (job: EnvironmentJ
 
 export function TasksProvider({ children, snapshot }: { children: React.ReactNode; snapshot?: TaskCatalogSnapshot }) {
   const [liveSnapshot, setLiveSnapshot] = useState<TaskCatalogSnapshot>(snapshot ?? EMPTY_SNAPSHOT)
+  const authorityRevisionRef = useRef(snapshot?.revision ?? 0)
   const [activeTaskId, setActiveTask] = useState<string | null>(null)
   const [loading, setLoading] = useState(snapshot === undefined)
   const [operation, setOperation] = useState<TaskOperation>(IDLE_OPERATION)
   const [lastSubmission, setLastSubmission] = useState<WorktreeSubmission | null>(null)
 
   const refresh = useCallback(async () => {
-    if (snapshot) { setLiveSnapshot(snapshot); return }
-    const next = await window.cranberri.tasks.snapshot()
-    setLiveSnapshot(next)
+    const next = snapshot ?? await window.cranberri.tasks.snapshot()
+    setLiveSnapshot((current) => {
+      if (next.revision < authorityRevisionRef.current) return current
+      authorityRevisionRef.current = Math.max(authorityRevisionRef.current, next.revision)
+      return reduceTaskCatalogSnapshot(current, next)
+    })
   }, [snapshot])
 
   useEffect(() => {
@@ -197,9 +214,12 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
   }, [refresh])
 
   useEffect(() => {
-    const onTasksChanged = () => { void refresh().catch((error) => console.error('Failed to refresh tasks:', error)) }
-    window.addEventListener('cranberri:tasks-changed', onTasksChanged)
-    return () => window.removeEventListener('cranberri:tasks-changed', onTasksChanged)
+    return window.cranberri.tasks.onAuthorityChanged((event) => {
+      const nextRevision = reduceTaskAuthorityRevision(authorityRevisionRef.current, event)
+      if (nextRevision === authorityRevisionRef.current) return
+      authorityRevisionRef.current = nextRevision
+      void refresh().catch((error) => console.error('Failed to refresh tasks:', error))
+    })
   }, [refresh])
 
   const submissionApi = useMemo<WorktreeSubmissionApi>(() => ({

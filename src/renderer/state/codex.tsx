@@ -799,7 +799,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     else await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
-    if (task) window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
   }, [activeRepo])
@@ -812,7 +811,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     if (task) await window.cranberri.tasks.unarchive(task.id)
     else await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
-    if (task) window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
   }, [activeRepo])
 
   const deleteSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
@@ -824,7 +822,6 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     else await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
     clearToolActivityEvents(threadId)
     window.dispatchEvent(new CustomEvent('cranberri:codex-sessions-changed', { detail: { repoPath: targetRepoPath, threadId } }))
-    window.dispatchEvent(new CustomEvent('cranberri:tasks-changed'))
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWorkersByParent((current) => {
       const { [threadId]: removed, ...rest } = current

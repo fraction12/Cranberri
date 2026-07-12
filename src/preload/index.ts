@@ -106,6 +106,11 @@ const api = {
   },
   tasks: {
     snapshot: () => ipcRenderer.invoke('tasks:snapshot'),
+    onAuthorityChanged: (cb: (event: import('@/shared/state-events').AuthorityChangedEvent) => void) => {
+      const handler = (_: unknown, payload: import('@/shared/state-events').AuthorityChangedEvent) => cb(payload)
+      ipcRenderer.on('state:authority-changed', handler)
+      return () => ipcRenderer.off('state:authority-changed', handler)
+    },
     list: (projectId?: string) => ipcRenderer.invoke('tasks:list', { projectId }),
     createLocalDraft: (request: import('@/shared/tasks').LocalTaskDraftRequest): Promise<{ task: import('@/shared/tasks').Task }> => ipcRenderer.invoke('tasks:create-local-draft', request),
     adoptLocalThread: (request: import('@/shared/tasks').LocalTaskAdoptRequest): Promise<{ task: import('@/shared/tasks').Task }> => ipcRenderer.invoke('tasks:adopt-local-thread', request),
