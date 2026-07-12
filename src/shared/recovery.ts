@@ -10,7 +10,7 @@ export const recoveryStatusSchema = z.enum([
 export const recoveryReasonSchema = z.enum([
   'none',
   'localControlDeleted',
-  'sessionTargetRestored',
+  'legacyBindingRestored',
   'projectMissing',
   'projectMismatch',
   'checkoutMissing',

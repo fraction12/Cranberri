@@ -127,7 +127,34 @@ describe('startup recovery', () => {
         }),
       }),
     }))
-    expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'sessionTargetRestored' })
+    expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'legacyBindingRestored' })
+  })
+
+  it('restores a missing legacy chat thread from its matching task', async () => {
+    const value = fixture()
+    await seed(value.store, [value.task])
+    value.state.workspacesByProjectId.project.windows[0] = {
+      ...value.state.workspacesByProjectId.project.windows[0],
+      threadId: undefined,
+    }
+    const writeAppState = vi.fn((state: CranberriAppState) => state)
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState,
+      checkThread: async () => 'available',
+    })
+
+    expect(writeAppState).toHaveBeenCalledWith(expect.objectContaining({
+      workspacesByProjectId: expect.objectContaining({
+        project: expect.objectContaining({
+          windows: [expect.objectContaining({ threadId: 'thread', bindingRevision: 4 })],
+        }),
+      }),
+    }))
+    expect(report.windows[0]).toMatchObject({ status: 'repaired', reason: 'legacyBindingRestored' })
   })
 
   it('represents a confirmed missing thread without rebinding the window', async () => {
