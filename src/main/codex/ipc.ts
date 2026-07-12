@@ -130,6 +130,16 @@ const toolCatalogService = new ToolCatalogService({
 })
 let environmentToolClient: CodexClient | null = null
 
+export function activeCodexTaskBlockers(tasks: ReadonlyArray<{ id: string; threadId: string | null }>): string[] {
+  if (!client) return []
+  return tasks.flatMap((task) => {
+    if (!task.threadId) return []
+    if (client?.isThreadRunning(task.threadId)) return [`Codex is still running in task ${task.id}`]
+    if (client?.hasActiveWorkers(task.threadId)) return [`Codex workers are still active in task ${task.id}`]
+    return []
+  })
+}
+
 async function approveEnvironmentTool(
   mainWindowGetter: () => Electron.BrowserWindow | null,
   approval: import('../environments/tools').EnvironmentToolApproval,

@@ -1,12 +1,14 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { afterEach, describe, expect, it } from 'vitest'
 import { installFromManifest } from './install-helper.mjs'
+
+const roots = []
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-updater-helper-'))
+  roots.push(root)
   const currentAppPath = path.join(root, 'Cranberri.app')
   const stagedAppPath = path.join(root, 'staging', 'Cranberri.app')
   fs.mkdirSync(path.join(currentAppPath, 'Contents', 'MacOS'), { recursive: true })
@@ -26,25 +28,27 @@ function fixture() {
   return { root, manifest }
 }
 
-test('promotes a complete candidate atomically and retains the backup', async (t) => {
-  const { root, manifest } = fixture()
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  await installFromManifest(manifest, { relaunch: false })
-  assert.equal(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8'), 'new')
-  assert.equal(fs.readFileSync(path.join(manifest.backupAppPath, 'version'), 'utf8'), 'old')
-  assert.equal(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase, 'relaunching')
+afterEach(() => {
+  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
+  delete process.env.CRANBERRI_UPDATER_FAIL_AFTER
 })
 
-for (const phase of ['candidateCopied', 'backupPromoted', 'candidatePromoted']) {
-  test(`restores the previous app after failure at ${phase}`, async (t) => {
-    const { root, manifest } = fixture()
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-    const previous = process.env.CRANBERRI_UPDATER_FAIL_AFTER
-    process.env.CRANBERRI_UPDATER_FAIL_AFTER = phase
-    await assert.rejects(installFromManifest(manifest, { relaunch: false }), /Injected updater failure/)
-    if (previous === undefined) delete process.env.CRANBERRI_UPDATER_FAIL_AFTER
-    else process.env.CRANBERRI_UPDATER_FAIL_AFTER = previous
-    assert.equal(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8'), 'old')
-    assert.equal(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase, 'rolledBack')
+describe('atomic updater helper', () => {
+  it('promotes a complete candidate atomically and retains the backup', async () => {
+    const { manifest } = fixture()
+    await installFromManifest(manifest, { relaunch: false })
+    expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('new')
+    expect(fs.readFileSync(path.join(manifest.backupAppPath, 'version'), 'utf8')).toBe('old')
+    expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('relaunching')
   })
-}
+
+  for (const phase of ['candidateCopied', 'backupPromoted', 'candidatePromoted']) {
+    it(`restores the previous app after failure at ${phase}`, async () => {
+      const { manifest } = fixture()
+      process.env.CRANBERRI_UPDATER_FAIL_AFTER = phase
+      await expect(installFromManifest(manifest, { relaunch: false })).rejects.toThrow(/Injected updater failure/)
+      expect(fs.readFileSync(path.join(manifest.currentAppPath, 'version'), 'utf8')).toBe('old')
+      expect(JSON.parse(fs.readFileSync(manifest.journalPath, 'utf8')).phase).toBe('rolledBack')
+    })
+  }
+})

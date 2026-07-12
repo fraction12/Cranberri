@@ -8,6 +8,7 @@ import { buildInfo } from '@/shared/buildInfo'
 import { readSettings } from './settings'
 import type { UpdateInfo, UpdateProgress, InstallResult, InstallManifest } from '@/shared/update'
 import { updateInfoSchema, updateProgressSchema, installResultSchema, installManifestSchema } from '@/shared/update'
+import { assertUpdateQuiescent } from './updater-preflight'
 
 const UPDATE_CHANNEL = 'updater:event'
 const RELEASES_API_URL = 'https://api.github.com/repos/fraction12/Cranberri/releases/latest'
@@ -302,6 +303,12 @@ function setStatus(partial: Partial<UpdateInfo>): UpdateInfo {
 async function installUpdate(): Promise<InstallResult> {
   if (currentStatus.status !== 'updateAvailable' && currentStatus.status !== 'failed') {
     return { success: false, phase: null, message: 'No update is available.', logPath: null }
+  }
+  try {
+    await assertUpdateQuiescent()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { success: false, phase: 'preparing', message, logPath: null }
   }
 
   const stagingDir = getUserData('updater-staging')
