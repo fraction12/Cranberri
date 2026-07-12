@@ -62,7 +62,7 @@ export function Tooltip({
           sideOffset={6}
           collisionPadding={8}
           className={cn(
-            'z-[2600] max-w-72 rounded-md bg-app-elevated px-2 py-1 text-app-text shadow-xl ring-1 ring-app-border/80',
+            'pointer-events-none z-[2600] max-w-72 select-none rounded-md bg-app-elevated px-2 py-1 text-app-text shadow-xl ring-1 ring-app-border/80',
             typeStyle({ role: 'metadata' }),
             contentClassName,
           )}
