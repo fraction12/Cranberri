@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useWorkspace } from '../state/workspace'
+import { useWorkspace, type WorkspaceWindow } from '../state/workspace'
 import { useCodexActions, useCodexWindows } from '../state/codex'
 import { useRepos } from '../state/repos'
 import { ChatWindow } from './ChatWindow'
@@ -20,7 +20,8 @@ import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import type { CodexUserInput } from '@/shared/codex'
 import { useOptionalTasks } from '../state/tasks'
-import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, codexThreadIdForActiveWindow } from '../state/workspace-model'
+import { BIND_WORKSPACE_WINDOW_THREAD_EVENT, chatWindowForExecutionContext, codexThreadIdForActiveWindow } from '../state/workspace-model'
+import { resolveTaskExecutionContext, type TaskExecutionContext } from '../state/execution-context'
 import { registerChatContextWorkspace, sendChatContextSafely } from '../state/chat-context-command'
 import { handleTabListKeyDown } from '../lib/tab-navigation'
 import { IconButton } from './ui/IconButton'
@@ -32,7 +33,7 @@ interface WorkspaceProps {
 }
 
 export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
-  const { windows, activeWindowId, activeRepoPath, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask, bindWindowToThread } = useWorkspace()
+  const { windows, activeWindowId, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask, bindWindowToThread } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
   const { openSession, closeThreadWindow, switchThread } = useCodexActions()
   const { getThreadForWindow } = useCodexWindows()
@@ -60,8 +61,8 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   }, [bindWindowToThread])
 
   useEffect(() => {
-    switchThread(codexThreadIdForActiveWindow(windows, activeWindowId))
-  }, [activeWindowId, switchThread, windows])
+    switchThread(codexThreadIdForActiveWindow(windows, activeWindowId, tasksApi?.tasks))
+  }, [activeWindowId, switchThread, tasksApi?.tasks, windows])
 
   const syncTabOverflow = useCallback(() => {
     const strip = tabStripRef.current
@@ -103,6 +104,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
       const session = (event as CustomEvent).detail?.session
       const repoPath = (event as CustomEvent).detail?.repoPath
       const archived = Boolean((event as CustomEvent).detail?.archived)
+      const providedContext = (event as CustomEvent).detail?.context as TaskExecutionContext | undefined
       if (!session) return
       const targetRepo = repoPath ? repos.find((repo) => repo.path === repoPath) : null
       if (repoPath && !targetRepo) {
@@ -112,6 +114,12 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
       }
       const adoptSessionTask = async () => {
         if (!targetRepo) return { task: null, context: undefined }
+        if (providedContext) {
+          return {
+            task: tasksApi?.tasks.find((candidate) => candidate.id === providedContext.taskId) ?? null,
+            context: providedContext,
+          }
+        }
         const task = (await window.cranberri.tasks.adoptLocalThread({ projectId: targetRepo.id, threadId: session.id, archived })).task
         const snapshot = await window.cranberri.tasks.snapshot()
         const checkout = snapshot.checkouts.find((candidate) => candidate.id === task.checkoutId)
@@ -136,7 +144,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
           && task.threadId === session.id
           && task.checkoutId === existingWindow.checkoutId
         ))
-        if (!boundTask && targetRepo) {
+        if (!boundTask && targetRepo && !providedContext) {
           void adoptSessionTask().then(async ({ context }) => {
             if (context) bindWindowToTask(existingWindow.id, context)
             await tasksApi?.refresh()
@@ -216,8 +224,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   }, [closeWindow])
 
   const chooseChatContextTarget = useCallback(() => {
-    const activeChat = windows.find((win) => win.id === activeWindowId && win.type === 'chat')
-    const existingChat = activeChat ?? windows.find((win) => win.type === 'chat')
+    const existingChat = chatWindowForExecutionContext(windows, activeWindowId)
     const targetWindowId = existingChat?.id ?? openChat()
     setActiveWindow(targetWindowId)
     return targetWindowId
@@ -230,6 +237,12 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   const sendContextToChat = useCallback((text: string, inputParts?: CodexUserInput[], attachmentPaths?: string[]) => {
     sendChatContextSafely({ text, inputParts, attachmentPaths })
   }, [])
+
+  const checkoutPathForWindow = useCallback((workspaceWindow: WorkspaceWindow): string | null => {
+    if (!tasksApi || tasksApi.loading) return null
+    const resolution = resolveTaskExecutionContext(workspaceWindow, tasksApi)
+    return resolution.status === 'available' ? resolution.context.checkoutPath : null
+  }, [tasksApi])
 
   const closeWorkspaceWindow = useCallback((windowId: string) => {
     const win = windows.find((item) => item.id === windowId)
@@ -378,7 +391,7 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
               <ChatWindow id={win.id} />
             ) : win.type === 'terminal' ? (
               <Suspense fallback={<div className={cn('flex h-full items-center justify-center', typeStyle({ role: 'status', tone: 'secondary' }))}>Loading terminal...</div>}>
-                <TerminalWindow id={win.id} repoPath={activeRepoPath} taskId={win.taskId} onSendToChat={sendContextToChat} />
+                <TerminalWindow id={win.id} repoPath={checkoutPathForWindow(win)} taskId={win.taskId} onSendToChat={sendContextToChat} />
               </Suspense>
             ) : (
               <BrowserPane

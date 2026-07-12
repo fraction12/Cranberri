@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { repoWatchEventSchema, type FilePreviewResult, type RepoSearchOptions, type RepoSearchResult } from '@/shared/search'
 import { useRepos } from './repos'
+import { useWorkspace } from './workspace'
 
 export function useRepoSearch(options: RepoSearchOptions, enabled = true) {
   const { activeRepo } = useRepos()
@@ -29,12 +30,15 @@ export function useFilePreview(filePath: string | null, maxBytes?: number) {
 
 export function useRepoWatchInvalidation(): void {
   const { activeRepo } = useRepos()
+  const { activeWindowId, activeExecutionContext, activeExecutionResolution } = useWorkspace()
   const queryClient = useQueryClient()
   const activeRepoId = activeRepo?.id ?? null
-  const activeRepoPath = activeRepo?.path ?? null
+  const activeTaskId = activeExecutionContext?.taskId ?? null
+  const activeRepoPath = activeExecutionContext?.checkoutPath ?? null
+  const executionPending = Boolean(activeWindowId) && activeExecutionResolution === null
 
   useEffect(() => {
-    if (!activeRepoId || !activeRepoPath) return undefined
+    if (!activeRepoId || !activeRepoPath || executionPending) return undefined
     let mounted = true
     const unsubscribe = window.cranberri.search.onRepoChanged((event) => {
       const parsed = repoWatchEventSchema.safeParse(event)
@@ -48,14 +52,20 @@ export function useRepoWatchInvalidation(): void {
       void queryClient.invalidateQueries({ queryKey: ['git-raw-content', activeRepoId] })
     })
 
-    window.cranberri.search.watchStart(activeRepoPath).catch((error) => {
+    const start = activeTaskId
+      ? window.cranberri.search.taskWatchStart(activeTaskId)
+      : window.cranberri.search.watchStart(activeRepoPath)
+    start.catch((error) => {
       if (mounted) console.error('Failed to start repo watcher:', error)
     })
 
     return () => {
       mounted = false
       unsubscribe()
-      window.cranberri.search.watchStop(activeRepoPath).catch(() => undefined)
+      const stop = activeTaskId
+        ? window.cranberri.search.taskWatchStop(activeTaskId)
+        : window.cranberri.search.watchStop(activeRepoPath)
+      stop.catch(() => undefined)
     }
-  }, [activeRepoId, activeRepoPath, queryClient])
+  }, [activeRepoId, activeRepoPath, activeTaskId, executionPending, queryClient])
 }

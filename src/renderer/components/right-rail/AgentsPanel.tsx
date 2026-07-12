@@ -4,11 +4,13 @@ import type { CodexSessionSummary, CodexThread, CodexWorker } from '@/shared/cod
 import { useCodexActions, useCodexThreads } from '../../state/codex'
 import { useRepos } from '../../state/repos'
 import { AgentList, agentDisplayName } from './AgentList'
+import { useWorkspace } from '../../state/workspace'
 
 export function AgentsPanel({ thread }: { thread: CodexThread | null }) {
   const { getThread } = useCodexThreads()
   const { messageWorker, stopWorker } = useCodexActions()
   const { repos, activeRepo } = useRepos()
+  const { activeExecutionContext } = useWorkspace()
   const threadRepo = repos.find((repo) => repo.id === thread?.repoId) ?? activeRepo
 
   const openCodexThread = useCallback((session: CodexSessionSummary) => {
@@ -17,9 +19,9 @@ export function AgentsPanel({ thread }: { thread: CodexThread | null }) {
       return
     }
     window.dispatchEvent(new CustomEvent('cranberri:open-codex-session', {
-      detail: { session, repoPath: threadRepo.path, archived: false },
+      detail: { session, repoPath: threadRepo.path, archived: false, context: activeExecutionContext ?? undefined },
     }))
-  }, [threadRepo])
+  }, [activeExecutionContext, threadRepo])
 
   const openAgent = useCallback((agent: CodexWorker) => {
     openCodexThread({

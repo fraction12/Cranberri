@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { bindWorkspaceWindowThread, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { bindWorkspaceWindowThread, chatWindowForExecutionContext, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -40,6 +40,25 @@ describe('codexThreadIdForActiveWindow', () => {
     expect(codexThreadIdForActiveWindow(windows, 'terminal-1')).toBeNull()
     expect(codexThreadIdForActiveWindow(windows, 'browser-1')).toBeNull()
     expect(codexThreadIdForActiveWindow(windows, null)).toBeNull()
+  })
+
+  it('keeps a task thread projected while its terminal is active', () => {
+    const boundWindows: WorkspaceWindowState[] = [
+      { id: 'chat', type: 'chat', title: 'Chat', taskId: 'task', checkoutId: 'worktree', threadId: 'thread' },
+      { id: 'terminal', type: 'terminal', title: 'Terminal', taskId: 'task', checkoutId: 'worktree' },
+    ]
+    expect(codexThreadIdForActiveWindow(boundWindows, 'terminal', [{ id: 'task', threadId: 'thread' }])).toBe('thread')
+  })
+})
+
+describe('chatWindowForExecutionContext', () => {
+  it('prefers the chat belonging to the active tool task', () => {
+    const windows: WorkspaceWindowState[] = [
+      { id: 'local-chat', type: 'chat', title: 'Local', projectId: 'project', taskId: 'local', checkoutId: 'local' },
+      { id: 'worktree-chat', type: 'chat', title: 'Worktree', projectId: 'project', taskId: 'worktree-task', checkoutId: 'worktree' },
+      { id: 'terminal', type: 'terminal', title: 'Terminal', projectId: 'project', taskId: 'worktree-task', checkoutId: 'worktree' },
+    ]
+    expect(chatWindowForExecutionContext(windows, 'terminal')?.id).toBe('worktree-chat')
   })
 })
 

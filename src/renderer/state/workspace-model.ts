@@ -1,4 +1,5 @@
 import type { RepoWorkspaceState, WorkspaceWindowState } from '../../shared/appState'
+import type { Task } from '../../shared/tasks'
 import type { TaskExecutionContext } from './execution-context'
 
 export const BIND_WORKSPACE_WINDOW_THREAD_EVENT = 'cranberri:bind-workspace-window-thread'
@@ -134,7 +135,24 @@ export function closeSessionChatWindows(
 export function codexThreadIdForActiveWindow(
   windows: WorkspaceWindowState[],
   activeWindowId: string | null,
+  tasks: ReadonlyArray<Pick<Task, 'id' | 'threadId'>> = [],
 ): string | null {
   const activeWindow = windows.find((window) => window.id === activeWindowId)
-  return activeWindow?.type === 'chat' ? activeWindow.threadId ?? null : null
+  if (!activeWindow) return null
+  if (activeWindow.type === 'chat') return activeWindow.threadId ?? null
+  return tasks.find((task) => task.id === activeWindow.taskId)?.threadId ?? null
+}
+
+export function chatWindowForExecutionContext(
+  windows: WorkspaceWindowState[],
+  activeWindowId: string | null,
+): WorkspaceWindowState | undefined {
+  const activeWindow = windows.find((window) => window.id === activeWindowId)
+  if (activeWindow?.type === 'chat') return activeWindow
+  const chats = windows.filter((window) => window.type === 'chat')
+  if (!activeWindow) return chats[0]
+  return chats.find((window) => Boolean(activeWindow.taskId) && window.taskId === activeWindow.taskId)
+    ?? chats.find((window) => window.checkoutId === activeWindow.checkoutId && window.projectId === activeWindow.projectId)
+    ?? chats.find((window) => window.projectId === activeWindow.projectId)
+    ?? chats[0]
 }
