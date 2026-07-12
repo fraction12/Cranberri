@@ -683,7 +683,7 @@ async function runFreshStartupSmoke() {
         throw new Error('Completed update results should be shown as toasts, not modal content')
       }
       await page.getByLabel('Close settings').click()
-      await page.getByText('Settings').waitFor({ state: 'detached', timeout: 10_000 })
+      await page.getByRole('dialog', { name: 'Settings' }).waitFor({ state: 'detached', timeout: 10_000 })
 
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('copy diagnostics user data path')
