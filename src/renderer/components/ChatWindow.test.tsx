@@ -10,7 +10,6 @@ import {
   shouldToastAfterSendError,
 } from './chat/chat-window-state'
 import { renderSkillText } from './chat/composer-text'
-import { getSkillTrigger } from './ChatWindow'
 import type { CodexSkillInfo } from '@/shared/codex'
 
 const CE_BRAINSTORM: CodexSkillInfo = {
@@ -34,11 +33,6 @@ describe('ChatWindow composer rendering', () => {
 
   it('uses ready copy for a lazy new Codex thread', () => {
     expect(NEW_THREAD_EMPTY_STATE).toBe('Ask Codex to inspect, edit, or explain this repo.')
-  })
-
-  it('opens command and skill matching from the first trigger keystroke', () => {
-    expect(getSkillTrigger('/', 1)).toEqual({ char: '/', start: 0, query: '' })
-    expect(getSkillTrigger('$tool', 5)).toEqual({ char: '$', start: 0, query: 'tool' })
   })
 
   it('recovers the Codex thread id from a persisted session window', () => {

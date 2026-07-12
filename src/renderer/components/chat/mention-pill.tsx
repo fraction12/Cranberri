@@ -13,6 +13,11 @@ const MENTION_PILL_CLASS = cn(
   'align-baseline',
   'shadow-[inset_0_0_0_1px_var(--app-mention-ring)]',
 )
+const COMPOSER_MENTION_CLASS = cn(
+  typeStyle({ role: 'body', tone: 'mention', weight: 'medium' }),
+  'inline-flex max-w-full cursor-text items-center gap-[3px] rounded-[3px] px-0.5 align-baseline',
+  'hover:underline hover:decoration-dashed hover:decoration-[0.5px] hover:underline-offset-4',
+)
 const INLINE_TOKEN_PATTERN = /(`[^`]+`|\[[^\]\n]+\]\([^)\n]+\))/g
 const MARKDOWN_LINK_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/
 
@@ -37,11 +42,11 @@ function parseMarkdownLink(text: string): { label: string; href: string } | null
   return { label: match[1], href: match[2] }
 }
 
-export function MentionPill({ mention }: { mention: MentionLink }) {
+export function MentionPill({ mention, variant = 'transcript' }: { mention: MentionLink; variant?: 'transcript' | 'composer' }) {
   const Icon = mention.kind === 'plugin' ? Plug : Package
   return (
-    <span className={MENTION_PILL_CLASS} data-mention-kind={mention.kind}>
-      <Icon className="h-[0.9em] w-[0.9em] shrink-0" />
+    <span className={variant === 'composer' ? COMPOSER_MENTION_CLASS : MENTION_PILL_CLASS} data-mention-kind={mention.kind}>
+      <Icon className={variant === 'composer' ? 'h-4 w-4 shrink-0' : 'h-[0.9em] w-[0.9em] shrink-0'} />
       <span className="min-w-0 truncate">{mention.label}</span>
     </span>
   )

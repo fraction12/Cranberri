@@ -16,6 +16,7 @@ const smokeScreenshotDir = process.env.CRANBERRI_SMOKE_SCREENSHOT_DIR
 const useRendererScreenshots = process.env.CRANBERRI_SMOKE_RENDERER_SCREENSHOTS === '1'
 const typographyUat = process.env.CRANBERRI_SMOKE_TYPOGRAPHY_UAT === '1'
 const dropdownUat = process.env.CRANBERRI_SMOKE_DROPDOWN_UAT === '1'
+const composerUatOnly = process.env.CRANBERRI_SMOKE_COMPOSER_UAT_ONLY === '1'
 const realCodexTimeoutMs = Number(process.env.CRANBERRI_SMOKE_REAL_TIMEOUT_MS ?? 180_000)
 const capturedSmokeScreenshots = new Set()
 let screenshotElectronApp = null
@@ -977,7 +978,7 @@ async function runSessionWorkspaceSmoke() {
       await composer.waitFor({ state: 'visible' })
       await page.waitForFunction(() => {
         const input = document.querySelector('[aria-label="Chat message"]')
-        return input instanceof HTMLTextAreaElement && input.disabled
+        return input instanceof HTMLElement && input.getAttribute('contenteditable') === 'false'
       }, undefined, { timeout: 10_000 })
       const showArchived = repo.getByRole('button', { name: /Show archived/ })
       await showArchived.waitFor({ timeout: 10_000 })
@@ -992,7 +993,7 @@ async function runSessionWorkspaceSmoke() {
       }, identity, { timeout: 10_000 })
       await page.waitForFunction(() => {
         const input = document.querySelector('[aria-label="Chat message"]')
-        return input instanceof HTMLTextAreaElement && !input.disabled
+        return input instanceof HTMLElement && input.getAttribute('contenteditable') === 'true'
       }, undefined, { timeout: 10_000 })
       await promotedRow.waitFor({ timeout: 10_000 })
 
@@ -1278,11 +1279,59 @@ async function runRepoWorkspaceSmoke() {
       const composer = page.getByRole('textbox', { name: 'Chat message' })
       await composer.click()
       await page.keyboard.type('/')
-      const skillsMenu = page.getByRole('listbox', { name: 'Commands and skills' })
+      const skillsMenu = page.getByRole('listbox', { name: 'Commands' })
       await skillsMenu.waitFor({ timeout: 10_000 })
-      await captureSmokeScreenshot(page, 'dropdown-skills-light-standard')
-      await scrollOpenSurface(page, skillsMenu, 'skills-menu')
-      await captureSmokeScreenshot(page, 'dropdown-skills-light-standard-scrolled')
+      await captureSmokeScreenshot(page, 'dropdown-commands-light-standard')
+      await composer.fill('')
+      await composer.fill('this is a test $')
+      const skillMentionsMenu = page.getByRole('listbox', { name: 'Skills' })
+      await skillMentionsMenu.waitFor({ timeout: 10_000 })
+      await scrollOpenSurface(page, skillMentionsMenu, 'skills-menu')
+      const firstSkill = skillMentionsMenu.getByRole('option').first()
+      await firstSkill.click()
+      await page.keyboard.type('d')
+      await page.waitForFunction(() => {
+        const input = document.querySelector('[data-composer-input="true"]')
+        const mention = input?.querySelector('[data-composer-mention="skill"]')
+        return input instanceof HTMLElement
+          && mention instanceof HTMLElement
+          && (input.textContent ?? '').startsWith('this is a test ')
+          && (input.textContent ?? '').endsWith(' d')
+          && !document.querySelector('[data-chat-composer="true"] textarea')
+      }, undefined, { timeout: 10_000 })
+      const caretGeometry = await page.evaluate(() => {
+        const input = document.querySelector('[data-composer-input="true"]')
+        const mention = input?.querySelector('[data-composer-mention="skill"]')
+        const selection = window.getSelection()
+        if (!(input instanceof HTMLElement) || !(mention instanceof HTMLElement) || !selection?.rangeCount) return null
+        const caret = selection.getRangeAt(0).getBoundingClientRect()
+        const mentionRect = mention.getBoundingClientRect()
+        return { caretLeft: caret.left, mentionRight: mentionRect.right }
+      })
+      if (!caretGeometry || caretGeometry.caretLeft < caretGeometry.mentionRight) {
+        throw new Error(`Composer caret did not advance past the skill mention: ${JSON.stringify(caretGeometry)}`)
+      }
+      await captureSmokeScreenshot(page, 'composer-native-skill-caret')
+      await composer.fill('$')
+      await page.getByRole('listbox', { name: 'Skills' }).getByRole('option').first().click()
+      await page.keyboard.press('Backspace')
+      await page.keyboard.press('Backspace')
+      if (await page.locator('[data-composer-mention="skill"]').count()) {
+        throw new Error('Backspace did not remove the skill mention atomically')
+      }
+      await composer.fill('@')
+      const pluginMentionsMenu = page.getByRole('listbox', { name: 'Plugins and context' })
+      await pluginMentionsMenu.waitFor({ timeout: 10_000 })
+      await pluginMentionsMenu.getByRole('option').first().click()
+      await page.keyboard.type(' test')
+      await page.locator('[data-composer-mention="plugin"]').waitFor({ timeout: 10_000 })
+      await composer.fill('composition guard')
+      const articleCountBeforeComposition = await page.locator('article').count()
+      await composer.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
+      await page.waitForTimeout(150)
+      if ((await composer.textContent()) !== 'composition guard' || await page.locator('article').count() !== articleCountBeforeComposition) {
+        throw new Error('IME composition Enter submitted the composer')
+      }
       await composer.fill('')
       await page.getByLabel('Add context').click()
       await page.getByRole('menuitem', { name: /^Goal/ }).click()
@@ -1311,23 +1360,20 @@ async function runRepoWorkspaceSmoke() {
         throw new Error('New-chat empty state remained visible behind a composer draft')
       }
       await page.waitForFunction(() => {
-        const textarea = document.querySelector('textarea[aria-label="Chat message"]')
-        if (!(textarea instanceof HTMLTextAreaElement)) return false
-        return textarea.clientHeight <= 160
-          && textarea.scrollHeight > textarea.clientHeight
-          && getComputedStyle(textarea).overflowY === 'auto'
+        const viewport = document.querySelector('[data-composer-viewport="true"]')
+        if (!(viewport instanceof HTMLElement)) return false
+        return viewport.clientHeight <= (window.innerHeight * 0.25) + 1
+          && viewport.scrollHeight > viewport.clientHeight
+          && getComputedStyle(viewport).overflowY === 'auto'
       }, undefined, { timeout: 10_000 })
-      await composer.evaluate((textarea) => {
-        textarea.scrollTop = textarea.scrollHeight
-        textarea.dispatchEvent(new Event('scroll'))
+      await page.locator('[data-composer-viewport="true"]').evaluate((viewport) => {
+        viewport.scrollTop = viewport.scrollHeight
+        viewport.dispatchEvent(new Event('scroll'))
       })
       await page.waitForFunction(() => {
         const viewport = document.querySelector('[data-composer-viewport="true"]')
-        const ghost = document.querySelector('[data-composer-ghost="true"]')
-        const textarea = document.querySelector('textarea[aria-label="Chat message"]')
-        if (!(viewport instanceof HTMLElement) || !(ghost instanceof HTMLElement) || !(textarea instanceof HTMLTextAreaElement)) return false
-        return viewport.getBoundingClientRect().height <= 160
-          && ghost.style.transform.includes(`${-textarea.scrollTop}px`)
+        if (!(viewport instanceof HTMLElement)) return false
+        return viewport.scrollTop > 0
       }, undefined, { timeout: 10_000 })
       await page.waitForFunction((initialHeight) => {
         const composerRoot = document.querySelector('[data-chat-composer="true"]')
@@ -1391,39 +1437,39 @@ async function runRepoWorkspaceSmoke() {
       await page.getByRole('button', { name: 'Cancel' }).click()
       await page.getByLabel('Send selected file context to chat').click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo file context:') && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo file context:') && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo file context:').waitFor({ timeout: 20_000 }).catch(async (error) => {
         const diagnostics = await page.evaluate(async () => ({
           tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
-          composer: [...document.querySelectorAll('textarea')].map((item) => item.value),
+          composer: [...document.querySelectorAll('[data-composer-input="true"]')].map((item) => (item.textContent ?? '')),
           notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
         }))
         throw new Error(`${error instanceof Error ? error.message : String(error)}\nWorktree send diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
       })
       await page.getByRole('tab', { name: 'Files' }).click()
 
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-model-settings-smoke')
+      await composer.fill('cranberri-model-settings-smoke')
       await page.getByLabel('Send message').click()
       await page.getByText('settings:gpt-5.4-mini|medium|standard').waitFor({ timeout: 20_000 }).catch(async (error) => {
         const diagnostics = await page.evaluate(async () => ({
           tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
-          composer: [...document.querySelectorAll('textarea')].map((item) => item.value),
+          composer: [...document.querySelectorAll('[data-composer-input="true"]')].map((item) => (item.textContent ?? '')),
           notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
           transcript: document.querySelector('[data-chat-transcript-end="true"]')?.parentElement?.textContent,
         }))
         throw new Error(`${error instanceof Error ? error.message : String(error)}\nTask follow-up diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
       })
 
-      await page.getByPlaceholder('Ask for follow-up changes').waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri fake codex smoke')
+      await composer.waitFor({ timeout: 10_000 })
+      await composer.fill('cranberri fake codex smoke')
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: cranberri fake codex smoke').waitFor({ timeout: 10_000 })
       await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 10_000 })
       await captureSmokeScreenshot(page, 'chat-transcript-light')
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-chat-trail-smoke')
+      await composer.fill('cranberri-chat-trail-smoke')
       await page.getByLabel('Send message').click()
       const activeTurn = page.locator('[data-turn-activity]').last()
       await activeTurn.locator('button[aria-expanded="true"]').waitFor({ timeout: 10_000 })
@@ -1442,10 +1488,10 @@ async function runRepoWorkspaceSmoke() {
       await activeTurn.getByText(/Worked for \d+s/).waitFor({ timeout: 10_000 })
       await activeTurn.locator('button[aria-expanded="false"]').waitFor({ timeout: 10_000 })
       await page.getByText('Fake Codex received: cranberri-chat-trail-smoke').waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-smoke-reject-turn')
+      await composer.fill('cranberri-smoke-reject-turn')
       await page.getByLabel('Send message').click()
       await page.getByText('Error: Fake Codex rejected turn').waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri fake codex smoke')
+      await composer.fill('cranberri fake codex smoke')
       if (await page.getByLabel('Send message').isDisabled()) {
         throw new Error('Rejected Codex turn left the chat running')
       }
@@ -1459,9 +1505,9 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('send latest prompt to chat')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send latest prompt to chat' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('User prompt context:')
-            && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('User prompt context:')
+            && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await waitForAssistantArticleText(page, 'Fake Codex received: User prompt context:')
@@ -1469,9 +1515,9 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('send latest response to chat')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send latest response to chat' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Assistant response context:')
-            && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Assistant response context:')
+            && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await waitForAssistantArticleText(page, 'Fake Codex received: Assistant response context:')
@@ -1481,9 +1527,9 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Copy latest response').waitFor({ timeout: 10_000 })
       await page.getByLabel('Send response to chat').last().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Assistant response context:')
-            && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Assistant response context:')
+            && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await waitForAssistantArticleText(page, 'Fake Codex received: Assistant response context:', 2)
@@ -1493,10 +1539,10 @@ async function runRepoWorkspaceSmoke() {
       await transcriptMessageAction.waitFor({ timeout: 10_000 })
       await transcriptMessageAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => (textarea.value.includes('Assistant response context:')
-            || textarea.value.includes('User prompt context:'))
-            && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => ((textarea.textContent ?? '').includes('Assistant response context:')
+            || (textarea.textContent ?? '').includes('User prompt context:'))
+            && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       const fakeResponseCountBeforeTranscriptSend = await page.locator('article').filter({ hasText: 'Fake Codex received:' }).count()
       await page.getByLabel('Send message').click()
@@ -1522,7 +1568,7 @@ async function runRepoWorkspaceSmoke() {
       }
       await copyTranscriptAction.click()
       await page.getByText('Copy active chat transcript').waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill([
+      await composer.fill([
         'Mermaid smoke:',
         '',
         '```mermaid',
@@ -1533,7 +1579,7 @@ async function runRepoWorkspaceSmoke() {
       await page.getByLabel('Send message').click()
       await page.locator('[data-mermaid-diagram="true"]').last().waitFor({ timeout: 10_000 })
       await page.locator('[data-mermaid-diagram="true"] svg').last().waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill([
+      await composer.fill([
         'Code copy smoke:',
         '',
         '```ts',
@@ -1545,7 +1591,7 @@ async function runRepoWorkspaceSmoke() {
       await codeCopyPreview.waitFor({ timeout: 10_000 })
       await codeCopyPreview.getByLabel('Copy code').click()
       await codeCopyPreview.getByText('Copied').waitFor({ timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill([
+      await composer.fill([
         'Image smoke:',
         '',
         `![Cranberri smoke image](${path.join(repoPath, 'smoke-image.png')})`,
@@ -1561,8 +1607,8 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
       await page.locator('[data-markdown-media="image"]').last().getByLabel('Send image to chat').click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Image from assistant markdown:') && textarea.value.includes('smoke-image.png'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Image from assistant markdown:') && (textarea.textContent ?? '').includes('smoke-image.png'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -1570,7 +1616,7 @@ async function runRepoWorkspaceSmoke() {
           .some((article) => article.textContent?.includes('Fake Codex received: Image from assistant markdown:')
             && article.textContent.includes('local-images:1'))
       }, { timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill([
+      await composer.fill([
         'Remote image smoke:',
         '',
         '![Cranberri remote image](https://example.com/cranberri-remote-smoke.png)',
@@ -1580,8 +1626,8 @@ async function runRepoWorkspaceSmoke() {
       await remoteImagePreview.waitFor({ timeout: 10_000 })
       await remoteImagePreview.getByLabel('Send image to chat').click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Image from assistant markdown:') && textarea.value.includes('Cranberri remote image'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Image from assistant markdown:') && (textarea.textContent ?? '').includes('Cranberri remote image'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -1591,11 +1637,10 @@ async function runRepoWorkspaceSmoke() {
             && article.textContent.includes('local-images:1'))
       }, { timeout: 10_000 })
       smokeStep('attachments and voice')
-      await page.getByPlaceholder('Ask for follow-up changes').click()
+      await composer.click()
       await page.evaluate(() => {
-        const textarea = [...document.querySelectorAll('textarea')]
-          .find((node) => node instanceof HTMLTextAreaElement && node.placeholder.includes('Ask for follow-up changes'))
-        if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Composer textarea not found')
+        const textarea = document.querySelector('[data-composer-input="true"]')
+        if (!(textarea instanceof HTMLElement)) throw new Error('Composer editor not found')
         const dataTransfer = new DataTransfer()
         dataTransfer.setData('text/plain', [
           'Please inspect this pasted image.',
@@ -1608,8 +1653,8 @@ async function runRepoWorkspaceSmoke() {
         }))
       })
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Please inspect this pasted image.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Please inspect this pasted image.'))
       }, { timeout: 10_000 })
       await page.getByText('cranberri-pasted-image.png').waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => {
@@ -1622,11 +1667,10 @@ async function runRepoWorkspaceSmoke() {
           .some((article) => article.textContent?.includes('Fake Codex received: Please inspect this pasted image.')
             && article.textContent.includes('local-images:1'))
       }, { timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').click()
+      await composer.click()
       await page.evaluate((pastedPath) => {
-        const textarea = [...document.querySelectorAll('textarea')]
-          .find((node) => node instanceof HTMLTextAreaElement && node.placeholder.includes('Ask for follow-up changes'))
-        if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Composer textarea not found')
+        const textarea = document.querySelector('[data-composer-input="true"]')
+        if (!(textarea instanceof HTMLElement)) throw new Error('Composer editor not found')
         const dataTransfer = new DataTransfer()
         dataTransfer.setData('text/plain', [
           'Please inspect this pasted local file.',
@@ -1639,8 +1683,8 @@ async function runRepoWorkspaceSmoke() {
         }))
       }, path.join(repoPath, 'README.md'))
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Please inspect this pasted local file.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Please inspect this pasted local file.'))
       }, { timeout: 10_000 })
       await page.getByLabel('Remove attached file README.md').waitFor({ timeout: 10_000 })
       await page.getByLabel('Send message').click()
@@ -1649,11 +1693,10 @@ async function runRepoWorkspaceSmoke() {
           .some((article) => article.textContent?.includes('Fake Codex received: Attached local paths:')
             && article.textContent.includes(pastedPath))
       }, path.join(repoPath, 'README.md'), { timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').click()
+      await composer.click()
       await page.evaluate(() => {
-        const textarea = [...document.querySelectorAll('textarea')]
-          .find((node) => node instanceof HTMLTextAreaElement && node.placeholder.includes('Ask for follow-up changes'))
-        if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Composer textarea not found')
+        const textarea = document.querySelector('[data-composer-input="true"]')
+        if (!(textarea instanceof HTMLElement)) throw new Error('Composer editor not found')
         const dataTransfer = new DataTransfer()
         dataTransfer.setData('text/plain', 'Please inspect this pasted screenshot.')
         dataTransfer.items.add(new File(['cranberri clipboard image smoke'], 'cranberri-clipboard-smoke.png', {
@@ -1666,8 +1709,8 @@ async function runRepoWorkspaceSmoke() {
         }))
       })
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Please inspect this pasted screenshot.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Please inspect this pasted screenshot.'))
       }, { timeout: 10_000 })
       await page.getByText('Inline image').waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => {
@@ -1680,11 +1723,10 @@ async function runRepoWorkspaceSmoke() {
           .some((article) => article.textContent?.includes('Fake Codex received: Please inspect this pasted screenshot.')
             && article.textContent.includes('local-images:1'))
       }, { timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').click()
+      await composer.click()
       await page.evaluate(() => {
-        const textarea = [...document.querySelectorAll('textarea')]
-          .find((node) => node instanceof HTMLTextAreaElement && node.placeholder.includes('Ask for follow-up changes'))
-        if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Composer textarea not found')
+        const textarea = document.querySelector('[data-composer-input="true"]')
+        if (!(textarea instanceof HTMLElement)) throw new Error('Composer editor not found')
         const dataTransfer = new DataTransfer()
         dataTransfer.setData('text/plain', 'Please inspect this dropped screenshot.')
         dataTransfer.items.add(new File(['cranberri dropped image smoke'], 'cranberri-dropped-smoke.png', {
@@ -1702,8 +1744,8 @@ async function runRepoWorkspaceSmoke() {
         }))
       })
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Please inspect this dropped screenshot.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Please inspect this dropped screenshot.'))
       }, { timeout: 10_000 })
       await page.getByText('Inline image').waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => {
@@ -1716,11 +1758,10 @@ async function runRepoWorkspaceSmoke() {
           .some((article) => article.textContent?.includes('Fake Codex received: Please inspect this dropped screenshot.')
             && article.textContent.includes('local-images:1'))
       }, { timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').click()
+      await composer.click()
       await page.evaluate((droppedPath) => {
-        const textarea = [...document.querySelectorAll('textarea')]
-          .find((node) => node instanceof HTMLTextAreaElement && node.placeholder.includes('Ask for follow-up changes'))
-        if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Composer textarea not found')
+        const textarea = document.querySelector('[data-composer-input="true"]')
+        if (!(textarea instanceof HTMLElement)) throw new Error('Composer editor not found')
         const dataTransfer = new DataTransfer()
         dataTransfer.setData('text/plain', 'Please inspect this dropped local file.')
         const file = new File(['cranberri dropped file smoke'], 'README.md', {
@@ -1740,8 +1781,8 @@ async function runRepoWorkspaceSmoke() {
         }))
       }, path.join(repoPath, 'README.md'))
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Please inspect this dropped local file.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Please inspect this dropped local file.'))
       }, { timeout: 10_000 })
       await page.getByLabel('Remove attached file README.md').waitFor({ timeout: 10_000 })
       await page.getByLabel('Send message').click()
@@ -1829,13 +1870,26 @@ async function runRepoWorkspaceSmoke() {
           value: FakeSpeechRecognition,
         })
       })
+      await page.getByLabel('Send message').waitFor({ timeout: 10_000 })
       await page.getByLabel('Start voice dictation').click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('cranberri dictated smoke text'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('cranberri dictated smoke text'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
-      await page.getByText('Fake Codex received: cranberri dictated smoke text').waitFor({ timeout: 10_000 })
+      await page.getByText('Fake Codex received: cranberri dictated smoke text').waitFor({ timeout: 10_000 }).catch(async (error) => {
+        const diagnostics = await page.evaluate(async () => ({
+          tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
+          composer: [...document.querySelectorAll('[data-composer-input="true"]')].map((item) => ({
+            text: item.textContent,
+            placeholder: item.getAttribute('aria-placeholder'),
+          })),
+          primaryAction: document.querySelector('button[aria-label="Send message"], button[aria-label="Stop Codex"]')?.getAttribute('aria-label'),
+          notifications: [...document.querySelectorAll('[data-sonner-toast]')].map((item) => item.textContent),
+          transcript: document.querySelector('[data-chat-transcript-end="true"]')?.parentElement?.textContent,
+        }))
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nDictation send diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`)
+      })
       await page.waitForFunction(async () => {
         const result = await window.cranberri.telemetry.readEvents(80)
         return result.events.some((event) => {
@@ -1848,6 +1902,7 @@ async function runRepoWorkspaceSmoke() {
             && payload.contextWindow === 258400
         })
       }, { timeout: 10_000 })
+      if (composerUatOnly) return
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('active chat context')
       const activeChatContextAction = page.locator('[cmdk-item]').filter({ hasText: 'Send active chat context' }).first()
@@ -1857,9 +1912,9 @@ async function runRepoWorkspaceSmoke() {
       }
       await activeChatContextAction.click()
       await page.waitForTimeout(500)
-      const activeChatTextareas = await page.locator('textarea').evaluateAll((nodes) => nodes.map((node) => node.value))
-      if (!activeChatTextareas.some((value) => value.includes('Active chat context:') && value.includes('Smoke Codex Thread') && value.includes('128 / 258,400 tokens'))) {
-        throw new Error(`Active chat context did not reach composer. Textareas:\n${activeChatTextareas.join('\n---\n')}`)
+      const activeChatComposers = await page.locator('[data-composer-input="true"]').evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ''))
+      if (!activeChatComposers.some((value) => value.includes('Active chat context:') && value.includes('Smoke Codex Thread') && value.includes('128 / 258,400 tokens'))) {
+        throw new Error(`Active chat context did not reach composer. Composers:\n${activeChatComposers.join('\n---\n')}`)
       }
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Active chat context:').waitFor({ timeout: 10_000 })
@@ -1867,8 +1922,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('fake codex smoke')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send session match: Smoke Codex Thread' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Codex session context:') && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Codex session context:') && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Codex session context:').waitFor({ timeout: 10_000 })
@@ -1883,8 +1938,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestSessionAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Codex session context:') && textarea.value.includes('cranberri fake codex smoke'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Codex session context:') && (textarea.textContent ?? '').includes('cranberri fake codex smoke'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Codex session context:').last().waitFor({ timeout: 10_000 })
@@ -1922,7 +1977,7 @@ async function runRepoWorkspaceSmoke() {
       }, { timeout: 10_000 })
 
       smokeStep('first-class subagent workers')
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-worker-smoke')
+      await composer.fill('cranberri-worker-smoke')
       await page.getByLabel('Send message').click()
       if (await page.locator('[data-worker-shelf="true"]').count() !== 0) {
         throw new Error('Agents should not render above the chat transcript')
@@ -2000,14 +2055,14 @@ async function runRepoWorkspaceSmoke() {
       await captureSmokeScreenshot(page, 'subagent-workers')
 
       smokeStep('approvals and tools')
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-approval-smoke-request')
+      await composer.fill('cranberri-approval-smoke-request')
       await page.getByLabel('Send message').click()
       await page.getByText('Install fake smoke dependency').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('approve fake smoke dependency')
       await page.locator('[cmdk-item]').filter({ hasText: 'Approve pending Codex action' }).first().click()
       await page.getByText('Install fake smoke dependency').waitFor({ state: 'detached', timeout: 10_000 })
-      await page.getByPlaceholder('Ask for follow-up changes').fill('cranberri-approval-smoke-request')
+      await composer.fill('cranberri-approval-smoke-request')
       await page.getByLabel('Send message').click()
       await page.getByText('Install fake smoke dependency').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
@@ -2108,8 +2163,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendSelectedFileAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo file context:') && textarea.value.includes('Search marker: cranberri-electron-smoke-search.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo file context:') && (textarea.textContent ?? '').includes('Search marker: cranberri-electron-smoke-search.'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo file context:').last().waitFor({ timeout: 10_000 })
@@ -2124,8 +2179,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestRepoFileAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo file context:') && textarea.value.includes('Search marker: cranberri-electron-smoke-search.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo file context:') && (textarea.textContent ?? '').includes('Search marker: cranberri-electron-smoke-search.'))
       }, { timeout: 10_000 })
       const repoFileContextCountBefore = await page.locator('article').filter({ hasText: 'Fake Codex received: Repo file context:' }).count()
       await page.getByLabel('Send message').click()
@@ -2202,8 +2257,8 @@ async function runRepoWorkspaceSmoke() {
       await page.locator('[cmdk-item]').filter({ hasText: 'README.md' }).first().waitFor({ timeout: 10_000 })
       await page.locator('[cmdk-item]').filter({ hasText: 'Send file context: README.md' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo file context:') && textarea.value.includes('Search marker: cranberri-electron-smoke-search.'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo file context:') && (textarea.textContent ?? '').includes('Search marker: cranberri-electron-smoke-search.'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo file context:').last().waitFor({ timeout: 10_000 })
@@ -2211,8 +2266,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('git status context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send git status context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo status context:') && textarea.value.includes('- modified: README.md'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo status context:') && (textarea.textContent ?? '').includes('- modified: README.md'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo status context:').waitFor({ timeout: 10_000 })
@@ -2221,8 +2276,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('repo diff context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send repo diff context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo diff context:') && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo diff context:') && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo diff context:').waitFor({ timeout: 10_000 })
@@ -2236,10 +2291,10 @@ async function runRepoWorkspaceSmoke() {
       }
       await reviewRepoChangesAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Review these repo changes.')
-            && textarea.value.includes('Prioritize correctness bugs')
-            && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Review these repo changes.')
+            && (textarea.textContent ?? '').includes('Prioritize correctness bugs')
+            && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Review these repo changes.').waitFor({ timeout: 10_000 })
@@ -2253,10 +2308,10 @@ async function runRepoWorkspaceSmoke() {
       }
       await explainRepoChangesAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Explain these repo changes.')
-            && textarea.value.includes('Summarize what changed, why it likely matters')
-            && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Explain these repo changes.')
+            && (textarea.textContent ?? '').includes('Summarize what changed, why it likely matters')
+            && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Explain these repo changes.').waitFor({ timeout: 10_000 })
@@ -2270,10 +2325,10 @@ async function runRepoWorkspaceSmoke() {
       }
       await testRepoChangesAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Write or update tests for these repo changes.')
-            && textarea.value.includes('Start by identifying the behavior changed by the diff')
-            && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Write or update tests for these repo changes.')
+            && (textarea.textContent ?? '').includes('Start by identifying the behavior changed by the diff')
+            && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Write or update tests for these repo changes.').waitFor({ timeout: 10_000 })
@@ -2287,10 +2342,10 @@ async function runRepoWorkspaceSmoke() {
       }
       await draftPrAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Draft a pull request description for these repo changes.')
-            && textarea.value.includes('Include Summary, Testing, and Risks sections')
-            && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Draft a pull request description for these repo changes.')
+            && (textarea.textContent ?? '').includes('Include Summary, Testing, and Risks sections')
+            && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Draft a pull request description for these repo changes.').waitFor({ timeout: 10_000 })
@@ -2303,8 +2358,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestRepoChangesAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo diff context:') && textarea.value.includes('cranberri-diff-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo diff context:') && (textarea.textContent ?? '').includes('cranberri-diff-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -2342,8 +2397,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('github repo context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send GitHub repo context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('GitHub context:') && textarea.value.includes('fraction12/Cranberri'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('GitHub context:') && (textarea.textContent ?? '').includes('fraction12/Cranberri'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: GitHub context:').waitFor({ timeout: 10_000 })
@@ -2351,8 +2406,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('github branch context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send GitHub branch context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('GitHub context:') && textarea.value.includes('Panel: branches') && textarea.value.includes('Source: git'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('GitHub context:') && (textarea.textContent ?? '').includes('Panel: branches') && (textarea.textContent ?? '').includes('Source: git'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: GitHub context:').last().waitFor({ timeout: 10_000 })
@@ -2372,8 +2427,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('github branch smoke context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send GitHub branch context: smoke/context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('GitHub item context:') && textarea.value.includes('Kind: branches') && textarea.value.includes('Title: smoke/context'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('GitHub item context:') && (textarea.textContent ?? '').includes('Kind: branches') && (textarea.textContent ?? '').includes('Title: smoke/context'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: GitHub item context:').waitFor({ timeout: 10_000 })
@@ -2387,8 +2442,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestGitHubAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('GitHub item context:') && textarea.value.includes('Kind: branches') && textarea.value.includes('Title: smoke/context'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('GitHub item context:') && (textarea.textContent ?? '').includes('Kind: branches') && (textarea.textContent ?? '').includes('Title: smoke/context'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: GitHub item context:').last().waitFor({ timeout: 10_000 })
@@ -2414,8 +2469,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('workspace brief')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send workspace brief' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Workspace brief:') && textarea.value.includes('GitHub: fraction12/Cranberri') && textarea.value.includes('Selected right rail file: README.md (tracked)') && textarea.value.includes('- modified: README.md'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Workspace brief:') && (textarea.textContent ?? '').includes('GitHub: fraction12/Cranberri') && (textarea.textContent ?? '').includes('Selected right rail file: README.md (tracked)') && (textarea.textContent ?? '').includes('- modified: README.md'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Workspace brief:').waitFor({ timeout: 10_000 })
@@ -2445,8 +2500,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestAppContextAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Workspace brief:') && textarea.value.includes('GitHub: fraction12/Cranberri') && textarea.value.includes('Selected right rail file: README.md (tracked)'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Workspace brief:') && (textarea.textContent ?? '').includes('GitHub: fraction12/Cranberri') && (textarea.textContent ?? '').includes('Selected right rail file: README.md (tracked)'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Workspace brief:').last().waitFor({ timeout: 10_000 })
@@ -2471,8 +2526,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('diagnostics context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send diagnostics context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Cranberri diagnostics context:') && textarea.value.includes('Health checks:'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Cranberri diagnostics context:') && (textarea.textContent ?? '').includes('Health checks:'))
       }, { timeout: 20_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Cranberri diagnostics context:').waitFor({ timeout: 10_000 })
@@ -2480,8 +2535,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('usage context')
       await clickCommandItemByText(page, 'Send Codex usage context')
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Codex usage context:') && textarea.value.includes('Fake smoke limit') && textarea.value.includes('Account usage history:') && textarea.value.includes('1,234,567'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Codex usage context:') && (textarea.textContent ?? '').includes('Fake smoke limit') && (textarea.textContent ?? '').includes('Account usage history:') && (textarea.textContent ?? '').includes('1,234,567'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Codex usage context:').waitFor({ timeout: 10_000 })
@@ -2489,8 +2544,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('fake smoke app context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send app context: Fake Smoke App' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Connected app context:') && textarea.value.includes('Fake Smoke App') && textarea.value.includes('Fake Smoke Plugin'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Connected app context:') && (textarea.textContent ?? '').includes('Fake Smoke App') && (textarea.textContent ?? '').includes('Fake Smoke Plugin'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Connected app context:').waitFor({ timeout: 10_000 })
@@ -2504,8 +2559,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('inspect fake smoke fixture')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send MCP tool context: Inspect fake smoke fixture' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('MCP tool context:') && textarea.value.includes('fake-smoke-mcp') && textarea.value.includes('inspect_fixture'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('MCP tool context:') && (textarea.textContent ?? '').includes('fake-smoke-mcp') && (textarea.textContent ?? '').includes('inspect_fixture'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: MCP tool context:').waitFor({ timeout: 10_000 })
@@ -2519,8 +2574,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestCodexResourceAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('MCP tool context:') && textarea.value.includes('fake-smoke-mcp') && textarea.value.includes('inspect_fixture'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('MCP tool context:') && (textarea.textContent ?? '').includes('fake-smoke-mcp') && (textarea.textContent ?? '').includes('inspect_fixture'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: MCP tool context:').last().waitFor({ timeout: 10_000 })
@@ -2590,8 +2645,8 @@ async function runRepoWorkspaceSmoke() {
       await captureSmokeScreenshot(page, 'terminal-light')
       await page.getByLabel('Send terminal context to chat').click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('cranberri-terminal-context-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('cranberri-terminal-context-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Terminal context:').waitFor({ timeout: 10_000 })
@@ -2619,8 +2674,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await activeTerminalContextAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Terminal context:') && textarea.value.includes('cranberri-terminal-context-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Terminal context:') && (textarea.textContent ?? '').includes('cranberri-terminal-context-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Terminal context:').last().waitFor({ timeout: 10_000 })
@@ -2633,8 +2688,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestTerminalContextAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Terminal context:') && textarea.value.includes('cranberri-terminal-context-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Terminal context:') && (textarea.textContent ?? '').includes('cranberri-terminal-context-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -2733,8 +2788,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByText('Processes', { exact: true }).waitFor({ timeout: 10_000 })
       await page.getByLabel('Send process context to chat').first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo process context:') && textarea.value.includes('Status: running'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo process context:') && (textarea.textContent ?? '').includes('Status: running'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo process context:').waitFor({ timeout: 10_000 })
@@ -2747,8 +2802,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestProcessAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo process context:') && textarea.value.includes('Status: running'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo process context:') && (textarea.textContent ?? '').includes('Status: running'))
       }, { timeout: 10_000 })
       const processContextCountBefore = await page.locator('article').filter({ hasText: 'Fake Codex received: Repo process context:' }).count()
       await page.getByLabel('Send message').click()
@@ -2772,8 +2827,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('process context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send process context:' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Repo process context:') && textarea.value.includes('Status: running'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Repo process context:') && (textarea.textContent ?? '').includes('Status: running'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Repo process context:').last().waitFor({ timeout: 10_000 })
@@ -2940,8 +2995,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('active browser page context')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send active browser page context' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('cranberri-browser-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('cranberri-browser-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Browser page context:').waitFor({ timeout: 10_000 })
@@ -2968,8 +3023,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestBrowserPageAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Browser page context:') && textarea.value.includes('cranberri-browser-smoke-ready'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Browser page context:') && (textarea.textContent ?? '').includes('cranberri-browser-smoke-ready'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -3008,8 +3063,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendBrowserElementContextAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Browser element context:') && textarea.value.includes('Smoke Browser Page'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Browser element context:') && (textarea.textContent ?? '').includes('Smoke Browser Page'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.getByText('Fake Codex received: Browser element context:').waitFor({ timeout: 10_000 })
@@ -3046,8 +3101,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestBrowserElementAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Browser element context:') && textarea.value.includes('Smoke Browser Page'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Browser element context:') && (textarea.textContent ?? '').includes('Smoke Browser Page'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -3101,8 +3156,8 @@ async function runRepoWorkspaceSmoke() {
       await page.getByPlaceholder('Run command or switch repo...').fill('active browser screenshot')
       await page.locator('[cmdk-item]').filter({ hasText: 'Send active browser screenshot' }).first().click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Browser screenshot context:'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Browser screenshot context:'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {
@@ -3119,8 +3174,8 @@ async function runRepoWorkspaceSmoke() {
       }
       await sendLatestBrowserScreenshotAction.click()
       await page.waitForFunction(() => {
-        return [...document.querySelectorAll('textarea')]
-          .some((textarea) => textarea.value.includes('Browser screenshot context:'))
+        return [...document.querySelectorAll('[data-composer-input="true"]')]
+          .some((textarea) => (textarea.textContent ?? '').includes('Browser screenshot context:'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
       await page.waitForFunction(() => {

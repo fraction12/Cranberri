@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   ArrowDown,
   ArrowUp,
-  Check,
   Image,
-  Package,
   Square,
   X,
 } from 'lucide-react'
@@ -25,7 +23,6 @@ import {
   isTranscriptNearBottom,
   sessionThreadIdFromWindowId,
   shouldRestoreDraftAfterSendError,
-  shouldSendComposerOnEnter,
   shouldToastAfterSendError,
 } from './chat/chat-window-state'
 import {
@@ -37,13 +34,15 @@ import {
   pastedAttachmentInputsFromText,
   visualInputPreview,
 } from './chat/composer-attachments'
+import { ComposerEditor, type ComposerEditorHandle } from './chat/ComposerEditor'
+import { ComposerSuggestionMenu, type ComposerSuggestion } from './chat/ComposerSuggestionMenu'
 import {
-  inlineSkillText,
-  inputHasSkill,
-  renderComposerText,
-  selectedSkillsFromInput,
-  skillTextElements,
-} from './chat/composer-text'
+  pluginComposerMention,
+  skillComposerMention,
+  type ComposerMention,
+  type ComposerSnapshot,
+  type ComposerTrigger,
+} from './chat/composer-editor-model'
 import { ContextWindowIndicator } from './chat/ContextWindowIndicator'
 import { GoalModePill } from './chat/GoalModePill'
 import { ModelSelector } from './chat/ModelSelector'
@@ -54,27 +53,15 @@ import { PlanModePill } from './chat/PlanModePill'
 import { DraftSessionHeader } from './chat/DraftSessionHeader'
 import { TaskHeader } from './chat/TaskHeader'
 import { TaskSetupStatus } from './chat/TaskSetupStatus'
-import { cn, menuSurface } from '../lib/ui'
+import { cn } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import {
-  appendDictationTranscript,
   speechRecognitionConstructor,
   transcriptFromSpeechRecognitionEvent,
   voiceDictationErrorMessage,
   type SpeechRecognitionLike,
 } from './chat/voice-dictation'
 import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
-
-export function getSkillTrigger(input: string, cursor: number): { char: '/' | '$'; start: number; query: string } | null {
-  const beforeCursor = input.slice(0, cursor)
-  const match = beforeCursor.match(/(^|\s)([/$])([^\s]*)$/)
-  if (!match || (match[2] !== '/' && match[2] !== '$')) return null
-  return {
-    char: match[2],
-    start: beforeCursor.length - match[2].length - match[3].length,
-    query: match[3].toLowerCase(),
-  }
-}
 
 const GOAL_PROMPT = [
   'Create and run this as a Codex goal.',
@@ -92,21 +79,6 @@ const COMPOSER_CARD_CLASS = [
   'pointer-events-auto relative mx-auto w-full max-w-[780px] rounded-[18px]',
   'bg-app-surface p-3 shadow-xl ring-1 ring-app-border/75 transition-shadow duration-fast ease-standard focus-within:ring-2 focus-within:ring-app-accent/40',
 ].join(' ')
-const COMPOSER_MIN_HEIGHT = 44
-const COMPOSER_MAX_HEIGHT = 160
-const TEXTAREA_CLASS = cn(
-  typeStyle({ role: 'body' }),
-  'relative z-10 block min-h-[44px] max-h-[160px] w-full resize-none overflow-y-hidden bg-transparent px-0',
-  'text-transparent caret-[var(--app-text)] outline-none placeholder:text-[var(--app-text-muted)]',
-)
-const SKILL_MENU_CLASS = cn(
-  menuSurface,
-  'absolute inset-x-0 bottom-full mb-2 max-h-[min(420px,calc(100vh-24px))] overflow-hidden p-2',
-)
-const COMPOSER_GHOST_VIEWPORT_CLASS = cn(
-  typeStyle({ role: 'body' }),
-  'pointer-events-none absolute inset-0 overflow-hidden px-1',
-)
 const SEND_BUTTON_CLASS = [
   'flex h-8 w-8 items-center justify-center rounded-full bg-app-text text-app-bg',
   'transition-colors duration-fast ease-standard hover:bg-app-text/85 disabled:pointer-events-none disabled:opacity-35',
@@ -116,11 +88,6 @@ interface ContextInputAttachment {
   id: string
   label: string
   input: CodexUserInput
-}
-
-function skillToken(skill: CodexSkillInfo, trigger: '/' | '$'): string {
-  const name = skill.name.startsWith('/') ? skill.name.slice(1) : skill.name
-  return `${trigger}${name}`
 }
 
 function errorMessage(error: unknown): string {
@@ -215,17 +182,18 @@ export function ChatWindow({ id }: { id: string }) {
   const [contextInputParts, setContextInputParts] = useState<ContextInputAttachment[]>([])
   const [voiceListening, setVoiceListening] = useState(false)
   const [skills, setSkills] = useState<CodexSkillInfo[]>([])
+  const [plugins, setPlugins] = useState<CodexPluginInfo[]>([])
+  const [composerMentions, setComposerMentions] = useState<ComposerMention[]>([])
+  const [composerTriggerState, setComposerTriggerState] = useState<ComposerTrigger | null>(null)
   const [skillIndex, setSkillIndex] = useState(0)
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set())
   const [composerInset, setComposerInset] = useState(188)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const composerGhostTextRef = useRef<HTMLDivElement>(null)
+  const composerEditorRef = useRef<ComposerEditorHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const composerHadFocusRef = useRef(false)
-  const selectionRef = useRef({ start: 0, end: 0 })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const shouldScrollToBottomRef = useRef(true)
   const lastTranscriptPositionRef = useRef<{ scrollTop: number; clientHeight: number } | null>(null)
@@ -299,29 +267,14 @@ export function ChatWindow({ id }: { id: string }) {
     }
   }, [])
 
-  const syncComposerScroll = useCallback(() => {
-    const textarea = textareaRef.current
-    const ghostText = composerGhostTextRef.current
-    if (!textarea || !ghostText) return
-    ghostText.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`
-  }, [])
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = '0px'
-    const contentHeight = textarea.scrollHeight
-    textarea.style.height = `${Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, contentHeight))}px`
-    textarea.style.overflowY = contentHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden'
-    syncComposerScroll()
-    const frame = requestAnimationFrame(syncComposerScroll)
-    return () => cancelAnimationFrame(frame)
-  }, [input, syncComposerScroll])
-
   useEffect(() => {
-    window.cranberri.codex.skills()
-      .then((result) => setSkills(result.skills))
-      .catch((err) => console.error('Failed to load Codex skills:', err))
+    Promise.all([
+      window.cranberri.codex.skills(),
+      window.cranberri.codex.plugins(),
+    ]).then(([skillResult, pluginResult]) => {
+      setSkills(skillResult.skills)
+      setPlugins(pluginResult.plugins.filter((plugin) => plugin.enabled))
+    }).catch((err) => console.error('Failed to load Codex composer resources:', err))
   }, [])
 
   useEffect(() => () => {
@@ -343,11 +296,8 @@ export function ChatWindow({ id }: { id: string }) {
     const onInsertChatContext = (event: Event) => {
       const detail = insertChatContextDetailFromEvent(event)
       if (!detail || detail.windowId !== id) return
-      let nextLength = 0
       setInput((current) => {
-        const nextInput = current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text
-        nextLength = nextInput.length
-        return nextInput
+        return current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text
       })
       const inputParts = detail.inputParts ?? []
       if (inputParts.length) {
@@ -357,11 +307,9 @@ export function ChatWindow({ id }: { id: string }) {
       if (attachmentPaths.length) {
         setAttachments((current) => [...current, ...attachmentPaths.filter((filePath) => !current.includes(filePath))])
       }
-      selectionRef.current = { start: nextLength, end: nextLength }
       composerHadFocusRef.current = true
       requestAnimationFrame(() => {
-        textareaRef.current?.focus({ preventScroll: true })
-        textareaRef.current?.setSelectionRange(nextLength, nextLength)
+        composerEditorRef.current?.focus('end')
       })
     }
     window.addEventListener(INSERT_CHAT_CONTEXT_EVENT, onInsertChatContext)
@@ -436,27 +384,13 @@ export function ChatWindow({ id }: { id: string }) {
     scrollTranscriptToBottom()
   }, [scrollTranscriptToBottom])
 
-  const rememberSelection = () => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    selectionRef.current = {
-      start: textarea.selectionStart,
-      end: textarea.selectionEnd,
-    }
-  }
-
   const insertComposerText = (text: string) => {
-    const textarea = textareaRef.current
-    const start = textarea?.selectionStart ?? input.length
-    const end = textarea?.selectionEnd ?? input.length
-    const nextInput = `${input.slice(0, start)}${text}${input.slice(end)}`
-    const cursor = start + text.length
-    setInput(nextInput)
-    selectionRef.current = { start: cursor, end: cursor }
-    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(cursor, cursor))
+    composerEditorRef.current?.insertText(text)
   }
 
-  const addTransferInputs = (text: string, files: ArrayLike<File>): boolean => {
+  const addTransferInputs = (transfer: DataTransfer): boolean => {
+    const text = transfer.getData('text/plain')
+    const files = transfer.files
     const parsed = pastedAttachmentInputsFromText(text)
     const imageFiles = Array.from(files).filter(isClipboardImageFile)
     const localAttachmentPaths = [
@@ -486,37 +420,12 @@ export function ChatWindow({ id }: { id: string }) {
     return true
   }
 
-  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (addTransferInputs(event.clipboardData.getData('text/plain'), event.clipboardData.files)) {
-      event.preventDefault()
-    }
-  }
-
-  const handleDragOver = (event: DragEvent<HTMLTextAreaElement>) => {
-    if (Array.from(event.dataTransfer.items).some((item) => item.kind === 'file')) {
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'copy'
-    }
-  }
-
-  const handleDrop = (event: DragEvent<HTMLTextAreaElement>) => {
-    if (addTransferInputs(event.dataTransfer.getData('text/plain'), event.dataTransfer.files)) {
-      event.preventDefault()
-      textareaRef.current?.focus({ preventScroll: true })
-    }
-  }
-
   useLayoutEffect(() => {
     if (!composerHadFocusRef.current) return
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.focus({ preventScroll: true })
-    const start = Math.min(selectionRef.current.start, textarea.value.length)
-    const end = Math.min(selectionRef.current.end, textarea.value.length)
-    textarea.setSelectionRange(start, end)
+    composerEditorRef.current?.focus()
   }, [thread?.messages.length, thread?.isRunning])
 
-  const buildMessage = (text: string): { displayText: string; input: CodexUserInput[] } => {
+  const buildMessage = (text: string, mentions: readonly ComposerMention[]): { displayText: string; input: CodexUserInput[] } => {
     const inputParts: CodexUserInput[] = []
     if (goalMode) inputParts.push({ type: 'text', text: GOAL_PROMPT })
     else if (planMode) inputParts.push({ type: 'text', text: PLAN_MODE_PROMPT })
@@ -531,29 +440,36 @@ export function ChatWindow({ id }: { id: string }) {
     }
     inputParts.push(...contextInputParts.map((attachment) => attachment.input))
 
-    const inlineSkills = selectedSkillsFromInput(text, skills)
-    const textElements = skillTextElements(text, inlineSkills)
-    if (text) inputParts.push({ type: 'text', text, ...(textElements.length > 0 ? { text_elements: textElements } : {}) })
-    inputParts.push(...inlineSkills.map((skill) => ({ type: 'skill' as const, name: skill.name, path: skill.path })))
+    if (text) inputParts.push({ type: 'text', text })
+    const skillMentions = mentions.filter((mention) => mention.kind === 'skill')
+    const uniqueSkills = [...new Map(skillMentions.map((mention) => [mention.path, mention])).values()]
+    inputParts.push(...uniqueSkills.map((skill) => ({ type: 'skill' as const, name: skill.name, path: skill.path })))
 
     return { displayText: text || 'Attached context', input: inputParts }
   }
 
-  const handleSend = async () => {
+  const handleSend = async (editorSnapshot?: ComposerSnapshot) => {
     if (taskInputBlockReason) {
       toast.error(taskInputBlockReason)
       return
     }
     const steeringActiveTurn = isRunning && !thread?.parentThreadId
-    const text = input.trim()
+    const currentSnapshot = editorSnapshot ?? composerEditorRef.current?.snapshot() ?? {
+      text: input,
+      plainText: input,
+      mentions: composerMentions,
+    }
+    const currentInput = currentSnapshot.text
+    const text = currentInput.trim()
     if (!text && attachments.length === 0 && contextInputParts.length === 0) return
-    const draftInput = input
+    const draftInput = currentInput
     const draftAttachments = attachments
     const draftContextInputParts = contextInputParts
     let preparedThreadId: string | null = null
     composerHadFocusRef.current = true
     setInput('')
-    selectionRef.current = { start: 0, end: 0 }
+    setComposerMentions([])
+    setComposerTriggerState(null)
     setAttachments([])
     setContextInputParts([])
 
@@ -562,7 +478,7 @@ export function ChatWindow({ id }: { id: string }) {
         if (!threadId) return
         await compactThread(threadId)
       } else {
-        const message = buildMessage(text)
+        const message = buildMessage(text, currentSnapshot.mentions)
         if (threadId) {
           if (thread?.parentThreadId) {
             await messageWorker(thread.parentThreadId, threadId, message.displayText, message.input)
@@ -638,7 +554,7 @@ export function ChatWindow({ id }: { id: string }) {
         toast.error(error instanceof Error ? error.message : 'Failed to send Codex message.')
       }
     } finally {
-      requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
+      requestAnimationFrame(() => composerEditorRef.current?.focus())
     }
   }
 
@@ -660,18 +576,8 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const appendVoiceTranscript = (transcript: string) => {
-    let nextLength = 0
     composerHadFocusRef.current = true
-    setInput((current) => {
-      const nextInput = appendDictationTranscript(current, transcript)
-      nextLength = nextInput.length
-      return nextInput
-    })
-    selectionRef.current = { start: nextLength, end: nextLength }
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true })
-      textareaRef.current?.setSelectionRange(nextLength, nextLength)
-    })
+    composerEditorRef.current?.insertDictation(transcript)
   }
 
   const stopVoiceDictation = () => {
@@ -721,7 +627,7 @@ export function ChatWindow({ id }: { id: string }) {
   }
 
   const usePlugin = (plugin: CodexPluginInfo) => {
-    setInput(`Use the ${plugin.displayName} plugin. ${plugin.prompt}`)
+    composerEditorRef.current?.insertMention(pluginComposerMention(plugin))
   }
 
   const isRunning = thread?.isRunning ?? false
@@ -729,8 +635,11 @@ export function ChatWindow({ id }: { id: string }) {
   const hasComposerContent = Boolean(input.trim() || attachments.length > 0 || contextInputParts.length > 0)
   const primaryActionIsStop = isRunning && !hasComposerContent
   const handlePrimaryAction = async () => {
-    if (!primaryActionIsStop) {
-      await handleSend()
+    const editorSnapshot = composerEditorRef.current?.snapshot()
+    const editorInput = editorSnapshot?.text ?? input
+    const hasCurrentComposerContent = Boolean(editorInput.trim() || attachments.length > 0 || contextInputParts.length > 0)
+    if (!isRunning || hasCurrentComposerContent) {
+      await handleSend(editorSnapshot)
       return
     }
     if (!threadId) return
@@ -746,48 +655,95 @@ export function ChatWindow({ id }: { id: string }) {
   )
   const contextUsage = thread?.contextUsage ?? { usedTokens: estimatedTokens, contextWindow: 258400 }
 
-  const skillTrigger = getSkillTrigger(input, selectionRef.current.start)
+  const composerCatalog = useMemo(() => [
+    ...skills.map(skillComposerMention),
+    ...plugins.map(pluginComposerMention),
+  ], [plugins, skills])
   const compactPercentFull = Math.min(100, Math.round((contextUsage.usedTokens / Math.max(1, contextUsage.contextWindow)) * 100))
-  const compactCommand = skillTrigger?.char === '/' && 'compact'.includes(skillTrigger.query)
-    ? [{ id: 'command:compact', label: 'Compact', description: `Compact this thread's context (${compactPercentFull}% full)` }]
-    : []
-  const matchingSkills = skillTrigger
+  const matchingSkills = composerTriggerState?.char === '$'
     ? skills.filter((skill) => {
         const haystack = `${skill.name} ${skill.displayName} ${skill.description}`.toLowerCase()
-        return haystack.includes(skillTrigger.query)
+        return haystack.includes(composerTriggerState.query)
       })
     : []
-  const showSkills = Boolean(skillTrigger && (compactCommand.length > 0 || matchingSkills.length > 0))
-  const commandMenuCount = compactCommand.length + matchingSkills.length
+  const matchingPlugins = composerTriggerState?.char === '@'
+    ? plugins.filter((plugin) => {
+        const haystack = `${plugin.name} ${plugin.displayName} ${plugin.description}`.toLowerCase()
+        return haystack.includes(composerTriggerState.query)
+      })
+    : []
+  const suggestions: ComposerSuggestion[] = composerTriggerState?.char === '/'
+    ? ('compact'.includes(composerTriggerState.query)
+        ? [{ id: 'command:compact', kind: 'command', label: '/compact', description: `Compact this thread's context (${compactPercentFull}% full)`, badge: 'Command' }]
+        : [])
+    : composerTriggerState?.char === '$'
+      ? matchingSkills.map((skill) => ({
+          id: `skill:${skill.id}`,
+          kind: 'skill',
+          label: `$${skill.name}`,
+          description: skill.description,
+          badge: skill.source === 'plugin' ? (skill.pluginName ?? 'Plugin') : skill.source === 'personal' ? 'Personal' : 'System',
+          selected: composerMentions.some((mention) => mention.kind === 'skill' && mention.id === skill.id),
+        }))
+      : matchingPlugins.map((plugin) => ({
+          id: `plugin:${plugin.id}`,
+          kind: 'plugin',
+          label: `@${plugin.name}`,
+          description: plugin.description || plugin.prompt,
+          badge: plugin.toolCount > 0 ? `${plugin.toolCount} tools` : 'Plugin',
+          selected: composerMentions.some((mention) => mention.kind === 'plugin' && mention.id === plugin.id),
+        }))
+  const showSuggestions = Boolean(composerTriggerState && suggestions.length > 0)
+  const suggestionTitle = composerTriggerState?.char === '$' ? 'Skills' : composerTriggerState?.char === '@' ? 'Plugins and context' : 'Commands'
 
-  const insertCompactCommand = () => {
-    if (!skillTrigger) return
-    const cursor = selectionRef.current.start
-    const token = '/compact'
-    const nextInput = `${input.slice(0, skillTrigger.start)}${token} ${input.slice(cursor)}`
-    const nextCursor = skillTrigger.start + token.length + 1
-    setInput(nextInput)
+  const insertSuggestion = (index: number) => {
+    const trigger = composerTriggerState
+    const suggestion = suggestions[index]
+    if (!trigger || !suggestion || suggestion.selected) return
+    if (suggestion.kind === 'command') composerEditorRef.current?.insertText('/compact ', trigger)
+    else if (suggestion.kind === 'skill') {
+      const skill = matchingSkills.find((candidate) => `skill:${candidate.id}` === suggestion.id)
+      if (skill) composerEditorRef.current?.insertMention(skillComposerMention(skill), trigger)
+    } else {
+      const plugin = matchingPlugins.find((candidate) => `plugin:${candidate.id}` === suggestion.id)
+      if (plugin) composerEditorRef.current?.insertMention(pluginComposerMention(plugin), trigger)
+    }
     setSkillIndex(0)
-    selectionRef.current = { start: nextCursor, end: nextCursor }
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true })
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
-    })
   }
 
-  const insertSkill = (skill: CodexSkillInfo) => {
-    if (!skillTrigger) return
-    const cursor = selectionRef.current.start
-    const token = inlineSkillText(skill)
-    const nextInput = `${input.slice(0, skillTrigger.start)}${token} ${input.slice(cursor)}`
-    const nextCursor = skillTrigger.start + token.length + 1
-    setInput(nextInput)
+  const completeSuggestion = (index: number) => {
+    const trigger = composerTriggerState
+    const suggestion = suggestions[index]
+    if (!trigger || !suggestion) return
+    composerEditorRef.current?.insertText(suggestion.label, trigger)
     setSkillIndex(0)
-    selectionRef.current = { start: nextCursor, end: nextCursor }
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true })
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
-    })
+  }
+
+  const handleSuggestionKeyDown = (event: KeyboardEvent): boolean => {
+    if (!showSuggestions) return false
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      setSkillIndex((index) => (index + direction + suggestions.length) % suggestions.length)
+      return true
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      insertSuggestion(Math.min(skillIndex, suggestions.length - 1))
+      return true
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      completeSuggestion(Math.min(skillIndex, suggestions.length - 1))
+      return true
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setComposerTriggerState(null)
+      setSkillIndex(0)
+      return true
+    }
+    return false
   }
 
   const toggleTranscriptGroup = useCallback((key: string) => {
@@ -949,158 +905,33 @@ export function ChatWindow({ id }: { id: string }) {
               attachments={contextInputParts}
               onRemove={(attachmentId) => setContextInputParts((current) => current.filter((item) => item.id !== attachmentId))}
             />
-            {showSkills && (
-              <div className={SKILL_MENU_CLASS}>
-                <div className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'px-2 pb-1 pt-0.5')}>Commands and skills</div>
-                <div className="max-h-[350px] space-y-0.5 overflow-y-auto pr-1" role="listbox" aria-label="Commands and skills">
-                  {compactCommand.map((command, index) => (
-                    <button
-                      key={command.id}
-                      type="button"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={insertCompactCommand}
-                      role="option"
-                      aria-selected={index === skillIndex}
-                      className={`flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${
-                        index === skillIndex ? 'bg-[var(--app-surface-2)]' : ''
-                      }`}
-                    >
-                      <ContextWindowIndicator usedTokens={contextUsage.usedTokens} contextWindow={contextUsage.contextWindow} />
-                      <span className={cn(typeStyle({ role: 'control' }), 'min-w-0 flex-1 truncate')}>
-                        <span>{command.label}</span>
-                        <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'ml-3')}>{command.description}</span>
-                      </span>
-                      <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>Command</span>
-                    </button>
-                  ))}
-                  {matchingSkills.map((skill, index) => (
-                    (() => {
-                      const selected = inputHasSkill(input, skill)
-                      const active = index + compactCommand.length === skillIndex
-                      const sourceLabel = skill.source === 'plugin'
-                        ? (skill.pluginName ?? 'Plugin')
-                        : skill.source === 'personal'
-                          ? 'Personal'
-                          : 'System'
-                      return (
-                        <button
-                          key={skill.id}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => { if (!selected) insertSkill(skill) }}
-                          disabled={selected}
-                          role="option"
-                          aria-selected={active}
-                          className={`flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${
-                            active ? 'bg-[var(--app-surface-2)]' : ''
-                          } ${selected ? 'cursor-default opacity-55' : ''}`}
-                        >
-                          <Package
-                            className={`h-4 w-4 shrink-0 ${
-                              selected ? 'text-app-mention' : 'text-[var(--app-text)] opacity-80'
-                            }`}
-                          />
-                          <span className={cn(typeStyle({ role: 'control' }), 'min-w-0 flex-1 truncate')}>
-                            <span className={selected ? 'text-app-mention' : undefined}>
-                              {skillToken(skill, skillTrigger?.char ?? '/')}
-                            </span>
-                            {skill.description && (
-                              <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'ml-3')}>{skill.description}</span>
-                            )}
-                          </span>
-                          {selected ? (
-                            <span className={cn(typeStyle({ role: 'status', tone: 'mention' }), 'inline-flex shrink-0 items-center gap-1')}>
-                              <Check className="h-3.5 w-3.5" /> Selected
-                            </span>
-                          ) : (
-                            <span className={cn(typeStyle({ role: 'metadata', tone: 'secondary' }), 'shrink-0')}>{sourceLabel}</span>
-                          )}
-                        </button>
-                      )
-                    })()
-                  ))}
-                </div>
-              </div>
+            {showSuggestions && (
+              <ComposerSuggestionMenu
+                title={suggestionTitle}
+                suggestions={suggestions}
+                activeIndex={Math.min(skillIndex, suggestions.length - 1)}
+                usedTokens={contextUsage.usedTokens}
+                contextWindow={contextUsage.contextWindow}
+                onSelect={insertSuggestion}
+              />
             )}
-            <div data-composer-viewport="true" className="relative min-h-[44px] max-h-[160px] overflow-hidden px-1">
-              <div className={COMPOSER_GHOST_VIEWPORT_CLASS} aria-hidden="true">
-                <div ref={composerGhostTextRef} data-composer-ghost="true" className="min-h-full whitespace-pre-wrap break-words will-change-transform">
-                  {input ? renderComposerText(input, skills) : null}
-                </div>
-              </div>
-              <textarea
-              ref={textareaRef}
-              aria-label="Chat message"
+            <ComposerEditor
+              ref={composerEditorRef}
               value={input}
+              catalog={composerCatalog}
               disabled={Boolean(taskInputBlockReason)}
-              onChange={(e) => {
-                selectionRef.current = {
-                  start: e.currentTarget.selectionStart,
-                  end: e.currentTarget.selectionEnd,
-                }
-                setInput(e.target.value)
-                requestAnimationFrame(rememberSelection)
+              onChange={(snapshot) => {
+                setInput(snapshot.text)
+                setComposerMentions(snapshot.mentions)
               }}
-              onPaste={handlePaste}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onSelect={rememberSelection}
-              onKeyUp={rememberSelection}
-              onMouseUp={rememberSelection}
-              onScroll={syncComposerScroll}
-              onKeyDown={(e) => {
-                if (e.key === 'Backspace' && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
-                  const cursor = e.currentTarget.selectionStart
-                  const beforeCursor = input.slice(0, cursor)
-                  const match = beforeCursor.match(/(^|\s)(\S(?:.*\S)?)\s?$/)
-                  const matchedSkill = match
-                    ? skills.find((skill) => (
-                        match[2] === inlineSkillText(skill) || match[2].endsWith(inlineSkillText(skill))
-                      ))
-                    : undefined
-                  if (match && matchedSkill) {
-                    e.preventDefault()
-                    const end = beforeCursor.endsWith(' ') ? cursor - 1 : cursor
-                    const start = input.slice(0, end).lastIndexOf(inlineSkillText(matchedSkill))
-                    const nextInput = `${input.slice(0, start)}${input.slice(cursor)}`
-                    setInput(nextInput)
-                    selectionRef.current = { start, end: start }
-                    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(start, start))
-                    return
-                  }
-                }
-                if (showSkills && commandMenuCount > 0) {
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    setSkillIndex((index) => (index + 1) % commandMenuCount)
-                    return
-                  }
-                  if (e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    setSkillIndex((index) => (index - 1 + commandMenuCount) % commandMenuCount)
-                    return
-                  }
-                  if (e.key === 'Enter' || e.key === 'Tab') {
-                    e.preventDefault()
-                    if (skillIndex < compactCommand.length) {
-                      insertCompactCommand()
-                    } else {
-                      insertSkill(matchingSkills[Math.min(skillIndex - compactCommand.length, matchingSkills.length - 1)])
-                    }
-                    return
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setSkillIndex(0)
-                    selectionRef.current = { start: 0, end: 0 }
-                    return
-                  }
-                }
-                if (shouldSendComposerOnEnter(e.key, e.shiftKey)) {
-                  e.preventDefault()
-                  void handleSend()
-                }
+              onTriggerChange={(trigger) => {
+                setComposerTriggerState(trigger)
+                setSkillIndex(0)
               }}
+              onSubmit={() => { void handleSend(composerEditorRef.current?.snapshot()) }}
+              onSuggestionKeyDown={handleSuggestionKeyDown}
+              onPaste={addTransferInputs}
+              onDrop={addTransferInputs}
               placeholder={
                 isRunning
                   ? isWorkerThread
@@ -1114,11 +945,7 @@ export function ChatWindow({ id }: { id: string }) {
                         ? 'Ask for follow-up changes'
                         : 'Ask Codex to inspect, edit, or explain this repo'
               }
-              rows={1}
-              spellCheck={false}
-              className={TEXTAREA_CLASS}
             />
-            </div>
             <div
               data-composer-toolbar="true"
               className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-[var(--app-text-muted)]"
