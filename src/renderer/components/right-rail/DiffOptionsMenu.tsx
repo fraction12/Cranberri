@@ -33,7 +33,7 @@ export function DiffOptionsMenu({
   onRevealFile,
 }: DiffOptionsMenuProps) {
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root modal={false}>
       <DropdownMenu.Trigger asChild>
         <IconButton type="button" label="File options">
           <MoreHorizontal className="h-4 w-4" />

@@ -2637,10 +2637,10 @@ async function runRepoWorkspaceSmoke() {
       await page.locator('[cmdk-item]').filter({ hasText: 'Send app context: Fake Smoke App' }).first().click()
       await page.waitForFunction(() => {
         return [...document.querySelectorAll('[data-composer-input="true"]')]
-          .some((textarea) => (textarea.textContent ?? '').includes('Connected app context:') && (textarea.textContent ?? '').includes('Fake Smoke App') && (textarea.textContent ?? '').includes('Fake Smoke Plugin'))
+          .some((textarea) => (textarea.textContent ?? '').includes('Codex app context:') && (textarea.textContent ?? '').includes('Fake Smoke App') && (textarea.textContent ?? '').includes('Fake Smoke Plugin'))
       }, { timeout: 10_000 })
       await page.getByLabel('Send message').click()
-      await page.getByText('Fake Codex received: Connected app context:').waitFor({ timeout: 10_000 })
+      await page.getByText('Fake Codex received: Codex app context:').waitFor({ timeout: 10_000 })
       await openCommandPalette(page)
       await page.getByPlaceholder('Run command or switch repo...').fill('tool registry context')
       if (await page.locator('[cmdk-item]').filter({ hasText: 'Codex tool registry context' }).count()) {
