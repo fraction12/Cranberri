@@ -281,6 +281,9 @@ export function initRepoIpc(): void {
   })
 
   ipcMain.handle('repos:pick-directory', async () => {
+    if (process.env.CRANBERRI_FAKE_REPO_DIRECTORY) {
+      return process.env.CRANBERRI_FAKE_REPO_DIRECTORY
+    }
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
       title: 'Select a git repository',

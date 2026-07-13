@@ -7,6 +7,7 @@ import type { LocalTaskDraftRequest, Task, TaskDraftRequest, TaskHandoffRequest 
 import type { GitRef, ManagedWorktree, RefRefreshResult } from '@/shared/worktrees'
 import type { AuthorityChangedEvent } from '@/shared/state-events'
 import type { TaskExecutionContext } from './execution-context'
+import { useRepos } from './repos'
 
 export interface TaskCatalogSnapshot {
   revision: number
@@ -150,6 +151,15 @@ export function reduceTaskCatalogSnapshot(
   return next.revision < current.revision ? current : next
 }
 
+export function projectCatalogIdentity(
+  projects: ReadonlyArray<{ id: string; localCheckoutId?: string; gitCommonDir?: string }>,
+): string {
+  return [...projects]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((project) => `${project.id}\0${project.localCheckoutId}\0${project.gitCommonDir}`)
+    .join('\0')
+}
+
 export function taskExecutionContext(task: Task, checkouts: Checkout[]): TaskExecutionContext | null {
   const checkout = checkouts.find((candidate) => candidate.id === task.checkoutId && candidate.projectId === task.projectId)
   if (!checkout?.available) return null
@@ -200,12 +210,15 @@ function waitForEnvironmentJob(job: EnvironmentJob, onUpdate: (job: EnvironmentJ
 }
 
 export function TasksProvider({ children, snapshot }: { children: React.ReactNode; snapshot?: TaskCatalogSnapshot }) {
+  const { projects } = useRepos()
   const [liveSnapshot, setLiveSnapshot] = useState<TaskCatalogSnapshot>(snapshot ?? EMPTY_SNAPSHOT)
   const authorityRevisionRef = useRef(snapshot?.revision ?? 0)
   const [activeTaskId, setActiveTask] = useState<string | null>(null)
   const [loading, setLoading] = useState(snapshot === undefined)
   const [operation, setOperation] = useState<TaskOperation>(IDLE_OPERATION)
   const [lastSubmission, setLastSubmission] = useState<WorktreeSubmission | null>(null)
+  const projectCatalogKey = projectCatalogIdentity(projects)
+  const previousProjectCatalogKeyRef = useRef(projectCatalogKey)
 
   const refresh = useCallback(async () => {
     const next = snapshot ?? await window.cranberri.tasks.snapshot()
@@ -219,6 +232,12 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
   useEffect(() => {
     refresh().catch((error) => console.error('Failed to load tasks:', error)).finally(() => setLoading(false))
   }, [refresh])
+
+  useEffect(() => {
+    if (previousProjectCatalogKeyRef.current === projectCatalogKey) return
+    previousProjectCatalogKeyRef.current = projectCatalogKey
+    void refresh().catch((error) => console.error('Failed to refresh tasks after project change:', error))
+  }, [projectCatalogKey, refresh])
 
   useEffect(() => {
     return window.cranberri.tasks.onAuthorityChanged((event) => {
