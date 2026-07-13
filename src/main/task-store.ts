@@ -7,6 +7,7 @@ import { z } from 'zod'
 import {
   lifecycleOperationSchema,
   type LifecycleOperation,
+  type LifecycleOperationReceipt,
   type LifecyclePurgeSelectors,
   type RestoreReservation,
   taskSchema,
@@ -249,6 +250,36 @@ export class TaskStore {
     })
     this.writes = operation.catch(() => undefined)
     return operation.then(() => result)
+  }
+
+  appendLifecycleReceipt(operationId: string, receipt: LifecycleOperationReceipt): Promise<LifecycleOperation> {
+    const validatedReceipt = lifecycleOperationSchema.shape.receipts.element.parse(receipt)
+    let result!: LifecycleOperation
+    return this.update((state) => ({
+      ...state,
+      lifecycleOperations: state.lifecycleOperations.map((operation) => {
+        if (operation.id !== operationId) return operation
+        const existing = validatedReceipt.receiptId
+          ? operation.receipts.find((candidate) => candidate.receiptId === validatedReceipt.receiptId)
+          : operation.receipts.find((candidate) => JSON.stringify(candidate) === JSON.stringify(validatedReceipt))
+        if (existing) {
+          if (JSON.stringify(existing) !== JSON.stringify(validatedReceipt)) {
+            throw new Error(`Lifecycle receipt ${validatedReceipt.receiptId} conflicts with durable authority`)
+          }
+          result = operation
+          return operation
+        }
+        result = lifecycleOperationSchema.parse({
+          ...operation,
+          receipts: [...operation.receipts, validatedReceipt],
+          updatedAt: Math.max(operation.updatedAt, validatedReceipt.recordedAt),
+        })
+        return result
+      }),
+    })).then(() => {
+      if (!result) throw new Error('Lifecycle operation not found')
+      return result
+    })
   }
 
   private publishChange(before: CurrentTaskStoreState, after: CurrentTaskStoreState): void {
