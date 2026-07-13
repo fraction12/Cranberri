@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceWindowState } from '../../shared/appState'
-import { bindWorkspaceWindowThread, chatWindowForExecutionContext, closeSessionChatWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, rebindWorkspaceWindowExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { bindWorkspaceWindowThread, chatWindowForExecutionContext, closeSessionWindows, codexThreadIdForActiveWindow, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, rebindWorkspaceWindowExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 
 describe('renameWorkspaceWindow', () => {
   const chat: WorkspaceWindowState = { id: 'chat-1', type: 'chat', title: 'Existing title' }
@@ -176,8 +176,8 @@ describe('workspace execution identity', () => {
   })
 })
 
-describe('closeSessionChatWindows', () => {
-  it('closes every matching chat while preserving related tools and choosing a neighboring tab', () => {
+describe('closeSessionWindows', () => {
+  it('closes every task-bound surface and matching chat while choosing a neighboring tab', () => {
     const workspace = {
       windows: [
         { id: 'before', type: 'browser' as const, title: 'Browser' },
@@ -189,10 +189,9 @@ describe('closeSessionChatWindows', () => {
       activeWindowId: 'task-chat',
     }
 
-    expect(closeSessionChatWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toEqual({
+    expect(closeSessionWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toEqual({
       windows: [
         workspace.windows[0],
-        workspace.windows[3],
         workspace.windows[4],
       ],
       activeWindowId: 'before',
@@ -205,6 +204,6 @@ describe('closeSessionChatWindows', () => {
       activeWindowId: 'chat',
     }
 
-    expect(closeSessionChatWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toBe(workspace)
+    expect(closeSessionWindows(workspace, { threadId: 'thread-1', taskId: 'task-1' })).toBe(workspace)
   })
 })
