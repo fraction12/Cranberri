@@ -20,6 +20,8 @@ function diagnostics(overrides: Partial<CranberriDiagnosticsReport> = {}): Cranb
       commitTime: '2026-07-07T20:00:00.000Z',
       buildTime: '2026-07-08T00:00:00.000Z',
       packaged: false,
+      channel: 'development',
+      schemas: { appState: 3, taskStore: 2, composerDrafts: 1 },
     },
     runtime: {
       platform: 'darwin',

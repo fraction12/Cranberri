@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 const electron = vi.hoisted(() => ({
   app: {
     isPackaged: false,
+    getPath: vi.fn(() => '/tmp/cranberri-app-data'),
     setPath: vi.fn(),
     requestSingleInstanceLock: vi.fn(() => true),
     on: vi.fn(),

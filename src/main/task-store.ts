@@ -13,8 +13,9 @@ import {
   taskSchema,
 } from '../shared/tasks'
 import { managedWorktreeSchema } from '../shared/worktrees'
+import persistenceSchemaVersions from '../shared/persistence-schema-versions.json'
 
-export const TASK_STORE_VERSION = 2
+export const TASK_STORE_VERSION = z.literal(2).parse(persistenceSchemaVersions.taskStore)
 
 const taskStoreV1Schema = z.object({
   version: z.literal(1),

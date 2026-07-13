@@ -2,12 +2,17 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { assertReleaseIdentity } from './release-contract.mjs'
 
 const root = process.cwd()
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+const schemas = JSON.parse(fs.readFileSync(path.join(root, 'src', 'shared', 'persistence-schema-versions.json'), 'utf8'))
 const tag = process.env.TAG ?? process.argv.find((arg) => arg.startsWith('v'))
 if (!tag) throw new Error('Release tag is required through TAG or a v-prefixed argument')
-if (tag !== `v${packageJson.version}`) throw new Error(`Release tag ${tag} does not match package version ${packageJson.version}`)
+const commit = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+const tagResolution = spawnSync('git', ['rev-parse', `${tag}^{commit}`], { cwd: root, encoding: 'utf8' })
+const tagCommit = tagResolution.status === 0 ? tagResolution.stdout.trim() : null
+assertReleaseIdentity({ currentCommit: commit, packageVersion: packageJson.version, tag, tagCommit })
 
 const appPath = path.join(root, 'dist', 'mac-arm64', 'Cranberri.app')
 const plistPath = path.join(appPath, 'Contents', 'Info.plist')
@@ -43,7 +48,6 @@ const zipName = fs.readdirSync(path.join(root, 'dist')).find((name) => new RegEx
 if (!zipName) throw new Error('Packaged updater ZIP was not found')
 const zipPath = path.join(root, 'dist', zipName)
 const sha256 = crypto.createHash('sha256').update(fs.readFileSync(zipPath)).digest('hex')
-const commit = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
 const manifest = {
   version: 1,
   tag,
@@ -58,7 +62,7 @@ const manifest = {
     minimumSystemVersion: plist.LSMinimumSystemVersion ?? null,
     signature,
   },
-  schemas: { appState: 3, taskStore: 1, composerDrafts: 1 },
+  schemas,
 }
 fs.writeFileSync(path.join(root, 'dist', 'release-manifest.json'), JSON.stringify(manifest, null, 2))
 console.log(`Validated ${tag}; wrote dist/release-manifest.json for ${zipName}`)

@@ -353,14 +353,9 @@ export async function reconcileStartup(
         message: error instanceof Error ? error.message : 'App state is unavailable.',
       },
       taskStore: {
-        status: taskRecovery.lifecycleRecoveries.some((outcome) => outcome.status === 'needsAttention')
-          ? 'needsAttention'
-          : taskRecovery.changed ? 'repaired' : 'ready',
+        status: taskRecovery.changed ? 'repaired' : 'ready',
         revision: tasks.revision,
         repairedTaskIds: taskRecovery.repairedTaskIds,
-        ...(taskRecovery.lifecycleRecoveries.some((outcome) => outcome.status === 'needsAttention')
-          ? { message: 'One or more lifecycle operations require attention before their sessions can continue.' }
-          : {}),
       },
       lifecycle: taskRecovery.lifecycleRecoveries,
       windows: [],
@@ -402,9 +397,6 @@ export async function reconcileStartup(
   }
 
   const hasUncheckedThread = windows.some((window) => window.threadStatus === 'unchecked')
-  const lifecycleNeedsAttention = taskRecovery.lifecycleRecoveries.some(
-    (recovery) => recovery.status === 'needsAttention',
-  )
   const report = startupRecoveryReportSchema.parse({
     appState: {
       status: hasUncheckedThread ? 'retryable' : changed ? 'repaired' : 'ready',
@@ -418,12 +410,9 @@ export async function reconcileStartup(
           : 'App state is available.',
     },
     taskStore: {
-      status: lifecycleNeedsAttention ? 'needsAttention' : taskRecovery.changed ? 'repaired' : 'ready',
+      status: taskRecovery.changed ? 'repaired' : 'ready',
       revision: tasks.revision,
       repairedTaskIds: taskRecovery.repairedTaskIds,
-      ...(lifecycleNeedsAttention
-        ? { message: 'One or more lifecycle operations require attention before their sessions can continue.' }
-        : {}),
     },
     lifecycle: taskRecovery.lifecycleRecoveries,
     windows,

@@ -157,6 +157,72 @@ describe('startup recovery', () => {
     })])
   })
 
+  it('keeps an archived cleanup warning scoped away from a healthy active session', async () => {
+    const value = fixture()
+    const archivedWorktreePath = path.join(value.root, 'archived-worktree')
+    fs.mkdirSync(archivedWorktreePath)
+    const archivedTask: Task = {
+      ...value.task,
+      id: 'archived-task',
+      threadId: 'archived-thread',
+      checkoutId: 'archived-checkout',
+      worktreeId: 'archived-worktree',
+      location: 'worktree',
+      state: 'cleanupBlocked',
+      archivedAt: 2,
+    }
+    const archivedWorktree: ManagedWorktree = {
+      id: 'archived-worktree',
+      projectId: 'project',
+      taskId: archivedTask.id,
+      checkoutId: 'archived-checkout',
+      path: archivedWorktreePath,
+      recordedRoot: path.join(value.root, 'managed-worktrees'),
+      manifestPath: path.join(value.root, 'managed-worktrees', 'manifest.json'),
+      gitCommonDir: value.registry.projects[0].gitCommonDir,
+      baseRef: 'refs/heads/main',
+      baseSha: 'abc123',
+      branch: 'archived-branch',
+      headSha: 'abc123',
+      archiveHeadSha: 'abc123',
+      privateRef: 'refs/cranberri/archive/archived-task',
+      lifecycle: 'cleanupBlocked',
+      cleanupReason: 'Legacy archived worktree contains ignored content and was preserved without source changes.',
+      environmentRevision: null,
+      createdAt: 1,
+      updatedAt: 2,
+      archivedAt: 2,
+    }
+    await seed(value.store, [value.task, archivedTask], [archivedWorktree])
+
+    const report = await reconcileStartup({
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => ({ state: value.state, source: 'primary' }),
+      writeAppState: vi.fn(),
+      checkThread: async () => 'available',
+      taskRecovery: {
+        codex: {
+          inspectThreadLifecycle: async (threadId: string) => ({ threadId, state: 'active', cwd: value.root }),
+          archiveThread: async () => undefined,
+          unarchiveThread: async () => ({}),
+          deleteThread: async () => undefined,
+        },
+        inspectLegacyArchive: async () => 'ignored',
+      },
+    })
+
+    expect(report.taskStore.status).toBe('ready')
+    expect(report.lifecycle).toContainEqual(expect.objectContaining({
+      taskId: archivedTask.id,
+      status: 'needsAttention',
+      reason: 'ignoredContent',
+    }))
+    expect(report.windows).toEqual([expect.objectContaining({
+      windowId: 'window', status: 'ready', reason: 'none', threadStatus: 'available',
+    })])
+  })
+
   it('does not require task thread metadata on a bound tool window', async () => {
     const value = fixture()
     await seed(value.store, [value.task])

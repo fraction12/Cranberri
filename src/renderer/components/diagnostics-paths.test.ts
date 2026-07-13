@@ -11,6 +11,8 @@ const REPORT: CranberriDiagnosticsReport = {
     buildTime: '2026-07-08T00:00:01.000Z',
     version: '0.1.3',
     packaged: false,
+    channel: 'development',
+    schemas: { appState: 3, taskStore: 2, composerDrafts: 1 },
   },
   runtime: {
     platform: 'darwin',

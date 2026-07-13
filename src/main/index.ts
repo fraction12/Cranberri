@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { initAppIpc } from './appIpc'
 import { initRepoIpc } from './repos'
@@ -27,6 +28,8 @@ import {
   persistenceFlushRequestSchema,
   type PersistenceFlushRequest,
 } from '../shared/appState'
+import { buildInfo } from '../shared/buildInfo'
+import { resolveUserDataPath } from './user-data-path'
 
 const APP_SCHEME = 'cranberri'
 const MEDIA_SCHEME = 'cranberri-media'
@@ -101,9 +104,15 @@ function reportPersistenceFlushFailure(
   if (!win.webContents.isDestroyed()) win.webContents.send('app:persistence-flush-failed', failure)
 }
 
-if (process.env.CRANBERRI_USER_DATA_DIR) {
-  app.setPath('userData', process.env.CRANBERRI_USER_DATA_DIR)
-}
+const userDataPath = resolveUserDataPath({
+  appDataPath: app.getPath('appData'),
+  channel: buildInfo.channel,
+  commit: buildInfo.commit,
+  explicitPath: process.env.CRANBERRI_USER_DATA_DIR,
+  taskStoreVersion: buildInfo.schemas.taskStore,
+  tempPath: os.tmpdir(),
+})
+if (userDataPath) app.setPath('userData', userDataPath)
 
 const ownsApplicationInstance = app.requestSingleInstanceLock?.() ?? true
 if (!ownsApplicationInstance) app.quit()

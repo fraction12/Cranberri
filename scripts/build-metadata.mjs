@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import childProcess from 'node:child_process'
+import { resolveBuildChannel } from './build-channel.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -29,6 +30,11 @@ try {
 }
 
 const isPackaged = process.argv.includes('--packaged') || process.env.CRANBERRI_PACKAGED === 'true'
+const channel = resolveBuildChannel({
+  packaged: isPackaged,
+  requested: process.env.CRANBERRI_BUILD_CHANNEL,
+})
+const schemas = JSON.parse(fs.readFileSync(path.join(sharedDir, 'persistence-schema-versions.json'), 'utf8'))
 const buildInfo = {
   commit: commit || 'unknown',
   branch: branch || 'unknown',
@@ -36,6 +42,8 @@ const buildInfo = {
   buildTime: new Date().toISOString(),
   version: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
   packaged: isPackaged,
+  channel,
+  schemas,
 }
 
 const outputPath = path.join(sharedDir, 'buildInfo.generated.json')
