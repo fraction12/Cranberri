@@ -109,6 +109,52 @@ describe('Codex turn activity state', () => {
     ])
   })
 
+  it.each(['completed', 'failed', 'interrupted'] as const)(
+    'keeps a %s turn terminal when late item lifecycle events arrive',
+    (terminalStatus) => {
+      let current = reconcileCodexTurnStarted(thread(), 'turn-1', 1_050)
+      current = applyCodexItemLifecycle(current, 'turn-1', {
+        id: 'command-1',
+        type: 'commandExecution',
+        command: 'sleep 30',
+        status: 'inProgress',
+      }, 'started', 1_100)
+      current = completeCodexActivityTurn(current, 'turn-1', terminalStatus, 1_500, 450)
+      current = applyCodexItemLifecycle(current, 'turn-1', {
+        id: 'reasoning-late',
+        type: 'reasoning',
+        summary: ['Late reasoning'],
+        content: [],
+      }, 'started', 1_600)
+      current = applyCodexItemLifecycle(current, 'turn-1', {
+        id: 'command-1',
+        type: 'commandExecution',
+        command: 'sleep 30',
+        status: 'completed',
+        exitCode: 0,
+        durationMs: 30_000,
+      }, 'completed', 31_100)
+
+      expect(current.activityTurns![0]).toMatchObject({
+        id: 'turn-1',
+        status: terminalStatus,
+        completedAt: 1_500,
+        durationMs: 450,
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'command-1',
+            status: 'completed',
+            completedAt: 31_100,
+          }),
+          expect.objectContaining({
+            id: 'reasoning-late',
+            status: 'running',
+          }),
+        ]),
+      })
+    },
+  )
+
   it('records steering inside the active turn and completes with server timing', () => {
     let current = reconcileCodexTurnStarted(thread(), 'turn-1', 1_050)
     current = appendCodexSteeringItem(current, 'Focus on chat only', 1_200, 'steer-1')

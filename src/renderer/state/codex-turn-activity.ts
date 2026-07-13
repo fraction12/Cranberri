@@ -139,6 +139,7 @@ export function reconcileCodexTurnStarted(thread: CodexThread, turnId: string, s
   const turns = thread.activityTurns ?? []
   const existing = turns.find((turn) => turn.id === turnId)
   if (existing) {
+    if (existing.status !== 'running') return thread
     return {
       ...thread,
       activityTurns: turns.map((turn) => turn.id === turnId

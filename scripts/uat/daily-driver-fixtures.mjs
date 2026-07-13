@@ -85,6 +85,7 @@ export function createDailyDriverFixtures(options = {}) {
     const notGitPath = path.join(root, 'errors', 'not-a-git-repository')
     const missingCheckoutPath = path.join(root, 'errors', 'missing-checkout')
     const userDataPath = path.join(root, 'user-data')
+    const managedWorktreeRoot = path.join(root, 'managed-worktrees')
 
     fs.mkdirSync(localRepoPath, { recursive: true })
     git(localRepoPath, ['init', '--quiet', '-b', 'main'])
@@ -128,6 +129,12 @@ export function createDailyDriverFixtures(options = {}) {
       }],
       activeRepoId: 'daily-driver-fixture-project',
     }, null, 2))
+    fs.writeFileSync(path.join(userDataPath, 'settings.json'), JSON.stringify({
+      version: 5,
+      data: {
+        worktrees: { root: managedWorktreeRoot, retentionDays: 7, cap: 15 },
+      },
+    }, null, 2))
 
     const descriptor = {
       schemaVersion: 1,
@@ -168,11 +175,12 @@ export function createDailyDriverFixtures(options = {}) {
       fixtureSha,
       root,
       userDataPath,
+      managedWorktreeRoot,
       manifestPath,
       cases,
     }, null, 2))
 
-    return { schemaVersion: 1, fixtureSha, root, userDataPath, manifestPath, cases }
+    return { schemaVersion: 1, fixtureSha, root, userDataPath, managedWorktreeRoot, manifestPath, cases }
   } catch (error) {
     trashDailyDriverFixtures(root)
     throw error
