@@ -386,7 +386,6 @@ export function buildAppActions({
   interruptActiveThread,
   archiveActiveThread,
   renameActiveThread,
-  deleteActiveThread,
   toggleSessionPinned,
   archiveSession,
   unarchiveSession,
@@ -1552,7 +1551,7 @@ export function buildAppActions({
     )
   }
 
-  if (compactActiveThread || interruptActiveThread || archiveActiveThread || renameActiveThread || deleteActiveThread || toggleSessionPinned) {
+  if (compactActiveThread || interruptActiveThread || archiveActiveThread || renameActiveThread || toggleSessionPinned) {
     if (compactActiveThread) {
       actions.push({
         id: 'codex:active:compact',
@@ -1587,18 +1586,6 @@ export function buildAppActions({
         keywords: ['codex', 'chat', 'thread', 'session', 'rename', 'title', activeThreadTitle],
         disabledReason: activeThread ? undefined : 'Open a chat first',
         run: () => activeThread ? renameActiveThread() : undefined,
-      })
-    }
-    if (deleteActiveThread) {
-      actions.push({
-        id: 'codex:active:delete',
-        group: 'sessions',
-        icon: 'session',
-        label: 'Delete active chat',
-        description: activeThread ? `Delete ${activeThreadTitle}` : 'No active chat thread',
-        keywords: ['codex', 'chat', 'thread', 'session', 'delete', 'remove', activeThreadTitle],
-        disabledReason: activeThread ? undefined : 'Open a chat first',
-        run: () => activeThread ? deleteActiveThread() : undefined,
       })
     }
     if (toggleSessionPinned) {
@@ -2163,14 +2150,14 @@ export function buildAppActions({
         run: () => toggleSessionPinned(session),
       })
     }
-    if (deleteSession) {
+    if (archived && deleteSession) {
       actions.push({
-        id: `session:${archived ? 'archived:' : ''}${session.id}:delete`,
+        id: `session:archived:${session.id}:delete`,
         group: 'sessions',
         icon: 'session',
-        label: `Delete session: ${title}`,
+        label: `Delete archived session: ${title}`,
         description: session.preview || repoPath,
-        keywords: ['session', 'thread', 'history', 'delete', 'remove', archived ? 'archived' : 'recent', title, session.preview, session.id, repoPath, ...matchKeywords],
+        keywords: ['session', 'thread', 'history', 'delete', 'remove', 'archived', title, session.preview, session.id, repoPath, ...matchKeywords],
         run: () => deleteSession(session.id, title),
       })
     }

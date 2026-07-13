@@ -124,7 +124,7 @@ function SessionRow({
             ) : (
               <DropdownMenu.Item className={RAIL_MENU_ITEM} onSelect={() => onArchive(session)}><Archive className="h-3.5 w-3.5 text-app-text-muted" />Archive</DropdownMenu.Item>
             )}
-            <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenu.Item>
+            {archived && <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete archived session</DropdownMenu.Item>}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -455,9 +455,9 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       )}
       {deleteTarget && (
         <ConfirmDialog
-          title="Delete session"
-          description={`Delete Codex session "${sessionTitle(deleteTarget)}"? This cannot be undone.`}
-          confirmLabel="Delete"
+          title="Delete archived session"
+          description={`Permanently delete "${sessionTitle(deleteTarget)}" and its saved work? This cannot be undone.`}
+          confirmLabel="Delete permanently"
           busyLabel="Deleting..."
           busy={deleting}
           danger
