@@ -12,7 +12,6 @@ import {
   reconcileStartup,
   type ThreadCheck,
 } from './startup-recovery'
-import { readSettings } from './settings'
 import { HandoffCoordinator } from './handoff'
 import { readProjectRegistry } from './repos'
 import type { StartupRecoveryReport } from '../shared/recovery'
@@ -64,8 +63,5 @@ export const recoverStartupRuntime = async () => {
       await coordinator.recoverInterrupted(taskId)
     },
   })
-  const report = await reconcileStartup()
-  return settleStartupMaintenance(report, () => (
-    worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
-  ))
+  return reconcileStartup()
 }
