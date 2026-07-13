@@ -84,6 +84,40 @@ describe('composer send lifecycle', () => {
     expect(result).toEqual({ acknowledged: false, dispatchError: failure })
   })
 
+  it('retries an app-server startup failure with the same durable first-turn journal', async () => {
+    const journaled = { id: 'first-turn-idempotency-key' }
+    let savedDraft: typeof journaled | null = null
+    let dispatchCount = 0
+    const dispatch = async (draft: typeof journaled | null) => {
+      expect(draft).toBe(journaled)
+      dispatchCount += 1
+      if (dispatchCount === 1) throw new Error('Codex app-server exited with code 2')
+    }
+
+    const first = await runComposerSendLifecycle({
+      journal: async () => journaled,
+      clearVisible: () => undefined,
+      dispatch,
+      restoreVisible: () => undefined,
+      restoreSavedDraft: (draft) => { savedDraft = draft },
+      clearSavedDraft: async () => { savedDraft = null },
+    })
+    expect(first.acknowledged).toBe(false)
+    expect(savedDraft).toBe(journaled)
+
+    const retry = await runComposerSendLifecycle({
+      journal: async () => savedDraft,
+      clearVisible: () => undefined,
+      dispatch,
+      restoreVisible: () => undefined,
+      restoreSavedDraft: (draft) => { savedDraft = draft },
+      clearSavedDraft: async () => { savedDraft = null },
+    })
+    expect(retry).toEqual({ acknowledged: true })
+    expect(savedDraft).toBeNull()
+    expect(dispatchCount).toBe(2)
+  })
+
   it('does not clear visible state when journaling fails', async () => {
     const events: string[] = []
     await expect(runComposerSendLifecycle({

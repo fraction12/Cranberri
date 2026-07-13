@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
-import { resolveCodexRuntime } from './env'
+import { resetCodexRuntime, resolveCodexRuntime } from './env'
 import { FakeCodexClient } from './fakeClient'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexRuntimeContext, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import {
@@ -498,13 +498,14 @@ async function getCodexConnectionStatus(): Promise<CodexConnectionStatus> {
   return {
     installed: true,
     authenticated: status.code === 0 && /logged in/i.test(detail),
+    runtimeSource: runtime.source,
     cliPath,
     version,
     minimumVersion: MINIMUM_GPT_56_CODEX_VERSION,
     updateRequired,
     detail: updateRequired
       ? `Codex ${version ?? 'unknown'} at ${cliPath} lacks required capabilities. Update it outside Cranberri.`
-      : `${detail} (${version ?? 'unknown'} at ${cliPath})`,
+      : detail,
   }
 }
 
@@ -1090,6 +1091,27 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('codex:plugins:marketplaces:upgrade', async () => upgradeCodexPluginMarketplaces())
 
   ipcMain.handle('codex:connection:status', async () => {
+    return getCodexConnectionStatus()
+  })
+
+  ipcMain.handle('codex:runtime:pick', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose Codex executable',
+      properties: ['openFile'],
+    })
+    return { path: result.canceled ? null : (result.filePaths[0] ?? null) }
+  })
+
+  ipcMain.handle('codex:runtime:reload', async () => {
+    while (clientStarting) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    client?.stop()
+    client = null
+    clientEventHandlerAttached = false
+    clearCatalogTaskState()
+    advanceKnownCapabilityEpochs()
+    resetCodexRuntime()
     return getCodexConnectionStatus()
   })
 

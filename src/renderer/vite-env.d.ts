@@ -125,6 +125,8 @@ declare global {
         deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         renameThread: (cwd: string, threadId: string, name: string) => Promise<{ ok: boolean }>
         getConnectionStatus: () => Promise<CodexConnectionStatus>
+        pickRuntime: () => Promise<{ path: string | null }>
+        reloadRuntime: () => Promise<CodexConnectionStatus>
         connect: () => Promise<CodexConnectionStatus>
         getRateLimits: () => Promise<import('@/shared/codex').CodexRateLimitsReadResult>
         getAccountUsage: () => Promise<import('@/shared/codex').CodexAccountUsageReadResult>
