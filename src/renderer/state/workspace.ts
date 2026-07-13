@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useRepos } from './repos'
 import { useAppState } from './appState'
-import { bindWorkspaceWindowThread, closeSessionChatWindows, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, rebindWorkspaceWindowExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
+import { bindWorkspaceWindowThread, closeSessionWindows as closeBoundSessionWindows, createBoundWorkspaceWindow, executionContextForNewToolWindow, localProjectExecutionContext, rebindWorkspaceWindowExecutionContext, renameWorkspaceWindow, repairStaleLocalWorkspaceBindings } from './workspace-model'
 import { useOptionalTasks } from './tasks'
 import { resolveTaskExecutionContext, type ExecutionContextResolution, type TaskExecutionContext } from './execution-context'
 import type { SessionExecutionTarget, WorkspaceWindowState, WorkspaceWindowType } from '@/shared/appState'
@@ -215,7 +215,7 @@ export function useWorkspace(): WorkspaceApi {
   }, [mutateWorkspace])
 
   const closeSessionWindows = useCallback((projectId: string, identity: { threadId: string; taskId?: string | null }) => {
-    mutateWorkspace(projectId, (windows, activeWindowId) => closeSessionChatWindows({ windows, activeWindowId }, identity))
+    mutateWorkspace(projectId, (windows, activeWindowId) => closeBoundSessionWindows({ windows, activeWindowId }, identity))
   }, [mutateWorkspace])
 
   const setActiveWindow = useCallback((id: string) => {

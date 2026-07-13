@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { worktreeSnapshotDescriptorSchema } from './worktree-snapshots'
 
 export const managedWorktreeSchema = z.object({
   id: z.string().min(1),
@@ -15,6 +16,7 @@ export const managedWorktreeSchema = z.object({
   headSha: z.string().nullable(),
   archiveHeadSha: z.string().nullable(),
   privateRef: z.string().nullable(),
+  snapshot: worktreeSnapshotDescriptorSchema.nullable().optional(),
   lifecycle: z.enum([
     'provisioning',
     'setup',

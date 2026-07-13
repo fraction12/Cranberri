@@ -459,6 +459,21 @@ async function waitForVisibleToastsToClear(page, timeout = 10_000) {
   await page.waitForTimeout(250)
 }
 
+async function waitForPageCondition(page, predicate, arg, { timeout = 10_000, interval = 100 } = {}) {
+  const deadline = Date.now() + timeout
+  let lastError = null
+  while (Date.now() < deadline) {
+    try {
+      if (await page.evaluate(predicate, arg)) return
+      lastError = null
+    } catch (error) {
+      lastError = error
+    }
+    await page.waitForTimeout(interval)
+  }
+  throw new Error(`Timed out after ${timeout}ms waiting for page condition`, { cause: lastError ?? undefined })
+}
+
 async function clickButtonByAccessibleName(page, name, timeout = 10_000) {
   await page.waitForFunction((expectedName) => {
     return [...document.querySelectorAll('button')]
@@ -874,14 +889,13 @@ async function runSessionWorkspaceSmoke() {
   try {
     await smokePage(electronApp, async (page) => {
       await page.getByText('Local · main', { exact: true }).waitFor({ timeout: 10_000 })
-      await page.waitForFunction(async () => {
+      await waitForPageCondition(page, async () => {
         const [appState, tasks] = await Promise.all([
           window.cranberri.appState.read(),
           window.cranberri.tasks.snapshot(),
         ])
         const repaired = appState.workspacesByProjectId['smoke-repo']?.windows.find((windowState) => windowState.id === 'legacy-local-window')
         return repaired?.taskId === null
-          && repaired.title === 'New local session'
           && repaired.sessionTarget === 'local'
           && tasks.tasks.every((task) => task.role !== 'control')
       }, undefined, { timeout: 10_000 })
@@ -925,14 +939,14 @@ async function runSessionWorkspaceSmoke() {
       }, { taskId: identity.taskId, restoredWindowId })
       await page.reload()
       await page.getByText('cranberri-fake-codex-stream-complete').last().waitFor({ timeout: 20_000 })
-      await page.waitForFunction(async (windowId) => {
+      await waitForPageCondition(page, async (windowId) => {
         const state = await window.cranberri.appState.read()
         return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === null
       }, restoredWindowId, { timeout: 10_000 })
       const localSessionRow = page.locator(`[data-session-id="${identity.threadId}"][data-session-location="local"]`)
       await localSessionRow.waitFor({ timeout: 10_000 })
       await localSessionRow.locator('button').first().click()
-      await page.waitForFunction(async ({ windowId, taskId }) => {
+      await waitForPageCondition(page, async ({ windowId, taskId }) => {
         const state = await window.cranberri.appState.read()
         return state.workspacesByProjectId['smoke-repo']?.windows.find((candidate) => candidate.id === windowId)?.taskId === taskId
       }, { windowId: restoredWindowId, taskId: identity.taskId }, { timeout: 10_000 })
@@ -941,9 +955,13 @@ async function runSessionWorkspaceSmoke() {
       await githubPanel.getByText('fraction12/Cranberri', { exact: true }).first().waitFor({ timeout: 10_000 })
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Continue in worktree' }).click()
-      await page.waitForFunction(async ({ taskId, threadId }) => {
+      await waitForPageCondition(page, async ({ taskId, threadId }) => {
         const snapshot = await window.cranberri.tasks.snapshot()
-        return snapshot.tasks.some((task) => task.id === taskId && task.threadId === threadId && task.location === 'worktree')
+        return snapshot.tasks.some((task) => task.id === taskId
+          && task.threadId === threadId
+          && task.location === 'worktree'
+          && task.state === 'active'
+          && !task.worktreeTransition)
       }, identity, { timeout: 20_000 })
       try {
         await page.getByText('Worktree · from main', { exact: true }).waitFor({ timeout: 10_000 })
@@ -983,8 +1001,21 @@ async function runSessionWorkspaceSmoke() {
 
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Archive session' }).click()
-      await page.waitForFunction(async (taskId) => (await window.cranberri.tasks.status(taskId)).task.state === 'archived', identity.taskId, { timeout: 10_000 })
-      await page.waitForFunction(async (threadId) => {
+      await page.getByText('Session archived', { exact: true }).waitFor({ timeout: 20_000 })
+      await waitForPageCondition(page, async (taskId) => {
+        const status = await window.cranberri.tasks.status(taskId)
+        return status.task.state === 'archived'
+          && status.worktree?.lifecycle === 'removed'
+          && Boolean(status.worktree.snapshot)
+      }, identity.taskId, { timeout: 20_000 })
+      const archivedStatus = await page.evaluate((taskId) => window.cranberri.tasks.status(taskId), identity.taskId)
+      if (!archivedStatus.worktree?.snapshot || archivedStatus.worktree.lifecycle !== 'removed') {
+        throw new Error(`Archived worktree did not retain a restore snapshot: ${JSON.stringify(archivedStatus)}`)
+      }
+      if (fs.existsSync(promotedStatus.worktree.path)) {
+        throw new Error('Archived managed worktree remained on disk')
+      }
+      await waitForPageCondition(page, async (threadId) => {
         const state = await window.cranberri.appState.read()
         return Object.values(state.workspacesByProjectId)
           .every((workspace) => workspace.windows.every((windowState) => windowState.threadId !== threadId))
@@ -1002,10 +1033,22 @@ async function runSessionWorkspaceSmoke() {
 
       await page.getByRole('button', { name: 'Task actions' }).click()
       await page.getByRole('menuitem', { name: 'Restore session' }).click()
-      await page.waitForFunction(async ({ taskId, threadId }) => {
-        const task = (await window.cranberri.tasks.status(taskId)).task
-        return task.state === 'active' && task.threadId === threadId
+      await waitForPageCondition(page, async ({ taskId, threadId }) => {
+        const status = await window.cranberri.tasks.status(taskId)
+        return status.task.state === 'active'
+          && status.task.threadId === threadId
+          && status.worktree?.lifecycle === 'active'
+          && !status.worktree.snapshot
+          && !status.worktree.privateRef
       }, identity, { timeout: 10_000 })
+      const restoredStatus = await page.evaluate((taskId) => window.cranberri.tasks.status(taskId), identity.taskId)
+      if (!restoredStatus.worktree || !fs.existsSync(restoredStatus.worktree.path)
+        || restoredStatus.worktree.snapshot || restoredStatus.worktree.privateRef) {
+        throw new Error(`Restored worktree did not consume its archive snapshot: ${JSON.stringify(restoredStatus)}`)
+      }
+      if (!fs.existsSync(path.join(restoredStatus.worktree.path, 'worktree-right-rail-proof.txt'))) {
+        throw new Error('Restored worktree did not reproduce non-ignored untracked work')
+      }
       await page.waitForFunction(() => {
         const input = document.querySelector('[aria-label="Chat message"]')
         return input instanceof HTMLElement && input.getAttribute('contenteditable') === 'true'
@@ -1014,7 +1057,7 @@ async function runSessionWorkspaceSmoke() {
 
       await promotedRow.locator('button[aria-label^="Options for"]').click()
       await page.getByRole('menuitem', { name: 'Archive' }).click()
-      await page.waitForFunction(async ({ taskId, threadId }) => {
+      await waitForPageCondition(page, async ({ taskId, threadId }) => {
         const [status, appState] = await Promise.all([
           window.cranberri.tasks.status(taskId),
           window.cranberri.appState.read(),
@@ -1025,6 +1068,9 @@ async function runSessionWorkspaceSmoke() {
           && (candidate.id === sessionWindowId || candidate.taskId === taskId))
         return status.task.state === 'archived' && !sessionChatOpen
       }, identity, { timeout: 10_000 })
+      if (fs.existsSync(restoredStatus.worktree.path)) {
+        throw new Error('Repo-rail archive left the managed worktree on disk')
+      }
 
       await repo.hover()
       await repo.getByRole('button', { name: `New session in ${repoName}` }).click()
@@ -1044,9 +1090,12 @@ async function runSessionWorkspaceSmoke() {
       const deleteRow = repo.locator(`[data-session-id="${deleteIdentity.threadId}"]`)
       await deleteRow.waitFor({ timeout: 10_000 })
       await deleteRow.locator('button[aria-label^="Options for"]').click()
-      await page.getByRole('menuitem', { name: 'Delete' }).click()
-      await page.getByRole('dialog', { name: 'Delete session' }).getByRole('button', { name: 'Delete' }).click()
-      await page.waitForFunction(async ({ taskId, threadId }) => {
+      await page.getByRole('menuitem', { name: 'Archive' }).click()
+      await waitForPageCondition(page, async (taskId) => (await window.cranberri.tasks.status(taskId)).task.state === 'archived', deleteIdentity.taskId, { timeout: 10_000 })
+      await deleteRow.locator('button[aria-label^="Options for"]').click()
+      await page.getByRole('menuitem', { name: 'Delete archived session' }).click()
+      await page.getByRole('dialog', { name: 'Delete archived session' }).getByRole('button', { name: 'Delete permanently' }).click()
+      await waitForPageCondition(page, async ({ taskId, threadId }) => {
         const [snapshot, appState] = await Promise.all([
           window.cranberri.tasks.snapshot(),
           window.cranberri.appState.read(),
@@ -1072,7 +1121,7 @@ async function runPackagedHandoffUat(page, secondaryRepoPath) {
   await secondaryRepo.hover()
   await secondaryRepo.getByRole('button', { name: `New session in ${secondaryRepoName}` }).click()
   await page.getByRole('menuitem', { name: /New Local session/ }).click()
-  await page.waitForFunction(async () => (await window.cranberri.repos.list()).activeRepoId === 'smoke-repo-secondary', undefined, { timeout: 10_000 })
+  await waitForPageCondition(page, async () => (await window.cranberri.repos.list()).activeRepoId === 'smoke-repo-secondary', undefined, { timeout: 10_000 })
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await composer.fill('cranberri packaged handoff uat')
   await page.getByLabel('Send message').click()
@@ -1102,7 +1151,7 @@ async function runPackagedHandoffUat(page, secondaryRepoPath) {
   }
   await localDialog.getByRole('button', { name: 'Continue' }).click()
   await page.getByText(`Local · ${identity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
-  await page.waitForFunction(async ({ taskId, proposedBranch }) => {
+  await waitForPageCondition(page, async ({ taskId, proposedBranch }) => {
     const status = await window.cranberri.tasks.status(taskId)
     const repos = await window.cranberri.repos.list()
     const project = repos.projects.find((candidate) => candidate.id === status.task.projectId)
@@ -1117,7 +1166,7 @@ async function runPackagedHandoffUat(page, secondaryRepoPath) {
   await worktreeDialog.getByRole('textbox', { name: 'Branch' }).waitFor({ timeout: 10_000 })
   await worktreeDialog.getByRole('button', { name: 'Continue' }).click()
   await page.getByText(`Worktree · ${identity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
-  await page.waitForFunction(async ({ taskId, worktreePath }) => {
+  await waitForPageCondition(page, async ({ taskId, worktreePath }) => {
     const status = await window.cranberri.tasks.status(taskId)
     return status.task.location === 'worktree' && status.worktree?.path === worktreePath
   }, identity, { timeout: 20_000 })
@@ -1153,14 +1202,14 @@ async function runRepoWorkspaceSmoke() {
       await primaryRepo.getByRole('button', { name: `Options for ${primaryRepoName}` }).click()
       await page.getByRole('menuitem', { name: /Pinned local branch/ }).hover()
       await page.getByRole('menuitem', { name: 'smoke/context', exact: true }).click()
-      await page.waitForFunction(async () => (await window.cranberri.repos.list()).projects
+      await waitForPageCondition(page, async () => (await window.cranberri.repos.list()).projects
         .find((project) => project.id === 'smoke-repo')?.pinnedLocalBranch === 'smoke/context', undefined, { timeout: 10_000 })
       await page.getByText('Local · smoke/context', { exact: true }).waitFor({ timeout: 10_000 })
       await primaryRepo.hover()
       await primaryRepo.getByRole('button', { name: `Options for ${primaryRepoName}` }).click()
       await page.getByRole('menuitem', { name: /Pinned local branch/ }).hover()
       await page.getByRole('menuitem', { name: /main.*Current/, exact: false }).click()
-      await page.waitForFunction(async () => (await window.cranberri.repos.list()).projects
+      await waitForPageCondition(page, async () => (await window.cranberri.repos.list()).projects
         .find((project) => project.id === 'smoke-repo')?.pinnedLocalBranch === 'main', undefined, { timeout: 10_000 })
       await page.getByText('Local · main', { exact: true }).waitFor({ timeout: 10_000 })
       await primaryRepo.hover()
@@ -3554,7 +3603,7 @@ async function runRepoWorkspaceSmoke() {
       await worktreeHandoffDialog.getByRole('textbox', { name: 'Branch' }).waitFor({ timeout: 10_000 })
       await worktreeHandoffDialog.getByRole('button', { name: 'Continue' }).click()
       await page.getByText(`Worktree · ${handoffIdentity.proposedBranch}`, { exact: true }).waitFor({ timeout: 20_000 })
-      await page.waitForFunction(async ({ taskId, worktreePath }) => {
+      await waitForPageCondition(page, async ({ taskId, worktreePath }) => {
         const status = await window.cranberri.tasks.status(taskId)
         return status.task.location === 'worktree' && status.worktree?.path === worktreePath
       }, handoffIdentity, { timeout: 20_000 })
@@ -3584,8 +3633,19 @@ async function runRepoWorkspaceSmoke() {
 
       let inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
+      const inactiveThreadId = await inactiveSession.getAttribute('data-session-id')
+      if (!inactiveThreadId) throw new Error('Inactive repo session has no thread identity')
       await inactiveSession.getByRole('button', { name: 'Options for Renamed Smoke Codex Thread' }).click()
       await page.getByRole('menuitem', { name: 'Unarchive' }).click()
+      await waitForPageCondition(page, async (threadId) => {
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+        const worktree = snapshot.managedWorktrees.find((candidate) => candidate.id === task?.worktreeId)
+        return task?.state === 'active'
+          && worktree?.lifecycle === 'active'
+          && !worktree.snapshot
+          && !worktree.privateRef
+      }, inactiveThreadId, { timeout: 20_000 })
 
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Renamed Smoke Codex Thread' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
@@ -3598,13 +3658,21 @@ async function runRepoWorkspaceSmoke() {
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
       await inactiveSession.getByRole('button', { name: 'Options for Inactive Repo Managed Session' }).click()
-      await page.getByRole('menuitem', { name: 'Archive' }).click()
+      await page.getByRole('menuitem', { name: 'Archive', exact: true }).click()
+      await waitForPageCondition(page, async (threadId) => {
+        const snapshot = await window.cranberri.tasks.snapshot()
+        const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+        const worktree = snapshot.managedWorktrees.find((candidate) => candidate.id === task?.worktreeId)
+        return task?.state === 'archived'
+          && worktree?.lifecycle === 'removed'
+          && Boolean(worktree.snapshot)
+      }, inactiveThreadId, { timeout: 20_000 })
 
       inactiveSession = secondaryRepo.locator('[data-session-id]').filter({ hasText: 'Inactive Repo Managed Session' }).first()
       await inactiveSession.waitFor({ timeout: 10_000 })
       const inactiveSessionOptionsLabel = 'Options for Inactive Repo Managed Session'
       await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
-      await page.getByRole('menuitem', { name: 'Delete' }).waitFor({ timeout: 10_000 })
+      await page.getByRole('menuitem', { name: 'Delete archived session' }).waitFor({ timeout: 10_000 })
       await page.waitForFunction(() => {
         const toasts = [...document.querySelectorAll('[data-sonner-toast][data-visible="true"]')]
           .filter((toast) => getComputedStyle(toast).opacity !== '0')
@@ -3621,16 +3689,16 @@ async function runRepoWorkspaceSmoke() {
         return frontToasts.length === 1 && titleMetricsMatch && backgroundContentHidden
       }, undefined, { timeout: 10_000 })
       await captureSmokeScreenshot(page, 'dropdown-session-options-dark-large')
-      await page.getByRole('menuitem', { name: 'Delete' }).click()
-      let inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
+      await page.getByRole('menuitem', { name: 'Delete archived session' }).click()
+      let inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete archived session' })
       await inactiveDeleteDialog.waitFor({ timeout: 10_000 })
       await page.keyboard.press('Escape')
       await inactiveDeleteDialog.waitFor({ state: 'detached', timeout: 10_000 })
       await page.waitForFunction((label) => document.activeElement?.getAttribute('aria-label') === label, inactiveSessionOptionsLabel, { timeout: 10_000 })
       await inactiveSession.getByRole('button', { name: inactiveSessionOptionsLabel }).click()
-      await page.getByRole('menuitem', { name: 'Delete' }).click()
-      inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete session' })
-      await inactiveDeleteDialog.getByRole('button', { name: 'Delete' }).click()
+      await page.getByRole('menuitem', { name: 'Delete archived session' }).click()
+      inactiveDeleteDialog = page.getByRole('dialog', { name: 'Delete archived session' })
+      await inactiveDeleteDialog.getByRole('button', { name: 'Delete permanently' }).click()
       await inactiveSession.waitFor({ state: 'detached', timeout: 10_000 })
       smokeStep('repo workspace assertions complete')
     })

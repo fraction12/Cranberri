@@ -32,6 +32,24 @@ export const threadRecoveryStatusSchema = z.enum([
   'missing',
 ])
 
+export const lifecycleRecoveryOutcomeSchema = z.object({
+  taskId: z.string().min(1),
+  operationId: z.string().min(1).nullable(),
+  kind: z.enum(['archive', 'restore', 'delete', 'legacyArchive']),
+  status: z.enum(['repaired', 'needsAttention']),
+  reason: z.enum([
+    'operationCompleted',
+    'ignoredContent',
+    'unsafeLegacyArchive',
+    'threadMissing',
+    'threadUnchecked',
+    'executorBlocked',
+    'authorityMismatch',
+  ]),
+  threadState: z.enum(['active', 'archived', 'missing']).nullable(),
+  message: z.string().min(1),
+}).strict()
+
 export const windowRecoveryOutcomeSchema = z.object({
   windowId: z.string().min(1),
   workspaceProjectId: z.string().min(1),
@@ -54,11 +72,13 @@ export const startupRecoveryReportSchema = z.object({
     repairedTaskIds: z.array(z.string().min(1)),
     message: z.string().min(1).optional(),
   }).strict(),
+  lifecycle: z.array(lifecycleRecoveryOutcomeSchema).optional(),
   windows: z.array(windowRecoveryOutcomeSchema),
 }).strict()
 
 export type RecoveryStatus = z.infer<typeof recoveryStatusSchema>
 export type RecoveryReason = z.infer<typeof recoveryReasonSchema>
 export type ThreadRecoveryStatus = z.infer<typeof threadRecoveryStatusSchema>
+export type LifecycleRecoveryOutcome = z.infer<typeof lifecycleRecoveryOutcomeSchema>
 export type WindowRecoveryOutcome = z.infer<typeof windowRecoveryOutcomeSchema>
 export type StartupRecoveryReport = z.infer<typeof startupRecoveryReportSchema>

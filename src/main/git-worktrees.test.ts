@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  applyLocalChanges,
   captureLocalChanges,
   createDetachedWorktree,
   listSelectableRefs,
@@ -98,10 +99,102 @@ describe('Git worktree operations', () => {
     expect(git(target, 'diff', '--name-only')).toContain('tracked.txt')
   })
 
+  it('round-trips executable modes, nested Unicode paths, and excludes ignored files', async () => {
+    const { root, repo } = fixture()
+    const sha = git(repo, 'rev-parse', 'HEAD')
+    const target = path.join(root, 'managed', 'mode and unicode')
+    const executable = path.join(repo, 'script.sh')
+    fs.writeFileSync(executable, '#!/bin/sh\necho base\n', { mode: 0o644 })
+    git(repo, 'add', 'script.sh')
+    git(repo, 'commit', '-m', 'add script')
+    git(repo, 'push')
+    const scriptHead = git(repo, 'rev-parse', 'HEAD')
+    fs.chmodSync(executable, 0o755)
+    fs.mkdirSync(path.join(repo, 'nested', 'café'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'nested', 'café', '雪.txt'), 'snow\n', { mode: 0o744 })
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\n')
+    fs.writeFileSync(path.join(repo, 'ignored.txt'), 'secret\n')
+
+    const changes = await captureLocalChanges(repo, scriptHead)
+    await createDetachedWorktree(repo, target, scriptHead, { localChanges: changes })
+
+    expect(sha).not.toBe(scriptHead)
+    expect(fs.statSync(path.join(target, 'script.sh')).mode & 0o777).toBe(0o755)
+    expect(fs.statSync(path.join(target, 'nested', 'café', '雪.txt')).mode & 0o777).toBe(0o744)
+    expect(fs.readFileSync(path.join(target, 'nested', 'café', '雪.txt'), 'utf8')).toBe('snow\n')
+    expect(fs.existsSync(path.join(target, 'ignored.txt'))).toBe(false)
+  })
+
   it('refuses untracked symlinks that could escape the source checkout', async () => {
     const { repo } = fixture()
     fs.symlinkSync('/tmp', path.join(repo, 'escape'))
     await expect(captureLocalChanges(repo, git(repo, 'rev-parse', 'HEAD'))).rejects.toThrow('symlink')
+
+    const ignored = fixture().repo
+    fs.writeFileSync(path.join(ignored, '.gitignore'), 'ignored-link\n')
+    fs.symlinkSync('/tmp', path.join(ignored, 'ignored-link'))
+    await expect(captureLocalChanges(ignored, git(ignored, 'rev-parse', 'HEAD'))).rejects.toThrow('symlink')
+  })
+
+  it('refuses conflicts, intent-to-add, sparse indexes, and unsupported index flags', async () => {
+    const conflict = fixture().repo
+    const base = git(conflict, 'rev-parse', 'HEAD')
+    const blobA = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: conflict, encoding: 'utf8', input: 'left\n' }).trim()
+    const blobB = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: conflict, encoding: 'utf8', input: 'right\n' }).trim()
+    execFileSync('git', ['update-index', '--index-info'], {
+      cwd: conflict,
+      input: `100644 ${blobA} 2\ttracked.txt\n100644 ${blobB} 3\ttracked.txt\n`,
+    })
+    await expect(captureLocalChanges(conflict, base)).rejects.toThrow(/conflict|unmerged/i)
+
+    const intent = fixture().repo
+    fs.writeFileSync(path.join(intent, 'intent.txt'), 'intent\n')
+    git(intent, 'add', '-N', 'intent.txt')
+    await expect(captureLocalChanges(intent, git(intent, 'rev-parse', 'HEAD'))).rejects.toThrow(/intent-to-add/i)
+
+    const sparse = fixture().repo
+    git(sparse, 'config', 'core.sparseCheckout', 'true')
+    await expect(captureLocalChanges(sparse, git(sparse, 'rev-parse', 'HEAD'))).rejects.toThrow(/sparse/i)
+
+    const flagged = fixture().repo
+    git(flagged, 'update-index', '--assume-unchanged', 'tracked.txt')
+    await expect(captureLocalChanges(flagged, git(flagged, 'rev-parse', 'HEAD'))).rejects.toThrow(/index flag/i)
+  })
+
+  it('refuses populated submodules and unreadable or special untracked files', async () => {
+    const { root, repo } = fixture()
+    const child = path.join(root, 'child')
+    fs.mkdirSync(child)
+    git(child, 'init')
+    git(child, 'config', 'user.name', 'Cranberri Test')
+    git(child, 'config', 'user.email', 'test@cranberri.local')
+    fs.writeFileSync(path.join(child, 'child.txt'), 'child\n')
+    git(child, 'add', '.')
+    git(child, 'commit', '-m', 'child')
+    git(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'vendor/child')
+    git(repo, 'commit', '-m', 'submodule')
+    await expect(captureLocalChanges(repo, git(repo, 'rev-parse', 'HEAD'))).rejects.toThrow(/submodule/i)
+
+    const unreadable = fixture().repo
+    const unreadablePath = path.join(unreadable, 'unreadable.txt')
+    fs.writeFileSync(unreadablePath, 'private\n', { mode: 0o000 })
+    await expect(captureLocalChanges(unreadable, git(unreadable, 'rev-parse', 'HEAD'))).rejects.toThrow(/read/i)
+    fs.chmodSync(unreadablePath, 0o600)
+
+    const special = fixture().repo
+    execFileSync('mkfifo', [path.join(special, 'pipe')])
+    await expect(captureLocalChanges(special, git(special, 'rev-parse', 'HEAD'))).rejects.toThrow(/regular/i)
+  })
+
+  it('rejects unsafe paths before applying captured state', async () => {
+    const { repo } = fixture()
+    const sha = git(repo, 'rev-parse', 'HEAD')
+    await expect(applyLocalChanges(repo, {
+      baseSha: sha,
+      stagedPatch: Buffer.alloc(0),
+      unstagedPatch: Buffer.alloc(0),
+      untrackedFiles: [{ relativePath: '.git/config', contents: Buffer.from('unsafe'), mode: 0o600 }],
+    })).rejects.toThrow(/unsafe|metadata/i)
   })
 
   it('rolls back Git registration when applying captured changes fails', async () => {

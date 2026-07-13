@@ -119,9 +119,10 @@ describe('app actions', () => {
       group: 'sessions',
     })
     expect(actions.find((action) => action.id === 'session:archived:thread-2:delete')).toMatchObject({
-      label: 'Delete session: Old issue sweep',
+      label: 'Delete archived session: Old issue sweep',
       group: 'sessions',
     })
+    expect(actions.find((action) => action.id === 'session:thread-1:delete')).toBeUndefined()
     expect(actions.find((action) => action.id === 'repo:repo-1')?.label).toBe('Switch to Cranberri')
 
     actions.find((action) => action.id === 'session:thread-1:archive')?.run()
@@ -759,21 +760,20 @@ describe('app actions', () => {
       label: 'Archive session: Transcript search work',
     })
     expect(filterAppActions(actions, 'rename transcript search').map((action) => action.id)).toContain('session:thread-1:rename')
-    expect(filterAppActions(actions, 'delete transcript search').map((action) => action.id)).toContain('session:thread-1:delete')
+    expect(filterAppActions(actions, 'delete transcript search').map((action) => action.id)).not.toContain('session:thread-1:delete')
 
     actions.find((action) => action.id === 'session:thread-1')?.run()
     actions.find((action) => action.id === 'session:thread-1:context')?.run()
     actions.find((action) => action.id === 'session:thread-1:copy-context')?.run()
     actions.find((action) => action.id === 'session:thread-1:archive')?.run()
     actions.find((action) => action.id === 'session:thread-1:rename')?.run()
-    actions.find((action) => action.id === 'session:thread-1:delete')?.run()
 
     expect(openSession).toHaveBeenCalledWith(result.session, '/repo/cranberri', false)
     expect(sendSessionContext).toHaveBeenCalledWith(result)
     expect(copySessionContext).toHaveBeenCalledWith(result)
     expect(archiveSession).toHaveBeenCalledWith('thread-1')
     expect(renameSession).toHaveBeenCalledWith('thread-1', 'Transcript search work')
-    expect(deleteSession).toHaveBeenCalledWith('thread-1', 'Transcript search work')
+    expect(deleteSession).not.toHaveBeenCalled()
   })
 
   it('builds right rail navigation actions', () => {
@@ -3140,18 +3140,14 @@ describe('app actions', () => {
       description: 'Rename Smoke thread',
       disabledReason: undefined,
     })
-    expect(actions.find((action) => action.id === 'codex:active:delete')).toMatchObject({
-      label: 'Delete active chat',
-      description: 'Delete Smoke thread',
-      disabledReason: undefined,
-    })
+    expect(actions.find((action) => action.id === 'codex:active:delete')).toBeUndefined()
     expect(actions.find((action) => action.id === 'codex:active:pin')).toMatchObject({
       label: 'Pin active chat',
       description: 'Pin Smoke thread',
       disabledReason: undefined,
     })
     expect(filterAppActions(actions, 'rename active chat').map((action) => action.id)).toContain('codex:active:rename')
-    expect(filterAppActions(actions, 'delete active chat').map((action) => action.id)).toContain('codex:active:delete')
+    expect(filterAppActions(actions, 'delete active chat').map((action) => action.id)).not.toContain('codex:active:delete')
     expect(filterAppActions(actions, 'favorite active chat').map((action) => action.id)).toContain('codex:active:pin')
     expect(filterAppActions(actions, 'export transcript markdown').map((action) => action.id)).toContain('export:active-chat:markdown')
     expect(filterAppActions(actions, 'copy transcript markdown').map((action) => action.id)).toContain('clipboard:active-chat:markdown')
@@ -3173,7 +3169,6 @@ describe('app actions', () => {
     actions.find((action) => action.id === 'context:active-chat:attach-files')?.run()
     actions.find((action) => action.id === 'codex:active:archive')?.run()
     actions.find((action) => action.id === 'codex:active:rename')?.run()
-    actions.find((action) => action.id === 'codex:active:delete')?.run()
     actions.find((action) => action.id === 'codex:active:pin')?.run()
 
     expect(compactActiveThread).toHaveBeenCalled()
@@ -3188,7 +3183,7 @@ describe('app actions', () => {
     expect(attachFilesToActiveChat).toHaveBeenCalled()
     expect(archiveActiveThread).toHaveBeenCalled()
     expect(renameActiveThread).toHaveBeenCalled()
-    expect(deleteActiveThread).toHaveBeenCalled()
+    expect(deleteActiveThread).not.toHaveBeenCalled()
     expect(toggleSessionPinned).toHaveBeenCalledWith(expect.objectContaining({
       id: 'thread-1',
       title: 'Smoke thread',

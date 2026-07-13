@@ -120,9 +120,6 @@ declare global {
         listThreads: (cwd: string, options?: { archived?: boolean; cursor?: string | null; limit?: number; searchTerm?: string | null }) => Promise<{ sessions: CodexSessionSummary[]; nextCursor?: string | null; backwardsCursor?: string | null }>
         readThread: (cwd: string, threadId: string, archived?: boolean) => Promise<{ thread: CodexSessionThread }>
         resumeThread: (cwd: string, threadId: string, settings?: CodexTurnSettings) => Promise<{ thread: CodexSessionThread }>
-        archiveThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
-        unarchiveThread: (cwd: string, threadId: string) => Promise<{ thread: CodexSessionThread }>
-        deleteThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         renameThread: (cwd: string, threadId: string, name: string) => Promise<{ ok: boolean }>
         getConnectionStatus: () => Promise<CodexConnectionStatus>
         pickRuntime: () => Promise<{ path: string | null }>
@@ -149,8 +146,8 @@ declare global {
         status: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task; worktree: import('@/shared/worktrees').ManagedWorktree | null; setupJob: import('@/shared/terminal').EnvironmentJob | null }>
         handoffToLocal: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
         handoffToWorktree: (request: import('@/shared/tasks').TaskHandoffRequest) => Promise<{ task: import('@/shared/tasks').Task }>
-        archive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
-        unarchive: (taskId: string) => Promise<{ task: import('@/shared/tasks').Task }>
+        archive: (taskId: string) => Promise<import('@/shared/tasks').TaskLifecycleResult>
+        unarchive: (taskId: string) => Promise<import('@/shared/tasks').TaskLifecycleResult>
         delete: (taskId: string) => Promise<{ ok: true }>
       }
       worktrees: {

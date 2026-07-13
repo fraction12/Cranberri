@@ -27,9 +27,17 @@ export function taskHeaderDetail(task: Task, branch?: string | null): string {
   return base ?? 'detached'
 }
 
+export function taskLifecycleAction(task: Task): 'archive' | 'restore' | 'retryCleanup' | null {
+  if (task.state === 'archived') return 'restore'
+  if (task.state === 'cleanupBlocked') return 'retryCleanup'
+  if (task.state === 'active' || task.state === 'local') return 'archive'
+  return null
+}
+
 export function TaskHeader({ task, branch, onOpen, onOpenTerminal, onHandoff, onRetrySetup, onArchive, onUnarchive }: TaskHeaderProps) {
   const location = task.location === 'local' ? 'Local' : 'Worktree'
   const detail = taskHeaderDetail(task, branch)
+  const lifecycleAction = taskLifecycleAction(task)
   const Icon = task.location === 'local' ? Laptop : TreePine
   return (
     <header className="flex h-9 shrink-0 items-center gap-2 px-3">
@@ -43,9 +51,11 @@ export function TaskHeader({ task, branch, onOpen, onOpenTerminal, onHandoff, on
             {onOpenTerminal && <DropdownMenu.Item className={itemClass} onSelect={onOpenTerminal}><ExternalLink className="h-3.5 w-3.5" />Open terminal</DropdownMenu.Item>}
             {onHandoff && task.role === 'root' && task.state !== 'archived' && <DropdownMenu.Item className={itemClass} onSelect={() => { void onHandoff() }}><RotateCcw className="h-3.5 w-3.5" />{task.location === 'local' ? task.worktreeId ? 'Return to worktree' : 'Continue in worktree' : 'Test in Local'}</DropdownMenu.Item>}
             {onRetrySetup && task.state === 'failed' && <DropdownMenu.Item className={itemClass} onSelect={() => { void onRetrySetup() }}><RefreshCw className="h-3.5 w-3.5" />Retry setup</DropdownMenu.Item>}
-            {task.state === 'archived'
+            {lifecycleAction === 'restore'
               ? onUnarchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onUnarchive() }}><RotateCcw className="h-3.5 w-3.5" />Restore session</DropdownMenu.Item>
-              : onArchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onArchive() }}><Archive className="h-3.5 w-3.5" />Archive session</DropdownMenu.Item>}
+              : lifecycleAction === 'retryCleanup'
+                ? onArchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onArchive() }}><RefreshCw className="h-3.5 w-3.5" />Retry cleanup</DropdownMenu.Item>
+                : lifecycleAction === 'archive' && onArchive && <DropdownMenu.Item className={itemClass} onSelect={() => { void onArchive() }}><Archive className="h-3.5 w-3.5" />Archive session</DropdownMenu.Item>}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

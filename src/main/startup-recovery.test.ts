@@ -73,13 +73,71 @@ async function seed(store: TaskStore, tasks: Task[], managedWorktrees: ManagedWo
 
 describe('startup recovery', () => {
   it('classifies only an authoritative thread-not-found response as missing', async () => {
-    await expect(authoritativeThreadCheck(async () => ({ id: 'thread' }), 'thread')).resolves.toBe('available')
+    await expect(authoritativeThreadCheck(async (threadId) => ({
+      threadId, state: 'active', cwd: '/repo',
+    }), 'thread')).resolves.toBe('available')
     await expect(authoritativeThreadCheck(async () => {
       throw new Error('thread not found: thread')
     }, 'thread')).resolves.toBe('missing')
     await expect(authoritativeThreadCheck(async () => {
       throw new Error('Codex app-server did not respond within 5s')
     }, 'thread')).resolves.toBe('unchecked')
+  })
+
+  it('settles lifecycle authority before reading persisted windows and is a no-op on relaunch', async () => {
+    const value = fixture()
+    await seed(value.store, [value.task])
+    const operation = await value.store.beginLifecycleOperation({
+      kind: 'archive', taskId: value.task.id, worktreeId: null, startedAt: 2,
+    })
+    await value.store.updateLifecycleOperation(operation.id, (candidate) => ({
+      ...candidate,
+      status: 'needsAttention',
+      phase: 'needsAttention',
+      rpc: { action: 'archiveThread', status: 'unknown', requestedAt: 2, observedAt: null },
+      updatedAt: 2,
+      lastError: { code: 'CODEX_RPC_UNKNOWN', message: 'response lost', recordedAt: 2 },
+    }))
+    const inspectThreadLifecycle = vi.fn(async (threadId: string) => ({
+      threadId, state: 'archived' as const, cwd: '/repo',
+    }))
+    const events: string[] = []
+    const dependencies = {
+      taskStore: value.store,
+      readProjectRegistry: () => value.registry,
+      readAppState: () => {
+        events.push('app-state-read')
+        expect(value.store.read().lifecycleOperations[0]).toMatchObject({
+          status: 'completed', phase: 'archived', rpc: { status: 'observed' },
+        })
+        return { state: value.state, source: 'primary' as const }
+      },
+      writeAppState: vi.fn(),
+      checkThread: async () => 'available' as const,
+      taskRecovery: {
+        codex: {
+          inspectThreadLifecycle: async (threadId: string) => {
+            events.push('thread-inspected')
+            return inspectThreadLifecycle(threadId)
+          },
+          archiveThread: async () => undefined,
+          unarchiveThread: async () => ({}),
+          deleteThread: async () => undefined,
+        },
+      },
+      now: () => 10,
+    }
+
+    const first = await reconcileStartup(dependencies)
+    const revision = value.store.read().revision
+    const second = await reconcileStartup({ ...dependencies, now: () => 20 })
+
+    expect(events.slice(0, 2)).toEqual(['thread-inspected', 'app-state-read'])
+    expect(first.lifecycle).toContainEqual(expect.objectContaining({
+      taskId: 'task', kind: 'archive', status: 'repaired', threadState: 'archived',
+    }))
+    expect(second.lifecycle).toEqual([])
+    expect(value.store.read().revision).toBe(revision)
   })
 
   it('reports a valid binding ready when its thread is confirmed available', async () => {

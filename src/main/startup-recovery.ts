@@ -13,10 +13,12 @@ import {
 } from '../shared/recovery'
 import type { Task } from '../shared/tasks'
 import type { ManagedWorktree } from '../shared/worktrees'
+import type { CodexThreadLifecycleGateway } from './codex/thread-lifecycle'
 import { readProjectRegistry } from './repos'
 import {
   reconcileTaskStore,
   type HandoffRecoveryRecommendation,
+  type TaskRecoveryDependencies,
   type TaskRecoveryResult,
 } from './task-recovery'
 import type { TaskStore } from './task-store'
@@ -30,6 +32,7 @@ export interface StartupRecoveryDependencies {
   readAppState: () => AppStateRead
   writeAppState: (state: CranberriAppState) => CranberriAppState
   checkThread?: (threadId: string, task: Task | null) => Promise<ThreadCheck>
+  taskRecovery?: TaskRecoveryDependencies
   recoverHandoff?: (taskId: string) => Promise<void>
   now: () => number
 }
@@ -46,12 +49,12 @@ let latestHandoffRecoveries: HandoffRecoveryRecommendation[] = []
 let runtimeDependencies: Partial<StartupRecoveryDependencies> = {}
 
 export async function authoritativeThreadCheck(
-  readThread: (threadId: string) => Promise<unknown>,
+  inspectThreadLifecycle: CodexThreadLifecycleGateway['inspectThreadLifecycle'],
   threadId: string,
 ): Promise<ThreadCheck> {
   try {
-    await readThread(threadId)
-    return 'available'
+    const inspection = await inspectThreadLifecycle(threadId)
+    return inspection.state === 'missing' ? 'missing' : 'available'
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return /thread not found/i.test(message) ? 'missing' : 'unchecked'
@@ -302,6 +305,7 @@ export async function reconcileStartup(
     taskRecovery = await reconcileTaskStore(
       dependencies.taskStore,
       dependencies.now(),
+      dependencies.taskRecovery,
     )
     tasks = dependencies.taskStore.read()
   } catch {
@@ -329,6 +333,7 @@ export async function reconcileStartup(
         revision: 0,
         repairedTaskIds: [],
       },
+      lifecycle: [],
       windows: [],
     })
     latestHandoffRecoveries = []
@@ -348,10 +353,16 @@ export async function reconcileStartup(
         message: error instanceof Error ? error.message : 'App state is unavailable.',
       },
       taskStore: {
-        status: taskRecovery.changed ? 'repaired' : 'ready',
+        status: taskRecovery.lifecycleRecoveries.some((outcome) => outcome.status === 'needsAttention')
+          ? 'needsAttention'
+          : taskRecovery.changed ? 'repaired' : 'ready',
         revision: tasks.revision,
         repairedTaskIds: taskRecovery.repairedTaskIds,
+        ...(taskRecovery.lifecycleRecoveries.some((outcome) => outcome.status === 'needsAttention')
+          ? { message: 'One or more lifecycle operations require attention before their sessions can continue.' }
+          : {}),
       },
+      lifecycle: taskRecovery.lifecycleRecoveries,
       windows: [],
     })
     latestReport = report
@@ -391,6 +402,9 @@ export async function reconcileStartup(
   }
 
   const hasUncheckedThread = windows.some((window) => window.threadStatus === 'unchecked')
+  const lifecycleNeedsAttention = taskRecovery.lifecycleRecoveries.some(
+    (recovery) => recovery.status === 'needsAttention',
+  )
   const report = startupRecoveryReportSchema.parse({
     appState: {
       status: hasUncheckedThread ? 'retryable' : changed ? 'repaired' : 'ready',
@@ -404,10 +418,14 @@ export async function reconcileStartup(
           : 'App state is available.',
     },
     taskStore: {
-      status: taskRecovery.changed ? 'repaired' : 'ready',
+      status: lifecycleNeedsAttention ? 'needsAttention' : taskRecovery.changed ? 'repaired' : 'ready',
       revision: tasks.revision,
       repairedTaskIds: taskRecovery.repairedTaskIds,
+      ...(lifecycleNeedsAttention
+        ? { message: 'One or more lifecycle operations require attention before their sessions can continue.' }
+        : {}),
     },
+    lifecycle: taskRecovery.lifecycleRecoveries,
     windows,
   })
   latestReport = report

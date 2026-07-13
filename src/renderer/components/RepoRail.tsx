@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Activity, Archive, ChevronRight, FolderGit2, Gauge, Laptop, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Plus, RotateCcw, Stethoscope, Trash2, TreePine, Wrench } from 'lucide-react'
+import { Activity, AlertCircle, Archive, ChevronRight, FolderGit2, Gauge, Laptop, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Stethoscope, Trash2, TreePine, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRepos } from '../state/repos'
 import { useCodexActions, useCodexWindows } from '../state/codex'
@@ -21,6 +21,7 @@ import { NewSessionMenu } from './chat/NewSessionMenu'
 import { RepoPinnedBranchMenu } from './RepoPinnedBranchMenu'
 import type { CodexSessionSummary } from '@/shared/codex'
 import type { CranberriHealthReport } from '@/shared/health'
+import type { Task } from '@/shared/tasks'
 import { IconButton } from './ui/IconButton'
 
 function relativeTime(value: number): string {
@@ -63,6 +64,7 @@ function SessionRow({
   active,
   pinned,
   location,
+  lifecycleState,
   repoPath,
 }: {
   session: CodexSessionSummary
@@ -70,6 +72,7 @@ function SessionRow({
   active?: boolean
   pinned?: boolean
   location?: 'local' | 'worktree'
+  lifecycleState?: Task['state']
   repoPath: string
   onArchive: (session: CodexSessionSummary) => void
   onUnarchive: (session: CodexSessionSummary) => void
@@ -94,6 +97,7 @@ function SessionRow({
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
             {location === 'local' ? <span title="Local session"><Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Local</span></span> : location === 'worktree' ? <span title="Worktree session"><TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Worktree</span></span> : null}
+            {(lifecycleState === 'cleanupBlocked' || lifecycleState === 'needsAttention') && <AlertCircle className="h-3 w-3 shrink-0 text-app-warning" aria-label="Cleanup needs attention" />}
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
             <span className={cn('truncate', typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }))}>{sessionTitle(session)}</span>
           </span>
@@ -119,12 +123,14 @@ function SessionRow({
               {pinned ? <PinOff className="h-3.5 w-3.5 text-app-text-muted" /> : <Pin className="h-3.5 w-3.5 text-app-text-muted" />}
               {pinned ? 'Unpin' : 'Pin'}
             </DropdownMenu.Item>
-            {archived ? (
+            {archived && lifecycleState === 'cleanupBlocked' ? (
+              <DropdownMenu.Item className={RAIL_MENU_ITEM} onSelect={() => onArchive(session)}><RefreshCw className="h-3.5 w-3.5 text-app-text-muted" />Retry cleanup</DropdownMenu.Item>
+            ) : archived ? (
               <DropdownMenu.Item className={RAIL_MENU_ITEM} onSelect={() => onUnarchive(session)}><RotateCcw className="h-3.5 w-3.5 text-app-text-muted" />Unarchive</DropdownMenu.Item>
             ) : (
               <DropdownMenu.Item className={RAIL_MENU_ITEM} onSelect={() => onArchive(session)}><Archive className="h-3.5 w-3.5 text-app-text-muted" />Archive</DropdownMenu.Item>
             )}
-            <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenu.Item>
+            {archived && lifecycleState !== 'cleanupBlocked' && lifecycleState !== 'needsAttention' && <DropdownMenu.Item className={cn(RAIL_MENU_ITEM, typeStyle({ role: 'control', tone: 'danger' }), 'data-[highlighted]:bg-app-danger/10')} onSelect={() => afterMenuCloses(() => onDelete(session))}><Trash2 className="h-3.5 w-3.5" />Delete archived session</DropdownMenu.Item>}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -171,6 +177,9 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       ? 'worktree'
       : 'local'
   }
+  const lifecycleForSession = (session: CodexSessionSummary): Task['state'] | undefined => (
+    tasksApi?.tasks.find((task) => task.threadId === session.id)?.state
+  )
 
   const rememberSessionOptionsTrigger = useCallback((trigger: HTMLButtonElement) => {
     dialogReturnFocusRef.current = trigger
@@ -263,10 +272,11 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       setRecent((prev) => prev.filter((item) => item.id !== session.id))
       setArchived((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
-      await archiveSession(session.id, repoPath)
+      const warning = await archiveSession(session.id, repoPath)
       closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
       await tasksApi?.refresh()
-      toast.success('Session archived')
+      if (warning) toast.warning(warning)
+      else toast.success('Session archived')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to archive session')
       await refresh().catch(() => undefined)
@@ -280,14 +290,17 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       setArchived((prev) => prev.filter((item) => item.id !== session.id))
       setRecent((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
+      let warning: string | null = null
       if (task) {
-        await window.cranberri.tasks.unarchive(task.id)
+        const result = await window.cranberri.tasks.unarchive(task.id)
         await tasksApi?.refresh()
         invalidateSessions({ projectId, repoPath, threadId: session.id })
+        warning = result.warning?.message ?? null
       } else {
-        await unarchiveSession(session.id, repoPath)
+        warning = await unarchiveSession(session.id, repoPath)
       }
-      toast.success('Session restored')
+      if (warning) toast.warning(warning)
+      else toast.success('Session restored')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to restore session')
       await refresh().catch(() => undefined)
@@ -389,13 +402,13 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Pinned</div>
         )}
         {pinnedSessions.map((session) => (
-          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {pinnedSessions.length > 0 && recentSessions.length > 0 && (
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Recent</div>
         )}
         {recentSessions.map((session) => (
-          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {archivedSessions.length > 0 && (
           <>
@@ -407,7 +420,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
               {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
             {showArchived && archivedSessions.map((session) => (
-              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
             ))}
           </>
         )}
@@ -455,9 +468,9 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       )}
       {deleteTarget && (
         <ConfirmDialog
-          title="Delete session"
-          description={`Delete Codex session "${sessionTitle(deleteTarget)}"? This cannot be undone.`}
-          confirmLabel="Delete"
+          title="Delete archived session"
+          description={`Permanently delete "${sessionTitle(deleteTarget)}" and its saved work? This cannot be undone.`}
+          confirmLabel="Delete permanently"
           busyLabel="Deleting..."
           busy={deleting}
           danger

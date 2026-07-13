@@ -112,14 +112,16 @@ export function repairStaleLocalWorkspaceBindings(
   return changed ? repaired : workspaces
 }
 
-export function closeSessionChatWindows(
+export function closeSessionWindows(
   workspace: RepoWorkspaceState,
   identity: { threadId: string; taskId?: string | null },
 ): RepoWorkspaceState {
-  const shouldClose = (window: WorkspaceWindowState) => window.type === 'chat' && (
-    window.threadId === identity.threadId
-    || window.id === `session-${identity.threadId}`
-    || Boolean(identity.taskId && window.taskId === identity.taskId)
+  const shouldClose = (window: WorkspaceWindowState) => (
+    Boolean(identity.taskId && window.taskId === identity.taskId)
+    || (window.type === 'chat' && (
+      window.threadId === identity.threadId
+      || window.id === `session-${identity.threadId}`
+    ))
   )
   const closingIds = new Set(workspace.windows.filter(shouldClose).map((window) => window.id))
   if (closingIds.size === 0) return workspace

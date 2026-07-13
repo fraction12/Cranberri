@@ -66,7 +66,7 @@ import { normalizeEnvironmentToml } from '../environments/parser'
 import { environmentDefaultRequestSchema, environmentIdentityRequestSchema, environmentProjectRequestSchema, environmentRevisionRequestSchema, environmentSaveRequestSchema } from '../../shared/environments'
 import { projectIdRequestSchema } from '../../shared/worktrees'
 import { gitStatusPorcelain, listSelectableRefs, refreshGitRefs } from '../git-worktrees'
-import { taskCoordinator, taskStore, environmentRunner, environmentStore, worktreeLifecycle } from '../worktree-runtime'
+import { taskCoordinator, taskStore, environmentRunner, environmentStore } from '../worktree-runtime'
 import { assertTaskRunnable } from '../tasks'
 import { authorityChangedEventSchema } from '../../shared/state-events'
 
@@ -1401,15 +1401,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
 
   ipcMain.handle('tasks:unarchive', async (_, raw: unknown) => {
     const { taskId } = taskIdRequestSchema.parse(raw)
-    const task = taskCoordinator.get(taskId)
-    const { checkout } = localCheckout(task.projectId)
-    const restored = await taskCoordinator.unarchive(taskId, checkout.canonicalPath, async (worktree, revision) => {
-      const job = await environmentRunner.startSetup({ taskId: worktree.taskId ?? taskId })
-      const result = await environmentRunner.wait(job.id)
-      if (result.status !== 'succeeded') throw new Error(`Environment setup ${result.status} for revision ${revision}`)
-    })
-    if (restored.threadId) await (await getCodexClient()).unarchiveThread(restored.threadId)
-    return { task: restored }
+    return taskCoordinator.unarchive(taskId)
   })
 
   ipcMain.handle('tasks:list', (_, raw: unknown) => {
@@ -1420,7 +1412,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tasks:history', async (_, raw: unknown) => {
     const request = taskHistoryRequestSchema.parse(raw)
     const registry = readProjectRegistry()
-    const roots = taskCoordinator.projectRoots(request.projectId, registry)
+    const roots = taskCoordinator.projectHistoryRoots(request.projectId, registry)
     const c = await getCodexClient()
     return c.listThreads(roots, request)
   })
@@ -1575,32 +1567,15 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tasks:archive', async (_, raw: unknown) => {
     const { taskId } = taskIdRequestSchema.parse(raw)
     const task = taskCoordinator.get(taskId)
-    const environmentJob = environmentRunner.latestForTask(taskId)
-    if (environmentJob?.status === 'running') {
-      throw new Error('Wait for environment setup to finish before archiving this session')
-    }
-    if (task.threadId) {
-      const c = await getCodexClient()
-      await c.archiveThread(task.threadId)
-      forgetCatalogThread(task.threadId)
-    }
-    const archived = await taskCoordinator.archive(taskId)
-    await worktreeLifecycle.sweepRetention({ retentionDays: readSettings().worktrees.retentionDays })
-    return { task: archived }
+    const result = await taskCoordinator.archive(taskId)
+    if (task.threadId) forgetCatalogThread(task.threadId)
+    return result
   })
 
   ipcMain.handle('tasks:delete', async (_, raw: unknown) => {
     const { taskId } = taskIdRequestSchema.parse(raw)
     const task = taskCoordinator.get(taskId)
-    const environmentJob = environmentRunner.latestForTask(taskId)
-    if (environmentJob?.status === 'running') {
-      throw new Error('Wait for environment setup to finish before deleting this session')
-    }
-    const c = await getCodexClient()
-    if (task.threadId && (c.isThreadRunning(task.threadId) || c.hasActiveWorkers(task.threadId))) {
-      throw new Error('Wait for Codex and its workers to finish before deleting this session')
-    }
-    await taskCoordinator.delete(taskId, (threadId) => c.deleteThread(threadId))
+    await taskCoordinator.delete(taskId)
     if (task.threadId) forgetCatalogThread(task.threadId)
     return { ok: true }
   })
@@ -1639,28 +1614,6 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const thread = await c.resumeThread(threadId, cwd, settings)
     advanceCapabilityEpoch(threadId)
     return { thread }
-  })
-
-  ipcMain.handle('codex:threads:archive', async (_, cwd: string, threadId: string) => {
-    const c = await getCodexClient()
-    c.setCwd(cwd)
-    await c.archiveThread(threadId)
-    forgetCatalogThread(threadId)
-    return { ok: true }
-  })
-
-  ipcMain.handle('codex:threads:unarchive', async (_, cwd: string, threadId: string) => {
-    const c = await getCodexClient()
-    c.setCwd(cwd)
-    return { thread: await c.unarchiveThread(threadId) }
-  })
-
-  ipcMain.handle('codex:threads:delete', async (_, cwd: string, threadId: string) => {
-    const c = await getCodexClient()
-    c.setCwd(cwd)
-    await c.deleteThread(threadId)
-    forgetCatalogThread(threadId)
-    return { ok: true }
   })
 
   ipcMain.handle('codex:threads:rename', async (_, cwd: string, threadId: string, name: string) => {

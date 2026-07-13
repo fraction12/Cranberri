@@ -1441,7 +1441,10 @@ export function CommandPalette({ open, onOpenChange, onOpenSettings }: CommandPa
     },
     toggleSessionPinned: toggleSessionPinnedFromCommand,
     archiveSession: archiveSessionFromCommand,
-    unarchiveSession,
+    unarchiveSession: async (threadId) => {
+      const warning = await unarchiveSession(threadId)
+      if (warning) toast.warning(warning)
+    },
     renameSession: renameSessionFromCommand,
     deleteSession: deleteSessionFromCommand,
     interruptActiveThread: () => {
