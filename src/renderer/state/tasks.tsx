@@ -3,7 +3,7 @@ import type { CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 import type { EnvironmentRecord } from '@/shared/environments'
 import type { Checkout, Project } from '@/shared/projects'
 import type { EnvironmentJob } from '@/shared/terminal'
-import type { LocalTaskDraftRequest, Task, TaskDraftRequest, TaskHandoffRequest } from '@/shared/tasks'
+import type { LocalTaskDraftRequest, Task, TaskDraftRequest, TaskHandoffRequest, TaskLifecycleResult } from '@/shared/tasks'
 import type { GitRef, ManagedWorktree, RefRefreshResult } from '@/shared/worktrees'
 import type { AuthorityChangedEvent } from '@/shared/state-events'
 import type { TaskExecutionContext } from './execution-context'
@@ -128,8 +128,8 @@ export interface TasksApi extends TaskCatalogSnapshot {
   handoffToWorktree: (request: TaskHandoffRequest) => Promise<Task>
   continueInWorktree: (taskId: string) => Promise<WorktreeContinuationResult>
   retrySetup: (taskId: string) => Promise<Task>
-  archive: (taskId: string) => Promise<Task>
-  unarchive: (taskId: string) => Promise<Task>
+  archive: (taskId: string) => Promise<TaskLifecycleResult>
+  unarchive: (taskId: string) => Promise<TaskLifecycleResult>
 }
 
 const TasksContext = createContext<TasksApi | null>(null)
@@ -373,8 +373,24 @@ export function TasksProvider({ children, snapshot }: { children: React.ReactNod
           await refresh().catch(() => undefined)
         }
       },
-      archive: (taskId) => runAndRefresh(() => window.cranberri.tasks.archive(taskId)),
-      unarchive: (taskId) => runAndRefresh(() => window.cranberri.tasks.unarchive(taskId)),
+      archive: async (taskId) => {
+        try {
+          const result = await window.cranberri.tasks.archive(taskId)
+          setActiveTask(result.task.id)
+          return result
+        } finally {
+          await refresh().catch(() => undefined)
+        }
+      },
+      unarchive: async (taskId) => {
+        try {
+          const result = await window.cranberri.tasks.unarchive(taskId)
+          setActiveTask(result.task.id)
+          return result
+        } finally {
+          await refresh().catch(() => undefined)
+        }
+      },
     }
   }, [activeTaskId, lastSubmission, liveSnapshot, loading, operation, refresh, runAndRefresh, submissionApi, submitWorktree])
 

@@ -310,9 +310,32 @@ describe('TaskCoordinator', () => {
         createdAt: 1, updatedAt: 1, archivedAt: null,
       }],
     }))
-    const prepareArchive = vi.fn(async () => { throw new Error('unsupported symlink') })
-    const removePreparedArchive = vi.fn()
-    const lifecycle = { prepareArchive, removePreparedArchive } as unknown as WorktreeLifecycle
+    const prepared = {
+      snapshot: {
+        version: 1 as const,
+        artifactId: 'artifact-retry',
+        taskId: local.id,
+        worktreeId: 'worktree',
+        artifactPath: path.join(root, 'snapshots', 'artifact-retry'),
+        artifactBytes: 12,
+        artifactDigestSha256: 'b'.repeat(64),
+        headSha: 'a'.repeat(40),
+        bundleIncluded: false,
+      },
+      headSha: 'a'.repeat(40),
+      privateRef: `refs/cranberri/tasks/${local.id}`,
+      sourceGuard: 'source-guard',
+    }
+    const prepareArchive = vi.fn()
+      .mockRejectedValueOnce(new Error('unsupported symlink'))
+      .mockResolvedValueOnce(prepared)
+    const removePreparedArchive = vi.fn(async () => ({
+      headSha: prepared.headSha,
+      privateRef: prepared.privateRef,
+      quarantinePath: '/managed/.cranberri/quarantine/archive',
+    }))
+    const purgeArchiveQuarantine = vi.fn(async () => undefined)
+    const lifecycle = { prepareArchive, removePreparedArchive, purgeArchiveQuarantine } as unknown as WorktreeLifecycle
     const archiveThread = vi.fn(async () => undefined)
     const coordinator = new TaskCoordinator(store, lifecycle, {
       codex: {
@@ -335,6 +358,16 @@ describe('TaskCoordinator', () => {
     })
     expect(store.read().managedWorktrees[0]).toMatchObject({
       lifecycle: 'cleanupBlocked', path: '/managed/task', snapshot: null,
+    })
+
+    const retried = await coordinator.archive(local.id)
+
+    expect(archiveThread).toHaveBeenCalledTimes(1)
+    expect(removePreparedArchive).toHaveBeenCalledTimes(1)
+    expect(purgeArchiveQuarantine).toHaveBeenCalledTimes(1)
+    expect(retried).toMatchObject({ task: { state: 'archived' }, warning: null })
+    expect(store.read().managedWorktrees[0]).toMatchObject({
+      lifecycle: 'removed', cleanupReason: null, snapshot: prepared.snapshot,
     })
   })
 

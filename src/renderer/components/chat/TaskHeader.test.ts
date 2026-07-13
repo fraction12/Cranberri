@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Task } from '@/shared/tasks'
-import { taskHeaderDetail } from './TaskHeader'
+import { taskHeaderDetail, taskLifecycleAction } from './TaskHeader'
 
 function task(location: Task['location'], baseRef: string | null = 'refs/heads/main'): Task {
   return {
@@ -34,5 +34,15 @@ describe('taskHeaderDetail', () => {
 
   it('keeps the current branch label for local sessions', () => {
     expect(taskHeaderDetail(task('local'), 'main')).toBe('main')
+  })
+})
+
+describe('taskLifecycleAction', () => {
+  it('only exposes transitions valid for the current lifecycle state', () => {
+    const active = task('worktree')
+    expect(taskLifecycleAction(active)).toBe('archive')
+    expect(taskLifecycleAction({ ...active, state: 'archived' })).toBe('restore')
+    expect(taskLifecycleAction({ ...active, state: 'cleanupBlocked' })).toBe('retryCleanup')
+    expect(taskLifecycleAction({ ...active, state: 'needsAttention' })).toBeNull()
   })
 })

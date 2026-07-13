@@ -413,9 +413,8 @@ export class TaskCoordinator {
   async archive(taskId: string): Promise<TaskLifecycleResult> {
     const task = this.requireTask(taskId)
     this.assertHandoffComplete(task)
-    if (task.archivedAt && ['archived', 'cleanupBlocked'].includes(task.state)) {
-      return { task, warning: task.state === 'cleanupBlocked' ? { kind: 'cleanupBlocked', message: 'Worktree cleanup needs attention' } : null }
-    }
+    if (task.state === 'cleanupBlocked' && task.archivedAt) return this.retryArchiveCleanup(task)
+    if (task.state === 'archived' && task.archivedAt) return { task, warning: null }
     const lifecycle = this.requireLifecycle()
     const worktree = this.worktreeForTask(task)
     await lifecycle.activity.assertIdle(task, worktree)
@@ -528,6 +527,77 @@ export class TaskCoordinator {
     }
   }
 
+  private async retryArchiveCleanup(task: Task): Promise<TaskLifecycleResult> {
+    const lifecycle = this.requireLifecycle()
+    const worktree = this.worktreeForTask(task)
+    if (!worktree || !this.worktrees || !task.lifecycleOperationId) {
+      return { task, warning: { kind: 'cleanupBlocked', message: 'Worktree cleanup needs attention' } }
+    }
+    await lifecycle.activity.assertIdle(task, worktree)
+    const operationId = task.lifecycleOperationId
+    await this.store.updateLifecycleOperation(operationId, (operation) => ({
+      ...operation,
+      status: 'running',
+      phase: 'intentPersisted',
+      updatedAt: Date.now(),
+      lastError: null,
+    }))
+
+    try {
+      const prepared = await this.worktrees.prepareArchive({
+        operationId,
+        worktreeId: worktree.id,
+        snapshotStore: lifecycle.snapshots,
+      })
+      await this.worktrees.removePreparedArchive({
+        operationId,
+        worktreeId: worktree.id,
+        repositoryPath: lifecycle.repositoryPath(task.projectId),
+        snapshotStore: lifecycle.snapshots,
+        snapshot: prepared.snapshot,
+      })
+      const now = Date.now()
+      await this.store.update((state) => ({
+        ...state,
+        tasks: state.tasks.map((candidate) => candidate.id === task.id ? {
+          ...candidate, state: 'archived' as const, updatedAt: now,
+        } : candidate),
+        managedWorktrees: state.managedWorktrees.map((candidate) => candidate.id === worktree.id ? {
+          ...candidate,
+          lifecycle: 'removed' as const,
+          cleanupReason: null,
+          archiveHeadSha: prepared.headSha,
+          headSha: prepared.headSha,
+          privateRef: prepared.privateRef,
+          snapshot: prepared.snapshot,
+          updatedAt: now,
+        } : candidate),
+        lifecycleOperations: state.lifecycleOperations.map((candidate) => candidate.id === operationId ? {
+          ...candidate,
+          status: 'completed' as const,
+          phase: 'archived' as const,
+          updatedAt: now,
+          lastError: null,
+        } : candidate),
+      }))
+      await this.worktrees.purgeArchiveQuarantine(operationId, worktree.id)
+      return { task: this.requireTask(task.id), warning: null }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Worktree cleanup failed'
+      await this.markOperationNeedsAttention(operationId, 'WORKTREE_CLEANUP_BLOCKED', message)
+      await this.store.update((state) => ({
+        ...state,
+        tasks: state.tasks.map((candidate) => candidate.id === task.id ? {
+          ...candidate, state: 'cleanupBlocked' as const, updatedAt: Date.now(),
+        } : candidate),
+        managedWorktrees: state.managedWorktrees.map((candidate) => candidate.id === worktree.id ? {
+          ...candidate, lifecycle: 'cleanupBlocked' as const, cleanupReason: message, updatedAt: Date.now(),
+        } : candidate),
+      }))
+      return { task: this.requireTask(task.id), warning: { kind: 'cleanupBlocked', message } }
+    }
+  }
+
   async unarchive(taskId: string): Promise<TaskLifecycleResult> {
     const task = this.requireTask(taskId)
     if (task.state !== 'archived') throw new Error('Task is not ready to restore')
@@ -596,7 +666,7 @@ export class TaskCoordinator {
           archivedAt: null, updatedAt: now,
         } : candidate),
         lifecycleOperations: state.lifecycleOperations.map((candidate) => candidate.id === operation.id ? {
-          ...candidate, status: 'completed' as const, phase: 'restored' as const,
+          ...candidate, status: 'running' as const, phase: 'restored' as const,
           updatedAt: now, lastError: null,
         } : candidate),
       }))
@@ -604,6 +674,24 @@ export class TaskCoordinator {
         phase: 'restored', subphase: 'taskCommitted', recordedAt: Date.now(),
         receiptId: `${operation.id}:taskCommitted:restore`, details: { checkoutPath: restored.checkoutPath },
       })
+      await this.worktrees.retireRestoredSnapshot({
+        operationId: operation.id,
+        worktreeId: worktree.id,
+        repositoryPath: lifecycle.repositoryPath(task.projectId),
+        snapshotStore: lifecycle.snapshots,
+        snapshot: worktree.snapshot,
+      })
+      await this.store.update((state) => ({
+        ...state,
+        managedWorktrees: state.managedWorktrees.map((candidate) => candidate.id === worktree.id ? {
+          ...candidate,
+          snapshot: null,
+          privateRef: null,
+          archiveHeadSha: null,
+          updatedAt: Date.now(),
+        } : candidate),
+      }))
+      await this.completeOperation(operation.id, 'restored')
       return {
         task: this.requireTask(task.id),
         warning: restored.fallbackReason ? { kind: 'restoreFallback', message: restored.fallbackReason } : null,

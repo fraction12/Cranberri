@@ -188,6 +188,10 @@ export class WorktreeLifecycle {
     return this.serialize(() => this.restorePreparedArchiveInternal(request))
   }
 
+  retireRestoredSnapshot(request: RestorePreparedArchiveRequest): Promise<void> {
+    return this.serialize(() => this.retireRestoredSnapshotInternal(request))
+  }
+
   purgeOwnedArtifacts(request: PurgeOwnedArtifactsRequest): Promise<void> {
     return this.serialize(() => this.purgeOwnedArtifactsInternal(request))
   }
@@ -771,6 +775,46 @@ export class WorktreeLifecycle {
       flushDirectory(path.dirname(authorized))
     }
     await this.appendReceipt(operation, 'archived', 'quarantinePurged', 'archive-quarantine', { quarantinePath })
+  }
+
+  private async retireRestoredSnapshotInternal(request: RestorePreparedArchiveRequest): Promise<void> {
+    const { operation, record } = this.authority(request.operationId, 'restore', request.worktreeId)
+    this.assertSnapshotAuthority(operation, record, request.snapshot)
+    if (!operation.receipts.some((receipt) => receipt.subphase === 'taskCommitted')) {
+      throw new Error('Restored snapshot cannot be retired before the task commit is durable')
+    }
+
+    const owned = await this.verifyOwnedSource(record)
+    if (await resolveGitRef(owned.checkoutPath, 'HEAD') !== request.snapshot.headSha) {
+      throw new Error('Restored worktree HEAD changed before snapshot retirement')
+    }
+    const privateRef = record.privateRef
+    if (!privateRef) throw new Error('Restored worktree is missing its private archive ref')
+    const privateHead = await this.tryResolveRef(request.repositoryPath, privateRef)
+    if (privateHead && privateHead !== request.snapshot.headSha) {
+      throw new Error('Private ref changed before restored snapshot retirement')
+    }
+
+    if (!operation.receipts.some((receipt) => receipt.subphase === 'snapshotPurged')) {
+      const snapshot = request.snapshotStore.load(request.snapshot)
+      if (snapshot.source.privateRef !== privateRef) {
+        throw new Error('Restored snapshot private ref does not match worktree authority')
+      }
+      await this.assertSourceMatchesSnapshot(owned.checkoutPath, snapshot)
+      request.snapshotStore.purge(request.snapshot, { taskId: operation.taskId, worktreeId: record.id })
+      await this.appendReceipt(operation, 'restored', 'snapshotPurged', 'restored-snapshot', {
+        artifactId: request.snapshot.artifactId,
+        artifactPath: request.snapshot.artifactPath,
+      })
+    }
+
+    if (privateHead) {
+      await runGit(request.repositoryPath, ['update-ref', '-d', privateRef, request.snapshot.headSha])
+    }
+    await this.appendReceipt(operation, 'restored', 'privateRefPurged', 'restored-private-ref', {
+      privateRef,
+      headSha: request.snapshot.headSha,
+    })
   }
 
   private async purgeOwnedArtifactsInternal(request: PurgeOwnedArtifactsRequest): Promise<void> {

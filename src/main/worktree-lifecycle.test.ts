@@ -323,6 +323,18 @@ describe('authorized archive lifecycle execution', () => {
       snapshot: prepared.snapshot,
     })
 
+    await store.appendLifecycleReceipt(restore.id, {
+      phase: 'restored', subphase: 'taskCommitted', recordedAt: Date.now(),
+      receiptId: `${restore.id}:taskCommitted:restore`, details: { checkoutPath: restored.checkoutPath },
+    })
+    await lifecycle.retireRestoredSnapshot({
+      operationId: restore.id,
+      worktreeId: worktree.id,
+      repositoryPath: repo,
+      snapshotStore: snapshots,
+      snapshot: prepared.snapshot,
+    })
+
     expect(restored.checkoutPath).toBe(worktree.path)
     expect(localChangesEqual(await captureLocalChanges(worktree.path, headSha), before)).toBe(true)
     expect(fs.existsSync(path.join(worktree.path, 'ignored.env'))).toBe(false)
@@ -330,6 +342,10 @@ describe('authorized archive lifecycle execution', () => {
     expect(fs.existsSync(removed.quarantinePath)).toBe(false)
     expect(store.read().lifecycleOperations.find((item) => item.id === archive.id)?.receipts)
       .toEqual(expect.arrayContaining([expect.objectContaining({ subphase: 'quarantinePurged' })]))
+    expect(fs.existsSync(prepared.snapshot.artifactPath)).toBe(false)
+    expect(() => git(repo, 'rev-parse', prepared.privateRef)).toThrow()
+    expect(store.read().lifecycleOperations.find((item) => item.id === restore.id)?.receipts.map((receipt) => receipt.subphase))
+      .toEqual(expect.arrayContaining(['taskCommitted', 'snapshotPurged', 'privateRefPurged']))
   })
 
   it('refuses to adopt a different worktree occupying the reserved restore path', async () => {

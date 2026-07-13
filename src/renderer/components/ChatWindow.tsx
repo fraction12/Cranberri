@@ -112,6 +112,8 @@ export function ChatWindow({ id }: { id: string }) {
   const taskInputBlockReason = activeTask && activeTask.state !== 'local' && activeTask.state !== 'active'
     ? activeTask.state === 'archived'
       ? 'This session is archived. Restore it to continue.'
+      : activeTask.state === 'cleanupBlocked'
+        ? 'This session is archived, but worktree cleanup needs attention.'
       : activeTask.state === 'failed'
         ? 'Worktree setup failed. Retry setup before continuing.'
         : activeTask.state === 'needsAttention'
@@ -498,23 +500,26 @@ export function ChatWindow({ id }: { id: string }) {
         } : undefined}
         onArchive={isRunning ? undefined : async () => {
           try {
+            let warning: string | null = null
             if (activeTask.threadId) {
-              await archiveSession(activeTask.threadId, activeProject?.path)
+              warning = await archiveSession(activeTask.threadId, activeProject?.path)
             } else {
-              await tasks?.archive(activeTask.id)
+              warning = (await tasks?.archive(activeTask.id))?.warning?.message ?? null
             }
             invalidateSessions({ projectId: activeTask.projectId })
             if (activeTask.threadId) {
               closeSessionWindows(activeTask.projectId, { threadId: activeTask.threadId, taskId: activeTask.id })
             }
-            toast.success('Session archived')
+            if (warning) toast.warning(warning)
+            else toast.success('Session archived')
           } catch (error) { toast.error(errorMessage(error)) }
         }}
         onUnarchive={async () => {
           try {
-            await tasks?.unarchive(activeTask.id)
+            const result = await tasks?.unarchive(activeTask.id)
             invalidateSessions({ projectId: activeTask.projectId })
-            toast.success('Session restored')
+            if (result?.warning) toast.warning(result.warning.message)
+            else toast.success('Session restored')
           } catch (error) { toast.error(errorMessage(error)) }
         }}
       /> : !threadId && taskProject ? <DraftSessionHeader
