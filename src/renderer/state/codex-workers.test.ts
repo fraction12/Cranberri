@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CodexThread } from '@/shared/codex'
-import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
+import type { CodexSessionThread, CodexThread } from '@/shared/codex'
+import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, sessionWorkersForHydration, upsertWorkerGraph } from './codex-workers'
 
 const parent: CodexThread = {
   id: 'parent-1',
@@ -21,6 +21,41 @@ const child: CodexThread = {
 }
 
 describe('applyWorkerUpdate', () => {
+  it('trusts normalized worker lifecycle over historical transcript inference', () => {
+    const session: CodexSessionThread = {
+      id: 'parent-1',
+      title: 'Parent',
+      preview: '',
+      createdAt: 100,
+      updatedAt: 300,
+      archived: false,
+      turnCount: 1,
+      status: { type: 'notLoaded' },
+      workers: [{
+        threadId: 'worker-1',
+        parentThreadId: 'parent-1',
+        nickname: 'Euclid',
+        status: 'completed',
+        updatedAt: 300_001,
+      }],
+      turns: [{
+        id: 'parent-turn',
+        completedAt: 300,
+        items: [{
+          type: 'collabAgentToolCall',
+          tool: 'spawnAgent',
+          status: 'completed',
+          senderThreadId: 'parent-1',
+          receiverThreadIds: ['worker-1'],
+        }],
+      }],
+    }
+
+    expect(sessionWorkersForHydration(session)).toEqual([
+      expect.objectContaining({ threadId: 'worker-1', status: 'completed', nickname: 'Euclid' }),
+    ])
+  })
+
   it('retains a worker update before its parent task is hydrated', () => {
     const graph = upsertWorkerGraph({}, 'parent-later', {
       threadId: 'worker-early',

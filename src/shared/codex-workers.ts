@@ -182,3 +182,22 @@ export function mergeWorkerCollections(...collections: Array<ReadonlyArray<Codex
   }
   return workers
 }
+
+export function mergeAuthoritativeWorkerCollections(
+  inferred: ReadonlyArray<CodexWorker> | undefined,
+  authoritative: ReadonlyArray<CodexWorker> | undefined,
+): CodexWorker[] {
+  const workers = [...(inferred ?? [])]
+  for (const worker of authoritative ?? []) {
+    const index = workers.findIndex((candidate) => candidate.threadId === worker.threadId)
+    if (index === -1) {
+      workers.push(worker)
+      continue
+    }
+    workers[index] = mergeCodexWorker(workers[index], {
+      ...worker,
+      updatedAt: Math.max(workers[index].updatedAt, worker.updatedAt),
+    })
+  }
+  return workers
+}

@@ -4,7 +4,6 @@ import {
   codexWorkerIsActive,
   mergeCodexWorker,
   mergeWorkerCollections,
-  workersFromSessionThread,
 } from '@/shared/codex-workers'
 import { useRepos } from './repos'
 import { useOptionalTasks } from './tasks'
@@ -20,7 +19,7 @@ import {
   reconcileCodexTurnStarted,
 } from './codex-turn-activity'
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
-import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, upsertWorkerGraph } from './codex-workers'
+import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, sessionWorkersForHydration, upsertWorkerGraph } from './codex-workers'
 import type { Task } from '@/shared/tasks'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT } from './workspace-model'
 import { invalidateSessions } from './session-invalidation'
@@ -105,7 +104,7 @@ function hydrateThread(session: CodexSessionThread, repoId: string): CodexThread
     parentThreadId: session.parentThreadId,
     agentNickname: session.agentNickname,
     agentRole: session.agentRole,
-    workers: mergeWorkerCollections(session.workers, workersFromSessionThread(session)),
+    workers: sessionWorkersForHydration(session),
     isHistorical: !isRunning,
   }
 }

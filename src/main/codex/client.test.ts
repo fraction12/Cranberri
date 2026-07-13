@@ -455,6 +455,66 @@ describe('CodexClient worker session normalization', () => {
       nickname: 'Euclid',
     })])
   })
+
+  it('lets a descendant turn outcome override a newer inferred parent event', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/read') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: {
+            thread: {
+              id: 'parent-1',
+              name: 'Parent',
+              turns: [{
+                id: 'parent-turn',
+                completedAt: 300,
+                items: [{
+                  type: 'collabAgentToolCall',
+                  tool: 'spawnAgent',
+                  status: 'completed',
+                  senderThreadId: 'parent-1',
+                  receiverThreadIds: ['worker-1'],
+                }],
+              }],
+            },
+          },
+        }
+      }
+      if (method === 'thread/turns/list') {
+        return { jsonrpc: '2.0' as const, id: 2, result: { data: [{ id: 'worker-turn', status: 'completed' }], nextCursor: null } }
+      }
+      if (method === 'thread/list' && params.archived === false) {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 3,
+          result: {
+            data: [{
+              id: 'worker-1',
+              parentThreadId: 'parent-1',
+              agentNickname: 'Euclid',
+              status: { type: 'notLoaded' },
+              createdAt: 100,
+              updatedAt: 200,
+              turns: [],
+            }],
+            nextCursor: null,
+          },
+        }
+      }
+      return { jsonrpc: '2.0' as const, id: 4, result: { data: [], nextCursor: null } }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    const restored = await client.readThread('parent-1')
+
+    expect(restored.workers).toEqual([expect.objectContaining({
+      threadId: 'worker-1',
+      nickname: 'Euclid',
+      status: 'completed',
+    })])
+  })
 })
 
 describe('CodexClient live worker notifications', () => {

@@ -1,7 +1,11 @@
-import type { CodexSessionSummary, CodexThread, CodexWorker } from '@/shared/codex'
-import { codexWorkerIsActive, mergeWorkerCollections, upsertCodexWorker, workerFromSessionSummary } from '@/shared/codex-workers'
+import type { CodexSessionSummary, CodexSessionThread, CodexThread, CodexWorker } from '@/shared/codex'
+import { codexWorkerIsActive, mergeWorkerCollections, upsertCodexWorker, workerFromSessionSummary, workersFromSessionThread } from '@/shared/codex-workers'
 
 export type CodexWorkerGraph = Record<string, CodexWorker[]>
+
+export function sessionWorkersForHydration(session: CodexSessionThread): CodexWorker[] {
+  return session.workers ?? workersFromSessionThread(session)
+}
 
 function hydrateWorkerDescendants(
   graph: CodexWorkerGraph,

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { CodexEvent, CodexSessionSummary, CodexSessionThread, CodexSdkThreadItem, CodexSdkTurn, CodexTurnSettings, CodexRateLimitsReadResult, CodexAccountUsageReadResult, CodexUserInput, CodexWorker, CodexRuntimeContext, CodexServerRequestHandler, CodexTransportCapabilities } from '../../shared/codex'
 import {
   codexWorkerIsActive,
+  mergeAuthoritativeWorkerCollections,
   mergeCodexWorker,
   mergeWorkerCollections,
   normalizeCodexWorkerStatus,
@@ -151,7 +152,7 @@ export function normalizeThreadList(threads: SdkThread[], archived: boolean): Co
     return (childrenByParent.get(parentThreadId) ?? []).flatMap((session) => {
       const worker = workerFromSessionSummary(session)
       if (!worker || nextAncestors.has(worker.threadId)) return []
-      worker.workers = mergeWorkerCollections(worker.workers, descendants(worker.threadId, nextAncestors))
+      worker.workers = mergeAuthoritativeWorkerCollections(worker.workers, descendants(worker.threadId, nextAncestors))
       return [worker]
     })
   }
@@ -159,7 +160,7 @@ export function normalizeThreadList(threads: SdkThread[], archived: boolean): Co
     .filter((session) => !session.parentThreadId)
     .map((session) => ({
       ...session,
-      workers: mergeWorkerCollections(session.workers, descendants(session.id, new Set())),
+      workers: mergeAuthoritativeWorkerCollections(session.workers, descendants(session.id, new Set())),
     }))
 }
 
