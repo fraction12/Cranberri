@@ -360,6 +360,14 @@ export class TaskCoordinator {
     return [...new Set([...checkoutRoots, ...worktreeRoots])]
   }
 
+  projectHistoryRoots(projectId: string, registry: ProjectRegistry): string[] {
+    const runtimeRoots = this.projectRoots(projectId, registry)
+    const historicalWorktreeRoots = this.store.read().managedWorktrees
+      .filter((worktree) => worktree.projectId === projectId)
+      .map((worktree) => worktree.path)
+    return [...new Set([...runtimeRoots, ...historicalWorktreeRoots])]
+  }
+
   async bindThread(taskId: string, threadId: string): Promise<Task> {
     return this.patchTask(taskId, { threadId })
   }
@@ -920,6 +928,9 @@ export class TaskCoordinator {
   }
 
   private assertHandoffComplete(task: Task): void {
+    if (task.worktreeTransition) {
+      throw new Error('Wait for this session to finish moving before archiving or deleting it')
+    }
     if (task.location === 'local' && task.worktreeId) {
       throw new Error('Return this session to its worktree before archiving or deleting it')
     }

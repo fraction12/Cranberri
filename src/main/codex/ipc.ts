@@ -1412,7 +1412,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   ipcMain.handle('tasks:history', async (_, raw: unknown) => {
     const request = taskHistoryRequestSchema.parse(raw)
     const registry = readProjectRegistry()
-    const roots = taskCoordinator.projectRoots(request.projectId, registry)
+    const roots = taskCoordinator.projectHistoryRoots(request.projectId, registry)
     const c = await getCodexClient()
     return c.listThreads(roots, request)
   })

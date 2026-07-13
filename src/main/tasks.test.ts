@@ -134,6 +134,15 @@ describe('TaskCoordinator', () => {
     expect(coordinator.resolveRuntime('worktree-task', registry)).toMatchObject({
       cwd: '/managed/task', taskId: 'worktree-task',
     })
+    expect(coordinator.projectRoots('project', registry)).toEqual(['/repo', '/managed/task'])
+
+    await store.update((state) => ({
+      ...state,
+      managedWorktrees: state.managedWorktrees.map((worktree) => ({ ...worktree, lifecycle: 'removed' as const })),
+    }))
+
+    expect(coordinator.projectRoots('project', registry)).toEqual(['/repo'])
+    expect(coordinator.projectHistoryRoots('project', registry)).toEqual(['/repo', '/managed/task'])
   })
 
   it('preserves a pending first turn until acknowledgement and restores it after failure', async () => {
@@ -379,6 +388,33 @@ describe('TaskCoordinator', () => {
     })
 
     await expect(coordinator.delete(task.id)).rejects.toThrow(/archive.*before deleting/i)
+  })
+
+  it('rejects archive while a Local-to-worktree transition is still in flight', async () => {
+    const { store, coordinator } = fixture()
+    const task = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Moving', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+    await store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((candidate) => candidate.id === task.id ? {
+        ...candidate,
+        worktreeTransition: {
+          phase: 'resuming' as const,
+          previousCheckoutId: 'local',
+          previousBaseRef: candidate.baseRef,
+          previousBaseSha: candidate.baseSha,
+          previousEnvironmentId: null,
+          previousEnvironmentRevision: null,
+          startedAt: 1,
+          error: null,
+        },
+      } : candidate),
+    }))
+
+    await expect(coordinator.archive(task.id)).rejects.toThrow(/finish moving/i)
+    expect(store.read().lifecycleOperations).toEqual([])
   })
 
   it('retries local purge without replaying an already observed thread deletion', async () => {
