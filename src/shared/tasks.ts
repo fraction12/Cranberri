@@ -22,6 +22,124 @@ export const worktreeTransitionSchema = z.object({
   error: z.string().nullable(),
 })
 
+export const lifecycleOperationKindSchema = z.enum(['archive', 'restore', 'delete'])
+
+export const lifecycleOperationPhaseSchema = z.enum([
+  'intentPersisted',
+  'artifactAllocated',
+  'snapshotPublished',
+  'snapshotVerified',
+  'threadArchiveRequested',
+  'threadArchived',
+  'sourceNormalization',
+  'worktreeRemoval',
+  'archived',
+  'restoreReserved',
+  'restoreCheckout',
+  'restoreVerification',
+  'restoreEnvironment',
+  'threadUnarchiveRequested',
+  'threadUnarchived',
+  'restored',
+  'threadDeleteRequested',
+  'threadDeleted',
+  'purging',
+  'completed',
+  'needsAttention',
+])
+
+export const lifecycleOperationReceiptSchema = z.object({
+  phase: lifecycleOperationPhaseSchema,
+  subphase: z.enum([
+    'artifactPreallocated',
+    'privateRefAnchored',
+    'snapshotPublished',
+    'snapshotVerified',
+    'rpcRequested',
+    'rpcObserved',
+    'sourceGuardsVerified',
+    'sourceNormalized',
+    'worktreeUnregistered',
+    'restoreDestinationReserved',
+    'checkoutCreated',
+    'checkoutVerified',
+    'environmentRestored',
+    'taskCommitted',
+    'privateRefPurged',
+    'snapshotPurged',
+    'quarantinePurged',
+    'ownershipManifestPurged',
+    'taskPurged',
+    'pinsPurged',
+    'journalPurged',
+  ]),
+  recordedAt: z.number().finite(),
+  receiptId: z.string().min(1).nullable(),
+  details: z.object({
+    artifactId: z.string().min(1).optional(),
+    privateRef: z.string().min(1).optional(),
+    sourcePath: z.string().min(1).optional(),
+    destinationPath: z.string().min(1).optional(),
+    checkoutPath: z.string().min(1).optional(),
+    headSha: z.string().min(1).optional(),
+    digest: z.string().min(1).optional(),
+    rpcRequestId: z.string().min(1).optional(),
+  }).strict().nullable(),
+}).strict()
+
+export const lifecycleRpcOutcomeSchema = z.object({
+  action: z.enum(['archiveThread', 'unarchiveThread', 'deleteThread']),
+  status: z.enum(['requested', 'unknown', 'observed']),
+  requestedAt: z.number().finite(),
+  observedAt: z.number().finite().nullable(),
+}).strict()
+
+export const restoreReservationSchema = z.object({
+  path: z.string().min(1),
+  gitCommonDir: z.string().min(1),
+  privateRef: z.string().min(1),
+  ownershipToken: z.string().min(1),
+  reservedAt: z.number().finite(),
+}).strict()
+
+export const lifecyclePurgeSelectorsSchema = z.object({
+  threadId: z.string().min(1).nullable(),
+  taskIds: z.array(z.string().min(1)),
+  worktreeIds: z.array(z.string().min(1)),
+  artifactIds: z.array(z.string().min(1)),
+  privateRefs: z.array(z.string().min(1)),
+  quarantinePaths: z.array(z.string().min(1)),
+  snapshotPaths: z.array(z.string().min(1)),
+  ownershipManifestPaths: z.array(z.string().min(1)),
+  pinIds: z.array(z.string().min(1)),
+}).strict()
+
+export const lifecycleOperationSchema = z.object({
+  id: z.string().min(1),
+  kind: lifecycleOperationKindSchema,
+  taskId: z.string().min(1),
+  worktreeId: z.string().min(1).nullable(),
+  status: z.enum(['pending', 'running', 'needsAttention', 'completed']),
+  phase: lifecycleOperationPhaseSchema,
+  receipts: z.array(lifecycleOperationReceiptSchema),
+  artifactId: z.string().min(1).nullable(),
+  restoreReservation: restoreReservationSchema.nullable(),
+  rpc: lifecycleRpcOutcomeSchema.nullable(),
+  purgeSelectors: lifecyclePurgeSelectorsSchema.nullable(),
+  startedAt: z.number().finite(),
+  updatedAt: z.number().finite(),
+  retry: z.object({
+    attempt: z.number().int().nonnegative(),
+    retryable: z.boolean(),
+    nextAttemptAt: z.number().finite().nullable(),
+  }).strict(),
+  lastError: z.object({
+    code: z.string().min(1).nullable(),
+    message: z.string().min(1),
+    recordedAt: z.number().finite(),
+  }).strict().nullable(),
+}).strict()
+
 export const taskSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -50,6 +168,7 @@ export const taskSchema = z.object({
   pendingFirstTurn: pendingFirstTurnSchema.nullable(),
   firstTurnIdempotencyKey: firstTurnIdempotencyKeySchema.nullable().optional(),
   worktreeTransition: worktreeTransitionSchema.nullable().optional(),
+  lifecycleOperationId: z.string().min(1).nullable().optional(),
   parentTaskId: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -66,6 +185,13 @@ export const taskSchema = z.object({
 
 export type PendingFirstTurn = z.infer<typeof pendingFirstTurnSchema>
 export type Task = z.infer<typeof taskSchema>
+export type LifecycleOperationKind = z.infer<typeof lifecycleOperationKindSchema>
+export type LifecycleOperationPhase = z.infer<typeof lifecycleOperationPhaseSchema>
+export type LifecycleOperationReceipt = z.infer<typeof lifecycleOperationReceiptSchema>
+export type LifecycleRpcOutcome = z.infer<typeof lifecycleRpcOutcomeSchema>
+export type RestoreReservation = z.infer<typeof restoreReservationSchema>
+export type LifecyclePurgeSelectors = z.infer<typeof lifecyclePurgeSelectorsSchema>
+export type LifecycleOperation = z.infer<typeof lifecycleOperationSchema>
 
 export function firstTurnIdempotencyKey(input: readonly Record<string, unknown>[]): string | null {
   for (const item of input) {
