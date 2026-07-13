@@ -20,9 +20,9 @@ const SELECT_CLASS = 'w-56 max-w-[45vw]'
 
 function connectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating...' : 'Connecting...'
-  if (status?.updateRequired) return 'Update Codex'
+  if (status?.updateRequired) return 'Codex needs update'
   if (status?.authenticated) return 'Connected'
-  if (status?.installed === false) return 'Install Codex'
+  if (status?.installed === false) return 'Codex not found'
   return 'Connect'
 }
 
@@ -49,7 +49,7 @@ export function GeneralSettings() {
     try {
       const next = await window.cranberri.codex.connect()
       setStatus(next)
-      toast.success(next.updateRequired ? 'Codex updated' : 'Codex connected')
+      toast.success('Codex connected')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not connect Codex'
       setConnectionError(message)

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CodexClient } from './client'
-import { makeCodexEnv } from './env'
+import { resolveCodexRuntime } from './env'
 import { FakeCodexClient } from './fakeClient'
 import type { CodexConnectionStatus, CodexEvent, CodexPluginActionResult, CodexPluginInfo, CodexRuntimeContext, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '../../shared/codex'
 import {
@@ -473,49 +473,25 @@ function registryErrorMessage(error: unknown, fallback: string): string {
   return /thread not found/i.test(message) ? 'Active Codex thread is no longer available for registry lookup.' : message
 }
 
-async function findCodexBinary(): Promise<string | null> {
-  return findExecutable('codex', ['/opt/homebrew/bin/codex', '/usr/local/bin/codex'])
-}
-
-async function findExecutable(name: string, candidates: string[]): Promise<string | null> {
-  const fromPath = await run('which', [name], 5000)
-  const found = fromPath.stdout.trim().split('\n')[0]
-  if (fromPath.code === 0 && found) return found
-
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) return candidate
-  }
-  return null
-}
-
-async function installCodexCli(): Promise<void> {
-  const npmPath = await findExecutable('npm', ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'])
-  if (!npmPath) throw new Error('Codex CLI was not found, and npm is not available to install it.')
-
-  const install = await run(npmPath, ['install', '-g', '@openai/codex@latest'], 300000, await makeCodexEnv())
-  if (install.code !== 0) {
-    const detail = (install.stderr || install.stdout).trim() || 'Failed to install Codex CLI.'
-    throw new Error(detail)
-  }
-}
-
 async function getCodexConnectionStatus(): Promise<CodexConnectionStatus> {
-  const cliPath = await findCodexBinary()
-  if (!cliPath) {
+  let runtime
+  try {
+    runtime = await resolveCodexRuntime()
+  } catch (error) {
     return {
       installed: false,
       authenticated: false,
       minimumVersion: MINIMUM_GPT_56_CODEX_VERSION,
-      detail: 'Codex CLI was not found on this machine.',
+      detail: errorMessage(error, 'Codex was not found in your login shell.'),
     }
   }
-
-  const env = await makeCodexEnv()
+  const cliPath = runtime.executable
+  const env = runtime.env
   const [versionStatus, status] = await Promise.all([
     run(cliPath, ['--version'], 15000, env),
     run(cliPath, ['login', 'status'], 15000, env),
   ])
-  const versionOutput = (versionStatus.stdout || versionStatus.stderr).trim()
+  const versionOutput = runtime.version || (versionStatus.stdout || versionStatus.stderr).trim()
   const version = parseCodexCliVersion(versionOutput) ?? undefined
   const updateRequired = codexCliNeedsUpdate(versionOutput)
   const detail = (status.stdout || status.stderr).trim() || 'Codex login status returned no output.'
@@ -527,8 +503,8 @@ async function getCodexConnectionStatus(): Promise<CodexConnectionStatus> {
     minimumVersion: MINIMUM_GPT_56_CODEX_VERSION,
     updateRequired,
     detail: updateRequired
-      ? `Codex CLI ${version ?? 'unknown'} must be updated for GPT-5.6.`
-      : detail,
+      ? `Codex ${version ?? 'unknown'} at ${cliPath} lacks required capabilities. Update it outside Cranberri.`
+      : `${detail} (${version ?? 'unknown'} at ${cliPath})`,
   }
 }
 
@@ -754,10 +730,8 @@ async function pluginEntryToInfo(entry: CodexPluginListEntry, toolCounts: Map<st
 }
 
 async function listPluginsFromCli(): Promise<CodexPluginInfo[]> {
-  const cliPath = await findCodexBinary()
-  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
-
-  const result = await run(cliPath, ['plugin', 'list', '--available', '--json'], 30000, await makeCodexEnv())
+  const runtime = await resolveCodexRuntime()
+  const result = await run(runtime.executable, ['plugin', 'list', '--available', '--json'], 30000, runtime.env)
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout).trim() || 'Failed to list Codex plugins.'
     throw new Error(detail)
@@ -814,10 +788,8 @@ async function listConfiguredPlugins(): Promise<CodexPluginInfo[]> {
 
 async function installCodexPlugin(selector: string): Promise<CodexPluginActionResult> {
   const pluginId = safePluginSelector(selector)
-  const cliPath = await findCodexBinary()
-  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
-
-  const result = await run(cliPath, ['plugin', 'add', pluginId, '--json'], 120000, await makeCodexEnv())
+  const runtime = await resolveCodexRuntime()
+  const result = await run(runtime.executable, ['plugin', 'add', pluginId, '--json'], 120000, runtime.env)
   const output = parseJsonOutput<unknown>(result.stdout) ?? (result.stdout || result.stderr).trim()
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout).trim() || `Failed to install ${pluginId}.`
@@ -827,10 +799,8 @@ async function installCodexPlugin(selector: string): Promise<CodexPluginActionRe
 }
 
 async function upgradeCodexPluginMarketplaces(): Promise<CodexPluginActionResult> {
-  const cliPath = await findCodexBinary()
-  if (!cliPath) throw new Error('Codex CLI was not found on this machine.')
-
-  const result = await run(cliPath, ['plugin', 'marketplace', 'upgrade', '--json'], 180000, await makeCodexEnv())
+  const runtime = await resolveCodexRuntime()
+  const result = await run(runtime.executable, ['plugin', 'marketplace', 'upgrade', '--json'], 180000, runtime.env)
   const output = parseJsonOutput<unknown>(result.stdout) ?? (result.stdout || result.stderr).trim()
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout).trim() || 'Failed to refresh Codex plugin marketplaces.'
@@ -1124,16 +1094,13 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
   })
 
   ipcMain.handle('codex:connection:connect', async () => {
-    let status = await getCodexConnectionStatus()
-    if (!status.installed || status.updateRequired) {
-      await installCodexCli()
-      status = await getCodexConnectionStatus()
-    }
-    const cliPath = status.cliPath ?? await findCodexBinary()
-    if (!cliPath) throw new Error('Codex CLI installed, but Cranberri could not find it on this machine.')
+    const status = await getCodexConnectionStatus()
+    if (!status.installed) throw new Error(status.detail)
+    if (status.updateRequired) throw new Error(status.detail)
+    const runtime = await resolveCodexRuntime()
 
     if (!status.authenticated) {
-      const login = await run(cliPath, ['login', '--device-auth'], 120000, await makeCodexEnv())
+      const login = await run(runtime.executable, ['login', '--device-auth'], 120000, runtime.env)
       if (login.code !== 0) {
         const detail = (login.stderr || login.stdout).trim() || 'Codex login failed.'
         throw new Error(detail)

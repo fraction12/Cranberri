@@ -9,6 +9,7 @@ import { nativeHelperSettingsTargetSchema } from '../shared/nativeHelpers'
 import { electronLogPath, getTelemetryStore, telemetryPath } from './telemetry'
 import { localStorePath } from './store'
 import { nativeHelperStatusToHealthCheck, openNativeHelperSettings, readNativeHelperStatuses } from './nativeHelpers'
+import { resolveCodexRuntime } from './codex/env'
 
 const NODE_VERSION = 'v22.13.1'
 const NODE_PKG_URL = `https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}.pkg`
@@ -108,11 +109,15 @@ export function pathCheck(id: string, label: string, filePath: string, level: Cr
 
 export async function readHealth(): Promise<CranberriHealthReport> {
   const nativeHelpers = await readNativeHelperStatuses()
+  const codexCheck: CranberriHealthCheck = await resolveCodexRuntime().then(
+    (runtime) => ({ id: 'codex-cli', label: 'Codex CLI', level: 'ok', detail: `${runtime.version ?? 'Unknown version'} — ${runtime.executable}` }),
+    (error) => ({ id: 'codex-cli', label: 'Codex CLI', level: 'warning', detail: error instanceof Error ? error.message : 'Codex was not found in your login shell' }),
+  )
   const checks: CranberriHealthCheck[] = [
     { id: 'app', label: 'Cranberri app', level: 'ok', detail: `Version ${app.getVersion()}` },
     await commandCheck('node', 'Node runtime', 'node'),
     await commandCheck('git', 'Git CLI', 'git'),
-    await commandCheck('codex-cli', 'Codex CLI', 'codex', ['--version']),
+    codexCheck,
     await moduleLoadCheck('native-better-sqlite3', 'better-sqlite3 native module', 'better-sqlite3'),
     await moduleLoadCheck('native-node-pty', 'node-pty native module', 'node-pty'),
     await moduleLoadCheck('native-bufferutil', 'bufferutil native module', 'bufferutil'),
