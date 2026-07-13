@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import {
   composerSchema,
+  composerEditorSnapshot,
   composerSnapshot,
+  composerStateFromSnapshot,
   composerStateFromText,
   composerTrigger,
   insertComposerMention,
@@ -114,5 +116,33 @@ describe('composer editor model', () => {
     })
 
     expect(composerTrigger(state)).toBeNull()
+  })
+
+  it('round trips the full structured document and caret intent for prompt history', () => {
+    let state = composerStateFromText('Before  after')
+    state = insertComposerMention(state, BRAINSTORM, { from: 8, to: 8 })
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 4)))
+
+    const snapshot = composerEditorSnapshot(state)
+    const restored = composerStateFromSnapshot(snapshot, [BRAINSTORM])
+
+    expect(restored.doc.toJSON()).toEqual(state.doc.toJSON())
+    expect(restored.selection.toJSON()).toEqual(state.selection.toJSON())
+    expect(composerSnapshot(restored.doc).mentions).toEqual([
+      expect.objectContaining({ id: BRAINSTORM.id, path: BRAINSTORM.path }),
+    ])
+  })
+
+  it('falls back to serialized prompt text when a history snapshot is malformed', () => {
+    const restored = composerStateFromSnapshot({
+      text: 'recover this draft',
+      plainText: 'recover this draft',
+      mentions: [],
+      document: { type: 'unknown' },
+      selection: { type: 'text', anchor: 1, head: 1 },
+    })
+
+    expect(composerSnapshot(restored.doc).text).toBe('recover this draft')
+    expect(restored.selection.from).toBe(TextSelection.atEnd(restored.doc).from)
   })
 })

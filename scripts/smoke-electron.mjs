@@ -786,7 +786,9 @@ async function runRealCodexSmoke() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-real-fixture-'))
   const repoPath = fs.realpathSync(createFixtureRepo(fixtureRoot, 'cranberri-real-codex-repo', false))
   seedRegisteredRepo(userDataDir, repoPath)
-  const electronApp = await launchApp(userDataDir, {
+  let restoreIdentity = null
+  let liveThreadSnapshot = null
+  let electronApp = await launchApp(userDataDir, {
     CRANBERRI_FAKE_CODEX: '0',
     GITHUB_TOKEN: '',
     GH_TOKEN: '',
@@ -832,6 +834,7 @@ async function runRealCodexSmoke() {
       await composer.fill('Use the shell to write the absolute current working directory followed by a newline to a file named .cranberri-worktree-cwd-proof in the current directory. Then reply with exactly cranberri-real-worktree-ready.')
       await page.getByLabel('Send message').click()
       await waitForRealCodexArticleText(page, 'cranberri-real-worktree-ready', repoPath)
+      await page.locator('[data-turn-activity]').last().getByText(/Worked for \d+s/).waitFor({ timeout: 30_000 })
       const proofPath = path.join(promoted.worktree.path, '.cranberri-worktree-cwd-proof')
       if (!fs.existsSync(proofPath) || fs.readFileSync(proofPath, 'utf8').trim() !== promoted.worktree.path) {
         throw new Error('Real Codex second turn did not execute in the promoted worktree')
@@ -843,6 +846,70 @@ async function runRealCodexSmoke() {
       if (changedFiles.length > 0) {
         throw new Error(`Real Codex smoke modified its clean fixture: ${JSON.stringify(changedFiles)}`)
       }
+      restoreIdentity = { threadId: identity.threadId, cwd: promoted.worktree.path }
+      liveThreadSnapshot = await page.evaluate(async ({ cwd, threadId }) => {
+        const { thread } = await window.cranberri.codex.readThread(cwd, threadId)
+        return thread.turns.map((turn) => ({
+          id: turn.id,
+          items: (turn.items ?? []).map((item) => ({
+            id: item.id ?? null,
+            type: item.type ?? null,
+            text: item.text ?? null,
+            command: item.command ?? null,
+            exitCode: item.exitCode ?? null,
+            changes: (item.changes ?? []).map((change) => ({ path: change.path ?? null, diff: change.diff ?? null })),
+            activityDetail: item.activityDetail ?? null,
+          })),
+        }))
+      }, restoreIdentity)
+    })
+
+    if (!restoreIdentity || !liveThreadSnapshot) throw new Error('Real Codex restore evidence was not captured')
+    await closeElectronApp(electronApp)
+    smokeStep('real Codex app-server restart restore')
+    electronApp = await launchApp(userDataDir, {
+      CRANBERRI_FAKE_CODEX: '0',
+      GITHUB_TOKEN: '',
+      GH_TOKEN: '',
+    })
+    await smokePage(electronApp, async (page) => {
+      await page.getByText(repoPath).waitFor({ timeout: 10_000 })
+      const restoredThreadSnapshot = await page.evaluate(async ({ cwd, threadId }) => {
+        const { thread } = await window.cranberri.codex.readThread(cwd, threadId)
+        return thread.turns.map((turn) => ({
+          id: turn.id,
+          items: (turn.items ?? []).map((item) => ({
+            id: item.id ?? null,
+            type: item.type ?? null,
+            text: item.text ?? null,
+            command: item.command ?? null,
+            exitCode: item.exitCode ?? null,
+            changes: (item.changes ?? []).map((change) => ({ path: change.path ?? null, diff: change.diff ?? null })),
+            activityDetail: item.activityDetail ?? null,
+          })),
+        }))
+      }, restoreIdentity)
+      if (JSON.stringify(restoredThreadSnapshot) !== JSON.stringify(liveThreadSnapshot)) {
+        throw new Error(`Real Codex restored thread changed semantic identity: ${JSON.stringify({ liveThreadSnapshot, restoredThreadSnapshot })}`)
+      }
+      const repo = page.locator('[data-repo-id="smoke-repo"]')
+      const sessionToggle = repo.getByRole('button', { name: /sessions for/ }).first()
+      if (await sessionToggle.getAttribute('aria-expanded') !== 'true') await sessionToggle.click()
+      const session = page.locator(`[data-session-id="${restoreIdentity.threadId}"]`).first()
+      await session.waitFor({ timeout: 20_000 })
+      if (!await page.getByText('cranberri-real-worktree-ready', { exact: true }).count()) {
+        await session.locator('button').first().click()
+      }
+      await waitForAssistantArticleText(page, 'cranberri-real-worktree-ready', 1, 20_000).catch(async (error) => {
+        const diagnostics = await page.evaluate(async (threadId) => ({
+          tasks: await window.cranberri.tasks.snapshot().catch((reason) => ({ error: String(reason) })),
+          sessionText: document.querySelector(`[data-session-id="${threadId}"]`)?.textContent ?? null,
+          activeTask: document.querySelector('[data-chat-composer="true"]')?.closest('[data-task-id]')?.getAttribute('data-task-id') ?? null,
+          transcript: document.querySelector('[data-chat-transcript-end="true"]')?.parentElement?.textContent ?? null,
+          visibleText: document.body.innerText.slice(-8_000),
+        }), restoreIdentity.threadId)
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\nReal Codex restore UI diagnostics:\n${JSON.stringify(diagnostics, null, 2)}`, { cause: error })
+      })
     })
   } finally {
     await closeElectronApp(electronApp)
@@ -1605,7 +1672,7 @@ async function runRepoWorkspaceSmoke() {
       const activeTurn = page.locator('[data-turn-activity]').last()
       await activeTurn.locator('button[aria-expanded="true"]').waitFor({ timeout: 10_000 })
       await activeTurn.getByText('Inspecting the chat turn lifecycle.').waitFor({ timeout: 10_000 })
-      await activeTurn.getByText('rg cranberri-shell-private-sentinel', { exact: true }).waitFor({ timeout: 10_000 })
+      await activeTurn.locator('summary').getByText('rg cranberri-shell-private-sentinel', { exact: true }).waitFor({ timeout: 10_000 })
       await page.getByRole('textbox', { name: 'Chat message' }).fill('Focus only on the chat trail.')
       await page.getByRole('textbox', { name: 'Chat message' }).press('Enter')
       await activeTurn.getByText('Focus only on the chat trail.').waitFor({ timeout: 10_000 })

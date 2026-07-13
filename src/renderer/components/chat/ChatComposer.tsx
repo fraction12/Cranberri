@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
 import { AddMenu } from './AddMenu'
 import { ApprovalSelector } from './ApprovalSelector'
@@ -43,6 +43,8 @@ export function ChatComposer({
   inputBlockReason: string | null
   setupStatus?: ReactNode
 }) {
+  const suggestionListId = useId()
+  const activeSuggestionIndex = Math.min(composer.suggestionIndex, composer.suggestions.length - 1)
   return (
     <div className={COMPOSER_SCRIM_CLASS}>
       <div
@@ -63,10 +65,11 @@ export function ChatComposer({
           <ComposerSuggestionMenu
             title={composer.suggestionTitle}
             suggestions={composer.suggestions}
-            activeIndex={Math.min(composer.suggestionIndex, composer.suggestions.length - 1)}
+            activeIndex={activeSuggestionIndex}
             usedTokens={contextUsage.usedTokens}
             contextWindow={contextUsage.contextWindow}
             onSelect={composer.insertSuggestion}
+            listId={suggestionListId}
           />
         )}
         <ComposerEditor
@@ -74,10 +77,15 @@ export function ChatComposer({
           value={composer.input}
           catalog={composer.composerCatalog}
           disabled={Boolean(inputBlockReason)}
+          suggestionOpen={composer.showSuggestions}
+          suggestionListId={suggestionListId}
+          activeSuggestionId={composer.showSuggestions && activeSuggestionIndex >= 0
+            ? `${suggestionListId}-option-${activeSuggestionIndex}`
+            : undefined}
           onChange={composer.setInputSnapshot}
           onTriggerChange={composer.setTrigger}
           onSubmit={() => { void composer.submit() }}
-          onSuggestionKeyDown={composer.handleSuggestionKeyDown}
+          onEditorKeyDown={composer.handleEditorKeyDown}
           onPaste={composer.addTransferInputs}
           onDrop={composer.addTransferInputs}
           placeholder={

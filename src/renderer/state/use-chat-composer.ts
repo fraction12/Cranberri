@@ -18,12 +18,27 @@ import {
 import type { ComposerEditorHandle } from '../components/chat/ComposerEditor'
 import type { ComposerSuggestion } from '../components/chat/ComposerSuggestionMenu'
 import {
+  composerEditorSnapshot,
+  composerStateFromText,
   pluginComposerMention,
   skillComposerMention,
   type ComposerMention,
+  type ComposerEditorSnapshot,
   type ComposerSnapshot,
   type ComposerTrigger,
 } from '../components/chat/composer-editor-model'
+import {
+  composerHistoryAutosaveValue,
+  composerHistoryDirectionForKey,
+  composerHistoryFlushValue,
+  createComposerHistory,
+  deriveSubmittedPromptHistory,
+  isComposerHistoryPreview,
+  navigateComposerHistoryDown,
+  navigateComposerHistoryUp,
+  resetComposerHistory,
+  type ComposerHistoryState,
+} from '../components/chat/composer-history'
 import { composerBottomInset } from '../components/chat/composer-layout'
 import {
   speechRecognitionConstructor,
@@ -32,7 +47,7 @@ import {
   type SpeechRecognitionLike,
 } from '../components/chat/voice-dictation'
 import type { ComposerDraft, ContextInputAttachment } from '@/shared/composer-drafts'
-import type { CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
+import type { CodexMessage, CodexPluginInfo, CodexSkillInfo, CodexTurnSettings, CodexUserInput } from '@/shared/codex'
 
 const GOAL_PROMPT = [
   'Create and run this as a Codex goal.',
@@ -94,6 +109,7 @@ interface UseChatComposerOptions {
   projectId: string | null
   bindingRevision: number
   threadId: string | null
+  messages: readonly CodexMessage[]
   isRunning: boolean
   inputBlockReason: string | null
   initialTurnSettings: CodexTurnSettings
@@ -142,10 +158,15 @@ export interface ChatComposerController {
   addTransferInputs: (transfer: DataTransfer) => boolean
   usePlugin: (plugin: CodexPluginInfo) => void
   insertSuggestion: (index: number) => void
-  handleSuggestionKeyDown: (event: KeyboardEvent) => boolean
+  handleEditorKeyDown: (event: KeyboardEvent, context: ComposerEditorKeyContext) => boolean
   submit: () => Promise<void>
   primaryAction: () => Promise<void>
   toggleVoiceDictation: () => void
+}
+
+export interface ComposerEditorKeyContext {
+  atDocumentStart: boolean
+  atDocumentEnd: boolean
 }
 
 export function buildChatComposerMessage({
@@ -207,6 +228,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     projectId,
     bindingRevision,
     threadId,
+    messages,
     isRunning,
     inputBlockReason,
     initialTurnSettings,
@@ -247,6 +269,26 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
   const sendInFlightRef = useRef(false)
   const pendingSendRef = useRef<ComposerDraft['pendingSend']>(undefined)
   const pendingDraftRef = useRef<ComposerDraft | null>(null)
+  const submittedPromptsKey = JSON.stringify(deriveSubmittedPromptHistory(messages))
+  const submittedPrompts = useMemo<string[]>(
+    () => JSON.parse(submittedPromptsKey) as string[],
+    [submittedPromptsKey],
+  )
+  const historyRef = useRef<ComposerHistoryState<ComposerEditorSnapshot>>(createComposerHistory(submittedPrompts))
+  const historyApplyingRef = useRef(false)
+  const durableDraftBeforeHistoryRef = useRef<ComposerDraft | null>(null)
+
+  const resetHistoryPreview = useCallback(() => {
+    historyRef.current = resetComposerHistory(historyRef.current, submittedPrompts)
+    durableDraftBeforeHistoryRef.current = null
+  }, [submittedPrompts])
+
+  const commitHistoryPreview = useCallback(() => {
+    if (!isComposerHistoryPreview(historyRef.current)) return
+    resetHistoryPreview()
+    pendingSendRef.current = undefined
+    pendingDraftRef.current = null
+  }, [resetHistoryPreview])
 
   const buildDraft = useCallback((text = input, mentions = composerMentions): ComposerDraft | null => {
     if (!ownerKey || !projectId) return null
@@ -305,12 +347,17 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
   }, [acknowledgedFirstTurnIdempotencyKey, clear, loaded, onRestoreBaseRef, onRestoreEnvironment, onRestoreIncludeLocalChanges, ownerKey, restoredDraft])
 
   useEffect(() => {
+    historyRef.current = createComposerHistory(submittedPrompts)
+    durableDraftBeforeHistoryRef.current = null
+  }, [ownerKey, submittedPrompts])
+
+  useEffect(() => {
     if (!ownerKey || !loaded || restoredOwnerRef.current !== ownerKey || sendInFlightRef.current) return
     if (skipPersistOwnerRef.current === ownerKey) {
       skipPersistOwnerRef.current = null
       return
     }
-    const draft = buildDraft()
+    const draft = composerHistoryAutosaveValue(historyRef.current, buildDraft())
     if (!draft) return
     const timeout = window.setTimeout(() => {
       void persist(draft).catch(() => toast.error('Composer draft could not be saved', { id: 'composer-draft-save-failed' }))
@@ -320,7 +367,12 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
 
   useEffect(() => {
     const flush = (event: Event) => {
-      const draft = sendInFlightRef.current ? pendingDraftRef.current : buildDraft()
+      const currentDraft = sendInFlightRef.current ? pendingDraftRef.current : buildDraft()
+      const draft = composerHistoryFlushValue(
+        historyRef.current,
+        currentDraft,
+        durableDraftBeforeHistoryRef.current,
+      )
       if (!draft || !loaded) return
       const detail = (event as CustomEvent<{ writes: Promise<unknown>[] }>).detail
       detail?.writes.push(persist(draft))
@@ -354,6 +406,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
   }, [onComposerInsetChange])
 
   const insertChatContext = useCallback((detail: ChatContextPayload) => {
+    commitHistoryPreview()
     setInput((current) => current.trim() ? `${current.trimEnd()}\n\n${detail.text}` : detail.text)
     if (detail.inputParts?.length) {
       setContextInputParts((current) => [...current, ...detail.inputParts!.map(contextInputAttachment)])
@@ -363,7 +416,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     }
     composerHadFocusRef.current = true
     requestAnimationFrame(() => editorRef.current?.focus('end'))
-  }, [])
+  }, [commitHistoryPreview])
 
   useEffect(() => registerChatContextTarget(windowId, insertChatContext), [insertChatContext, windowId])
 
@@ -376,6 +429,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     const imageFiles = Array.from(transfer.files).filter(isClipboardImageFile)
     const localPaths = [...parsed.attachmentPaths, ...localAttachmentPathsFromTransferFiles(transfer.files)]
     if (parsed.inputParts.length === 0 && imageFiles.length === 0 && localPaths.length === 0) return false
+    commitHistoryPreview()
     composerHadFocusRef.current = true
     if (parsed.inputParts.length) {
       setContextInputParts((current) => [...current, ...parsed.inputParts.map(contextInputAttachment)])
@@ -395,7 +449,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
         .catch((error) => console.warn('Failed to read transferred image:', error))
     }
     return true
-  }, [])
+  }, [commitHistoryPreview])
 
   const submit = useCallback(async (): Promise<void> => {
     if (inputBlockReason) {
@@ -425,6 +479,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
           return beginSend(durableDraft, threadId ?? undefined, retryId)
         },
         clearVisible: () => {
+          resetHistoryPreview()
           sendInFlightRef.current = true
           composerHadFocusRef.current = true
           setInput('')
@@ -481,7 +536,7 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
       toast.error('Sent, but the saved draft could not be cleared', { id: 'composer-draft-clear-failed' })
     }
     requestAnimationFrame(() => editorRef.current?.focus())
-  }, [attachments, beginSend, buildDraft, clear, composerMentions, contextInputParts, goalMode, input, inputBlockReason, onDispatch, persist, planMode, threadId, turnSettings])
+  }, [attachments, beginSend, buildDraft, clear, composerMentions, contextInputParts, goalMode, input, inputBlockReason, onDispatch, persist, planMode, resetHistoryPreview, threadId, turnSettings])
 
   const hasContent = Boolean(input.trim() || attachments.length || contextInputParts.length)
   const primaryActionIsStop = isRunning && !hasContent
@@ -522,34 +577,59 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     setSuggestionIndex(0)
   }, [matchingPlugins, matchingSkills, suggestions, trigger])
 
-  const handleSuggestionKeyDown = useCallback((event: KeyboardEvent): boolean => {
-    if (!showSuggestions) return false
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+  const handleEditorKeyDown = useCallback((event: KeyboardEvent, context: ComposerEditorKeyContext): boolean => {
+    if (showSuggestions && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
       setSuggestionIndex((index) => (index + direction + suggestions.length) % suggestions.length)
       return true
     }
-    if (event.key === 'Enter') {
+    if (showSuggestions && event.key === 'Enter') {
       event.preventDefault()
       insertSuggestion(Math.min(suggestionIndex, suggestions.length - 1))
       return true
     }
-    if (event.key === 'Tab') {
+    if (showSuggestions && event.key === 'Tab') {
       event.preventDefault()
       const suggestion = suggestions[Math.min(suggestionIndex, suggestions.length - 1)]
       if (trigger && suggestion) editorRef.current?.insertText(suggestion.label, trigger)
       setSuggestionIndex(0)
       return true
     }
-    if (event.key === 'Escape') {
+    if (showSuggestions && event.key === 'Escape') {
       event.preventDefault()
       setTriggerState(null)
       setSuggestionIndex(0)
       return true
     }
-    return false
-  }, [insertSuggestion, showSuggestions, suggestionIndex, suggestions, trigger])
+    const direction = composerHistoryDirectionForKey({
+      key: event.key,
+      suggestionsOpen: showSuggestions,
+      ...context,
+    })
+    if (!direction) return false
+
+    const currentSnapshot = editorRef.current?.snapshot()
+    if (!currentSnapshot) return false
+    const navigation = direction === 'previous'
+      ? navigateComposerHistoryUp(historyRef.current, currentSnapshot)
+      : navigateComposerHistoryDown(historyRef.current)
+    if (!navigation.target) return false
+
+    if (!isComposerHistoryPreview(historyRef.current)) {
+      durableDraftBeforeHistoryRef.current = buildDraft(currentSnapshot.text, currentSnapshot.mentions)
+    }
+    historyRef.current = navigation.state
+    const targetSnapshot = navigation.target.kind === 'snapshot'
+      ? navigation.target.snapshot
+      : composerEditorSnapshot(composerStateFromText(navigation.target.prompt, composerCatalog))
+    historyApplyingRef.current = true
+    editorRef.current?.replaceHistorySnapshot(targetSnapshot)
+    historyApplyingRef.current = false
+    if (!isComposerHistoryPreview(historyRef.current)) durableDraftBeforeHistoryRef.current = null
+    event.preventDefault()
+    return true
+  }, [buildDraft, composerCatalog, insertSuggestion, showSuggestions, suggestionIndex, suggestions, trigger])
 
   const toggleVoiceDictation = useCallback(() => {
     if (speechRecognitionRef.current) {
@@ -612,22 +692,35 @@ export function useChatComposer(options: UseChatComposerOptions): ChatComposerCo
     primaryActionIsStop,
     editorRef,
     composerRef,
-    setTurnSettings,
-    setPlanMode,
-    setGoalMode,
-    setInputSnapshot: (snapshot) => { setInput(snapshot.text); setComposerMentions(snapshot.mentions) },
+    setTurnSettings: (value) => { commitHistoryPreview(); setTurnSettings(value) },
+    setPlanMode: (value) => { commitHistoryPreview(); setPlanMode(value) },
+    setGoalMode: (value) => { commitHistoryPreview(); setGoalMode(value) },
+    setInputSnapshot: (snapshot) => {
+      if (!historyApplyingRef.current) commitHistoryPreview()
+      setInput(snapshot.text)
+      setComposerMentions(snapshot.mentions)
+    },
     setTrigger: (next) => { setTriggerState(next); setSuggestionIndex(0) },
     setComposerFocused: (focused) => { composerHadFocusRef.current = focused },
-    removeAttachment: (path) => setAttachments((current) => current.filter((item) => item !== path)),
-    removeContextInput: (id) => setContextInputParts((current) => current.filter((item) => item.id !== id)),
+    removeAttachment: (path) => {
+      commitHistoryPreview()
+      setAttachments((current) => current.filter((item) => item !== path))
+    },
+    removeContextInput: (id) => {
+      commitHistoryPreview()
+      setContextInputParts((current) => current.filter((item) => item.id !== id))
+    },
     attachFiles: async () => {
       const result = await window.cranberri.codex.pickFiles()
-      if (result.paths.length) setAttachments((current) => [...current, ...result.paths])
+      if (result.paths.length) {
+        commitHistoryPreview()
+        setAttachments((current) => [...current, ...result.paths])
+      }
     },
     addTransferInputs,
     usePlugin: (plugin) => editorRef.current?.insertMention(pluginComposerMention(plugin)),
     insertSuggestion,
-    handleSuggestionKeyDown,
+    handleEditorKeyDown,
     submit,
     primaryAction,
     toggleVoiceDictation,

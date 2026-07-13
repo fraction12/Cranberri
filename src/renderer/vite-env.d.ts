@@ -110,6 +110,11 @@ declare global {
         controlWorker: (cwd: string, parentThreadId: string, workerThreadId: string, action: import('@/shared/codex-worker-control').CodexWorkerControlAction, input: import('@/shared/codex').CodexUserInput[]) => Promise<{ ok: boolean }>
         compactThread: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         approve: (cwd: string, threadId: string, event: unknown) => Promise<{ ok: boolean }>
+        respondToServerRequest: (response: import('@/shared/codex-requests').CodexHumanServerRequestResponse) => Promise<{ ok: boolean }>
+        listServerRequests: (threadId?: string) => Promise<{
+          pending: import('@/shared/codex-requests').CodexPendingHumanServerRequest[]
+          outcomes: import('@/shared/codex-requests').CodexRequestOutcomeEntry[]
+        }>
         interrupt: (cwd: string, threadId: string) => Promise<{ ok: boolean }>
         stop: (cwd: string) => Promise<{ stopped: boolean }>
         plugins: () => Promise<{ plugins: CodexPluginInfo[] }>

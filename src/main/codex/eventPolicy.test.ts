@@ -22,9 +22,24 @@ describe('Codex event policy', () => {
       itemId: 'item-2',
       itemType: 'reasoning',
     }
+    const itemProgress: CodexEvent = {
+      type: 'item_progress',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'item-3',
+      progress: { type: 'command_output', delta: 'sensitive command output' },
+    }
+    const turnDiff: CodexEvent = {
+      type: 'turn_diff_updated',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      diff: 'sensitive source diff',
+    }
 
     expect(shouldPersistCodexEventTelemetry(delta)).toBe(false)
     expect(shouldPersistCodexEventTelemetry(itemStarted)).toBe(false)
+    expect(shouldPersistCodexEventTelemetry(itemProgress)).toBe(false)
+    expect(shouldPersistCodexEventTelemetry(turnDiff)).toBe(false)
   })
 
   it('keeps low-volume lifecycle events visible to renderer and telemetry', () => {
@@ -62,9 +77,31 @@ describe('Codex event policy', () => {
         updatedAt: 1,
       },
     }
+    const humanRequest: CodexEvent = {
+      type: 'human_request_pending',
+      threadId: 'thread-1',
+      pending: {
+        request: {
+          id: 'request-1',
+          method: 'item/commandExecution/requestApproval',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            itemId: 'item-1',
+            startedAtMs: 1,
+            environmentId: null,
+            command: 'echo secret',
+          },
+        },
+        attempt: 1,
+        receivedAt: 1,
+        deadlineAt: 2,
+      },
+    }
 
     expect(shouldPersistCodexEventTelemetry(approval)).toBe(false)
     expect(shouldPersistCodexEventTelemetry(tool)).toBe(false)
     expect(shouldPersistCodexEventTelemetry(worker)).toBe(false)
+    expect(shouldPersistCodexEventTelemetry(humanRequest)).toBe(false)
   })
 })

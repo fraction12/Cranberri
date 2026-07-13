@@ -109,6 +109,30 @@ describe('Codex turn activity state', () => {
     ])
   })
 
+  it('preserves streamed detail when completion omits it and applies authoritative completion fields', () => {
+    let current = reconcileCodexTurnStarted(thread(), 'turn-1', 1_050)
+    current = applyCodexItemLifecycle(current, 'turn-1', {
+      id: 'command-1',
+      type: 'commandExecution',
+      command: 'npm test',
+      aggregatedOutput: 'complete output\n',
+      status: 'inProgress',
+    }, 'started', 1_100)
+    current = applyCodexItemLifecycle(current, 'turn-1', {
+      id: 'command-1',
+      type: 'commandExecution',
+      command: 'npm test',
+      status: 'completed',
+      exitCode: 0,
+    }, 'completed', 1_150)
+
+    expect(current.activityTurns![0].items[0].activityDetail).toEqual(expect.objectContaining({
+      type: 'commandExecution',
+      aggregatedOutput: 'complete output\n',
+      exitCode: 0,
+    }))
+  })
+
   it.each(['completed', 'failed', 'interrupted'] as const)(
     'keeps a %s turn terminal when late item lifecycle events arrive',
     (terminalStatus) => {

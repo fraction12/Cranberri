@@ -1,10 +1,12 @@
 import { ReasoningGroup, TranscriptMessage } from './Transcript'
 import { TurnActivity } from './TurnActivity'
+import { InlineUserRequest, InlineUserRequestOutcome } from './InlineUserRequest'
 import { renderSkillText } from './composer-text'
 import { memo, type ReactNode } from 'react'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexActivityTurn, CodexMessage, CodexSkillInfo, CodexThread, PendingApproval } from '@/shared/codex'
+import type { CodexHumanServerRequestResponse, CodexPendingHumanServerRequest, CodexRequestOutcomeEntry } from '@/shared/codex-requests'
 
 function isVisibleSystemError(message: CodexMessage): boolean {
   return message.role === 'system' && /^Error:/i.test(message.content.trim())
@@ -51,11 +53,13 @@ function ActivityTranscript({
   skills,
   resolvingApprovalId,
   onResolveApproval,
+  onRespondHumanRequest,
 }: {
   thread: CodexThread
   skills: CodexSkillInfo[]
   resolvingApprovalId?: string | null
   onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
+  onRespondHumanRequest?: (response: CodexHumanServerRequestResponse) => Promise<void>
 }) {
   const nodes: ReactNode[] = []
   const turns = thread.activityTurns ?? []
@@ -65,6 +69,10 @@ function ActivityTranscript({
   const messagesByTurn = new Map<string, CodexMessage[]>()
   const turnIdByItem = new Map<string, string>()
   const approvalsByTurn = new Map<string, PendingApproval[]>()
+  const humanRequestsByTurn = new Map<string, CodexPendingHumanServerRequest[]>()
+  const humanRequestOutcomesByTurn = new Map<string, CodexRequestOutcomeEntry[]>()
+  const fallbackHumanRequests: CodexPendingHumanServerRequest[] = []
+  const fallbackHumanRequestOutcomes: CodexRequestOutcomeEntry[] = []
   for (const message of thread.messages) {
     if (!message.turnId) continue
     const turnMessages = messagesByTurn.get(message.turnId)
@@ -81,6 +89,27 @@ function ActivityTranscript({
     if (turnApprovals) turnApprovals.push(approval)
     else approvalsByTurn.set(turnId, [approval])
   }
+  for (const pending of thread.pendingHumanRequests ?? []) {
+    const requestedTurnId = pending.request.params.turnId
+    const turnId = requestedTurnId && turnById.has(requestedTurnId) ? requestedTurnId : fallbackTurnId
+    if (!turnId) {
+      fallbackHumanRequests.push(pending)
+      continue
+    }
+    const turnRequests = humanRequestsByTurn.get(turnId)
+    if (turnRequests) turnRequests.push(pending)
+    else humanRequestsByTurn.set(turnId, [pending])
+  }
+  for (const outcome of thread.humanRequestOutcomes ?? []) {
+    const turnId = outcome.turnId && turnById.has(outcome.turnId) ? outcome.turnId : fallbackTurnId
+    if (!turnId) {
+      fallbackHumanRequestOutcomes.push(outcome)
+      continue
+    }
+    const turnOutcomes = humanRequestOutcomesByTurn.get(turnId)
+    if (turnOutcomes) turnOutcomes.push(outcome)
+    else humanRequestOutcomesByTurn.set(turnId, [outcome])
+  }
 
   const renderTurn = (turn: CodexActivityTurn) => {
     if (renderedTurns.has(turn.id)) return
@@ -91,8 +120,11 @@ function ActivityTranscript({
         turn={turn}
         messages={messagesByTurn.get(turn.id) ?? []}
         approvals={approvalsByTurn.get(turn.id) ?? []}
+        humanRequests={humanRequestsByTurn.get(turn.id) ?? []}
+        humanRequestOutcomes={humanRequestOutcomesByTurn.get(turn.id) ?? []}
         resolvingApprovalId={resolvingApprovalId}
         onResolveApproval={onResolveApproval}
+        onRespondHumanRequest={onRespondHumanRequest}
       />,
     )
   }
@@ -117,6 +149,12 @@ function ActivityTranscript({
   }
 
   for (const turn of turns) renderTurn(turn)
+  for (const pending of fallbackHumanRequests) {
+    nodes.push(<InlineUserRequest key={`${typeof pending.request.id}:${String(pending.request.id)}`} pending={pending} onRespond={onRespondHumanRequest} />)
+  }
+  for (const outcome of fallbackHumanRequestOutcomes) {
+    nodes.push(<InlineUserRequestOutcome key={`${outcome.method}:${typeof outcome.requestId}:${String(outcome.requestId)}`} outcome={outcome} />)
+  }
   return <>{nodes}</>
 }
 
@@ -127,6 +165,7 @@ export const TranscriptList = memo(function TranscriptList({
   onToggleGroup,
   resolvingApprovalId,
   onResolveApproval,
+  onRespondHumanRequest,
 }: {
   thread: CodexThread | undefined
   skills: CodexSkillInfo[]
@@ -134,6 +173,7 @@ export const TranscriptList = memo(function TranscriptList({
   onToggleGroup: (key: string) => void
   resolvingApprovalId?: string | null
   onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
+  onRespondHumanRequest?: (response: CodexHumanServerRequestResponse) => Promise<void>
 }) {
   if (thread?.activityTurns && thread.activityTurns.length > 0) {
     return (
@@ -142,6 +182,7 @@ export const TranscriptList = memo(function TranscriptList({
         skills={skills}
         resolvingApprovalId={resolvingApprovalId}
         onResolveApproval={onResolveApproval}
+        onRespondHumanRequest={onRespondHumanRequest}
       />
     )
   }
@@ -232,5 +273,11 @@ export const TranscriptList = memo(function TranscriptList({
     renderWorkingGroup()
   }
 
+  for (const pending of thread?.pendingHumanRequests ?? []) {
+    nodes.push(<InlineUserRequest key={`${typeof pending.request.id}:${String(pending.request.id)}`} pending={pending} onRespond={onRespondHumanRequest} />)
+  }
+  for (const outcome of thread?.humanRequestOutcomes ?? []) {
+    nodes.push(<InlineUserRequestOutcome key={`${outcome.method}:${typeof outcome.requestId}:${String(outcome.requestId)}`} outcome={outcome} />)
+  }
   return <>{nodes}</>
 })

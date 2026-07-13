@@ -1052,8 +1052,50 @@ export class CodexClient extends EventEmitter implements CodexThreadLifecycleGat
         break
       }
       case 'item/commandExecution/outputDelta': {
-        const text = (params as { output?: string }).output ?? ''
-        if (text) this.emit('event', { type: 'log', level: 'command-output', text } as CodexEvent)
+        const payload = params as { turnId?: string; itemId?: string; delta?: string; output?: string }
+        const delta = payload.delta ?? payload.output ?? ''
+        if (payload.turnId && payload.itemId && delta) {
+          this.emit('event', {
+            type: 'item_progress',
+            threadId,
+            turnId: payload.turnId,
+            itemId: payload.itemId,
+            progress: { type: 'command_output', delta },
+          } as CodexEvent)
+        }
+        break
+      }
+      case 'item/fileChange/outputDelta': {
+        const payload = params as { turnId?: string; itemId?: string; delta?: string }
+        if (payload.turnId && payload.itemId && payload.delta) {
+          this.emit('event', {
+            type: 'item_progress',
+            threadId,
+            turnId: payload.turnId,
+            itemId: payload.itemId,
+            progress: { type: 'file_output', delta: payload.delta },
+          } as CodexEvent)
+        }
+        break
+      }
+      case 'item/fileChange/patchUpdated': {
+        const payload = params as { turnId?: string; itemId?: string; changes?: CodexSdkThreadItem['changes'] }
+        if (payload.turnId && payload.itemId && Array.isArray(payload.changes)) {
+          this.emit('event', {
+            type: 'item_progress',
+            threadId,
+            turnId: payload.turnId,
+            itemId: payload.itemId,
+            progress: { type: 'file_patch', changes: payload.changes },
+          } as CodexEvent)
+        }
+        break
+      }
+      case 'turn/diff/updated': {
+        const payload = params as { turnId?: string; diff?: string }
+        if (payload.turnId && typeof payload.diff === 'string') {
+          this.emit('event', { type: 'turn_diff_updated', threadId, turnId: payload.turnId, diff: payload.diff } as CodexEvent)
+        }
         break
       }
       case 'item/completed': {
@@ -1088,11 +1130,21 @@ export class CodexClient extends EventEmitter implements CodexThreadLifecycleGat
         break
       }
       case 'item/mcpToolCall/progress': {
-        const payload = params as { itemId?: string; message?: string }
+        const payload = params as { turnId?: string; itemId?: string; message?: string }
+        if (payload.turnId && payload.itemId && payload.message) {
+          this.emit('event', {
+            type: 'item_progress',
+            threadId,
+            turnId: payload.turnId,
+            itemId: payload.itemId,
+            progress: { type: 'mcp_progress', message: payload.message },
+          } as CodexEvent)
+        }
         const toolEvent = createMcpToolProgressEvent(threadId, payload.itemId, payload.message ?? '')
         if (toolEvent) this.emit('event', { type: 'tool_event', threadId, event: toolEvent } as CodexEvent)
         break
       }
+      case 'item/autoApprovalReview/started':
       case 'item/guardianApprovalReview/started': {
         const payload = params as {
           reviewId?: string
@@ -1119,6 +1171,7 @@ export class CodexClient extends EventEmitter implements CodexThreadLifecycleGat
         } as CodexEvent)
         break
       }
+      case 'item/autoApprovalReview/completed':
       case 'item/guardianApprovalReview/completed': {
         const payload = params as {
           reviewId?: string
@@ -1130,9 +1183,13 @@ export class CodexClient extends EventEmitter implements CodexThreadLifecycleGat
         this.emit('event', { type: 'approval_completed', threadId, reviewId: payload.reviewId ?? '', action: status as 'approved' | 'denied' | 'timedOut' | 'aborted' } as CodexEvent)
         break
       }
-      case 'serverRequest/resolved':
-        this.emitRunEnd(threadId)
+      case 'serverRequest/resolved': {
+        const requestId = (params as { requestId?: string | number }).requestId
+        if (requestId !== undefined) {
+          this.emit('event', { type: 'server_request_resolved', threadId, requestId } as CodexEvent)
+        }
         break
+      }
       default:
         break
     }
@@ -1149,7 +1206,7 @@ export class CodexClient extends EventEmitter implements CodexThreadLifecycleGat
       return
     }
     try {
-      const result = await handler(request.params ?? {})
+      const result = await handler(request.params ?? {}, { id: request.id, method: request.method })
       this.writeResponse({ jsonrpc: '2.0', id: request.id, result: result ?? null })
     } catch (error) {
       this.writeResponse({

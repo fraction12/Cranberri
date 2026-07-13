@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { TurnActivity } from './TurnActivity'
 import type { CodexActivityTurn, CodexMessage, PendingApproval } from '@/shared/codex'
+import type { CodexPendingHumanServerRequest } from '@/shared/codex-requests'
 
 const messages: CodexMessage[] = [{
   id: 'reasoning-1',
@@ -112,5 +113,32 @@ describe('TurnActivity', () => {
 
     expect(html.indexOf('Focus on chat only')).toBeLessThan(html.indexOf('Tool failed'))
     expect(html).toContain('text-app-status-danger')
+  })
+
+  it('attaches a typed human request to its activity item and expands settled work', () => {
+    const request: CodexPendingHumanServerRequest = {
+      request: {
+        id: 'request-1',
+        method: 'item/fileChange/requestApproval',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'command-1',
+          startedAtMs: 100,
+          reason: 'Approve the generated patch',
+          grantRoot: '/repo',
+        },
+      },
+      attempt: 1,
+      receivedAt: 100,
+      deadlineAt: 1_000,
+    }
+    const html = renderToStaticMarkup(
+      <TurnActivity turn={turn()} messages={messages} approvals={[]} humanRequests={[request]} onRespondHumanRequest={async () => undefined} />,
+    )
+
+    expect(html).toContain('Approve the generated patch')
+    expect(html.indexOf('npm test')).toBeLessThan(html.indexOf('Approve the generated patch'))
+    expect(html).toContain('Apply these changes?')
   })
 })

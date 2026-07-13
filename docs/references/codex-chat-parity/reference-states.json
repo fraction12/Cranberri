@@ -1,0 +1,387 @@
+{
+  "schemaVersion": 1,
+  "contractId": "native-codex-chat-composer-parity",
+  "capturePolicy": {
+    "status": "blocked",
+    "reasonCode": "host-computer-use-safety-policy",
+    "reason": "Computer Use cannot control the host Codex application from a Codex task, so native screenshots cannot be captured honestly in this run.",
+    "blockedByApp": "com.openai.codex",
+    "syntheticContentOnly": true
+  },
+  "pins": {
+    "nativeApp": {
+      "path": "/Applications/ChatGPT.app",
+      "bundleId": "com.openai.codex",
+      "desktopVersion": "26.707.62119",
+      "bundleVersion": "5211"
+    },
+    "cli": {
+      "nativeBundledVersion": "codex-cli 0.144.2",
+      "cranberriRuntimeVersion": "codex-cli 0.144.0",
+      "compatibility": "protocol-equivalent"
+    },
+    "schema": {
+      "generatedFileCount": 671,
+      "files": [
+        {
+          "path": "v2/ThreadItem.ts",
+          "sha256": "7f911d8aa4046653274d3709afffcdfd4093d9d6c87395287f58c4a754ac4cd2"
+        },
+        {
+          "path": "ServerRequest.ts",
+          "sha256": "1c5837adbfbdd005f387478ba87840808d1353b47b82dcf63739a78bb1c8d3be"
+        }
+      ]
+    },
+    "environment": {
+      "osVersion": "macOS 26.3",
+      "osBuild": "25D2125",
+      "display": {
+        "physicalWidth": 2560,
+        "physicalHeight": 1664,
+        "scaleFactor": 2,
+        "kind": "built-in-retina"
+      },
+      "interfaceSize": "default",
+      "nativeUiFont": "Satoshi"
+    }
+  },
+  "matrix": {
+    "themes": ["dark", "light"],
+    "viewports": [
+      { "id": "desktop-1400x900", "width": 1400, "height": 900, "scaleFactor": 2 },
+      { "id": "compact-900x600", "width": 900, "height": 600, "scaleFactor": 2 }
+    ]
+  },
+  "comparison": {
+    "regions": [
+      {
+        "id": "transcript",
+        "description": "The comparable chat transcript from the first visible turn through the jump-to-latest affordance."
+      },
+      {
+        "id": "composer",
+        "description": "The composer card, editor, attachments, menus, toolbars, and Send or Stop control."
+      }
+    ],
+    "masks": [
+      {
+        "id": "text-antialiasing",
+        "kind": "comparison-rule",
+        "selector": null,
+        "reason": "Ignore subpixel glyph-rasterization noise only; text geometry and color remain comparable."
+      },
+      {
+        "id": "dynamic-elapsed-time",
+        "kind": "selector",
+        "selector": "[data-parity-mask=\"elapsed-time\"]",
+        "reason": "Elapsed durations are nondeterministic while the surrounding activity-row geometry remains comparable."
+      },
+      {
+        "id": "cranberri-only-controls",
+        "kind": "selector",
+        "selector": "[data-parity-mask=\"cranberri-only-controls\"]",
+        "reason": "Cranberri keeps repo-specific controls that are intentionally outside direct native feature comparison."
+      }
+    ],
+    "nonComparableControls": [
+      {
+        "id": "repo-context-control",
+        "maskId": "cranberri-only-controls",
+        "reason": "Cranberri can attach repository, terminal, browser, and issue context from its workspace."
+      },
+      {
+        "id": "goal-mode-control",
+        "maskId": "cranberri-only-controls",
+        "reason": "Goal mode is a Cranberri workflow control retained in the composer."
+      },
+      {
+        "id": "plan-mode-control",
+        "maskId": "cranberri-only-controls",
+        "reason": "Plan mode is a Cranberri workflow control retained in the composer."
+      }
+    ],
+    "geometryToleranceCssPx": 2,
+    "changedPixelThreshold": 0.01
+  },
+  "fixtures": [
+    {
+      "id": "blank-task",
+      "classification": "synthetic-non-sensitive",
+      "description": "A new task with no transcript or draft.",
+      "content": { "taskTitle": "Fixture task", "repo": "fixture-repo" }
+    },
+    {
+      "id": "draft-prompt",
+      "classification": "synthetic-non-sensitive",
+      "description": "A harmless unsent multiline prompt.",
+      "content": { "prompt": "Refactor the fixture parser.\nKeep behavior unchanged." }
+    },
+    {
+      "id": "command-turn",
+      "classification": "synthetic-non-sensitive",
+      "description": "A running synthetic command turn with stable output.",
+      "content": { "prompt": "Run the fixture check.", "command": "printf 'fixture check\\n'", "output": "fixture check" }
+    },
+    {
+      "id": "approval-request",
+      "classification": "synthetic-non-sensitive",
+      "description": "A synthetic command approval request.",
+      "content": { "command": "printf 'approved fixture action\\n'", "cwd": "fixture-repo" }
+    },
+    {
+      "id": "resolved-request",
+      "classification": "synthetic-non-sensitive",
+      "description": "A resolved synthetic approval request.",
+      "content": { "decision": "decline", "result": "Request declined; turn remains active." }
+    },
+    {
+      "id": "failed-turn",
+      "classification": "synthetic-non-sensitive",
+      "description": "A synthetic failed command with deterministic output.",
+      "content": { "command": "fixture-command --fail", "exitCode": 2, "error": "Synthetic fixture failure" }
+    },
+    {
+      "id": "validation-request",
+      "classification": "synthetic-non-sensitive",
+      "description": "A synthetic request form with one required unanswered field.",
+      "content": { "question": "Choose a fixture mode", "required": true, "answer": "" }
+    },
+    {
+      "id": "completed-turn",
+      "classification": "synthetic-non-sensitive",
+      "description": "A completed synthetic turn with command, file change, and final response.",
+      "content": { "prompt": "Update the fixture label.", "file": "fixture-repo/src/label.ts", "response": "Updated the fixture label." }
+    },
+    {
+      "id": "long-output-turn",
+      "classification": "synthetic-non-sensitive",
+      "description": "A completed command with bounded repetitive synthetic output.",
+      "content": { "command": "fixture-command --lines 120", "lineTemplate": "fixture output line {index}", "lineCount": 120 }
+    },
+    {
+      "id": "attachment-draft",
+      "classification": "synthetic-non-sensitive",
+      "description": "A draft with a synthetic image attachment.",
+      "content": { "prompt": "Describe this fixture image.", "attachment": "fixture-diagram.png", "mimeType": "image/png" }
+    },
+    {
+      "id": "restored-turn",
+      "classification": "synthetic-non-sensitive",
+      "description": "A restored completed task with stable transcript identity.",
+      "content": { "taskTitle": "Restored fixture task", "turnId": "turn-fixture-001", "itemId": "item-fixture-001" }
+    }
+  ],
+  "states": [
+    {
+      "id": "empty",
+      "fixtureId": "blank-task",
+      "setup": ["Open a new synthetic task at the requested viewport and theme."],
+      "interactions": ["Leave the editor empty and move pointer focus outside the composer."],
+      "outcomes": ["The empty transcript, placeholder, toolbar, and disabled Send control are visible."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "drafted",
+      "fixtureId": "draft-prompt",
+      "setup": ["Open a new synthetic task and focus the composer editor."],
+      "interactions": ["Enter the complete two-line fixture prompt without submitting it."],
+      "outcomes": ["The draft wraps naturally, the composer grows within its bound, and Send is enabled."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "menu-open",
+      "fixtureId": "draft-prompt",
+      "setup": ["Open a new synthetic task and focus an empty composer."],
+      "interactions": ["Type a slash and keep the suggestion menu open with its first option selected."],
+      "outcomes": ["The menu is anchored to the editor, remains inside the viewport, and exposes one keyboard-selected option."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "active",
+      "fixtureId": "command-turn",
+      "setup": ["Start the synthetic command turn and hold it before completion."],
+      "interactions": ["Allow one stable output line to stream, then leave the turn running."],
+      "outcomes": ["The prompt owns the active work trail, elapsed status is visible, and Stop replaces Send."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "approval-waiting",
+      "fixtureId": "approval-request",
+      "setup": ["Start the synthetic command turn and deliver its approval request."],
+      "interactions": ["Move keyboard focus to the first approval decision without resolving it."],
+      "outcomes": ["The request is attached to its owning activity with command context and all available decisions."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "request-resolved",
+      "fixtureId": "resolved-request",
+      "setup": ["Open the synthetic approval request in its owning active turn."],
+      "interactions": ["Choose decline and wait for the server response to resolve."],
+      "outcomes": ["The request shows a declined outcome, controls are no longer actionable, and the turn was not interrupted."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "failed",
+      "fixtureId": "failed-turn",
+      "setup": ["Run the deterministic failing fixture command."],
+      "interactions": ["Wait for the command and owning turn to reach their terminal states."],
+      "outcomes": ["Failure status, exit code, bounded output, and retry-relevant detail are readable without raw protocol copy."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "validation-error",
+      "fixtureId": "validation-request",
+      "setup": ["Open the synthetic required-input request."],
+      "interactions": ["Attempt to submit the request without selecting an answer."],
+      "outcomes": ["Inline validation is visible, focus moves to the invalid field, and the request stays pending."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "completed-collapsed",
+      "fixtureId": "completed-turn",
+      "setup": ["Open the completed synthetic turn with its activity disclosure collapsed."],
+      "interactions": ["Leave the completed activity collapsed and move focus outside its disclosure."],
+      "outcomes": ["Worked duration, final response, and collapsed activity summary preserve chronological ownership."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "completed-expanded",
+      "fixtureId": "completed-turn",
+      "setup": ["Open the completed synthetic turn with its activity disclosure collapsed."],
+      "interactions": ["Activate the disclosure and leave the expanded command and file rows visible."],
+      "outcomes": ["Expanded rich activity remains bounded, ordered, and separate from the final response."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "long-output",
+      "fixtureId": "long-output-turn",
+      "setup": ["Open the completed synthetic long-output turn with its command expanded."],
+      "interactions": ["Scroll the output preview to its final line without scrolling the outer transcript."],
+      "outcomes": ["Output is internally bounded, expansion remains explicit, and transcript geometry stays stable."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "attachment",
+      "fixtureId": "attachment-draft",
+      "setup": ["Open a new synthetic task and attach the fixture image."],
+      "interactions": ["Enter the attachment prompt and leave the draft unsent."],
+      "outcomes": ["The attachment chip, removal control, draft, toolbar, and enabled Send control fit without overlap."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "restored-session",
+      "fixtureId": "restored-turn",
+      "setup": ["Hydrate the synthetic completed task through the restored-session path."],
+      "interactions": ["Select the restored task and wait for thread hydration to settle."],
+      "outcomes": ["Turn order, rich content, request outcomes, final response, and collapse defaults match the completed semantic state."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "hover",
+      "fixtureId": "completed-turn",
+      "setup": ["Open the completed synthetic turn with the pointer outside the comparable region."],
+      "interactions": ["Hover the activity disclosure without clicking it."],
+      "outcomes": ["Hover treatment is visible without shifting the row or exposing unrelated controls."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "dynamic-elapsed-time", "cranberri-only-controls"]
+    },
+    {
+      "id": "keyboard-focus",
+      "fixtureId": "draft-prompt",
+      "setup": ["Open the drafted synthetic task with focus outside the composer."],
+      "interactions": ["Use keyboard navigation to focus Send without activating it."],
+      "outcomes": ["A visible focus indicator appears, focus order is logical, and the draft remains unchanged."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    },
+    {
+      "id": "disabled-control",
+      "fixtureId": "blank-task",
+      "setup": ["Open a new synthetic task with an empty editor and no attachments."],
+      "interactions": ["Move keyboard navigation across the toolbar without entering text."],
+      "outcomes": ["Send is disabled, its state is visually and semantically clear, and available controls remain reachable."],
+      "regionIds": ["transcript", "composer"],
+      "maskIds": ["text-antialiasing", "cranberri-only-controls"]
+    }
+  ],
+  "captures": [
+    { "id": "empty--dark--desktop-1400x900", "stateId": "empty", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "empty--dark--compact-900x600", "stateId": "empty", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "empty--light--desktop-1400x900", "stateId": "empty", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "empty--light--compact-900x600", "stateId": "empty", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "drafted--dark--desktop-1400x900", "stateId": "drafted", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "drafted--dark--compact-900x600", "stateId": "drafted", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "drafted--light--desktop-1400x900", "stateId": "drafted", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "drafted--light--compact-900x600", "stateId": "drafted", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "menu-open--dark--desktop-1400x900", "stateId": "menu-open", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "menu-open--dark--compact-900x600", "stateId": "menu-open", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "menu-open--light--desktop-1400x900", "stateId": "menu-open", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "menu-open--light--compact-900x600", "stateId": "menu-open", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "active--dark--desktop-1400x900", "stateId": "active", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "active--dark--compact-900x600", "stateId": "active", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "active--light--desktop-1400x900", "stateId": "active", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "active--light--compact-900x600", "stateId": "active", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "approval-waiting--dark--desktop-1400x900", "stateId": "approval-waiting", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "approval-waiting--dark--compact-900x600", "stateId": "approval-waiting", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "approval-waiting--light--desktop-1400x900", "stateId": "approval-waiting", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "approval-waiting--light--compact-900x600", "stateId": "approval-waiting", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "request-resolved--dark--desktop-1400x900", "stateId": "request-resolved", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "request-resolved--dark--compact-900x600", "stateId": "request-resolved", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "request-resolved--light--desktop-1400x900", "stateId": "request-resolved", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "request-resolved--light--compact-900x600", "stateId": "request-resolved", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "failed--dark--desktop-1400x900", "stateId": "failed", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "failed--dark--compact-900x600", "stateId": "failed", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "failed--light--desktop-1400x900", "stateId": "failed", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "failed--light--compact-900x600", "stateId": "failed", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "validation-error--dark--desktop-1400x900", "stateId": "validation-error", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "validation-error--dark--compact-900x600", "stateId": "validation-error", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "validation-error--light--desktop-1400x900", "stateId": "validation-error", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "validation-error--light--compact-900x600", "stateId": "validation-error", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-collapsed--dark--desktop-1400x900", "stateId": "completed-collapsed", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-collapsed--dark--compact-900x600", "stateId": "completed-collapsed", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-collapsed--light--desktop-1400x900", "stateId": "completed-collapsed", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-collapsed--light--compact-900x600", "stateId": "completed-collapsed", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-expanded--dark--desktop-1400x900", "stateId": "completed-expanded", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-expanded--dark--compact-900x600", "stateId": "completed-expanded", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-expanded--light--desktop-1400x900", "stateId": "completed-expanded", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "completed-expanded--light--compact-900x600", "stateId": "completed-expanded", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "long-output--dark--desktop-1400x900", "stateId": "long-output", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "long-output--dark--compact-900x600", "stateId": "long-output", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "long-output--light--desktop-1400x900", "stateId": "long-output", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "long-output--light--compact-900x600", "stateId": "long-output", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "attachment--dark--desktop-1400x900", "stateId": "attachment", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "attachment--dark--compact-900x600", "stateId": "attachment", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "attachment--light--desktop-1400x900", "stateId": "attachment", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "attachment--light--compact-900x600", "stateId": "attachment", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "restored-session--dark--desktop-1400x900", "stateId": "restored-session", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "restored-session--dark--compact-900x600", "stateId": "restored-session", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "restored-session--light--desktop-1400x900", "stateId": "restored-session", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "restored-session--light--compact-900x600", "stateId": "restored-session", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "hover--dark--desktop-1400x900", "stateId": "hover", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "hover--dark--compact-900x600", "stateId": "hover", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "hover--light--desktop-1400x900", "stateId": "hover", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "hover--light--compact-900x600", "stateId": "hover", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "keyboard-focus--dark--desktop-1400x900", "stateId": "keyboard-focus", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "keyboard-focus--dark--compact-900x600", "stateId": "keyboard-focus", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "keyboard-focus--light--desktop-1400x900", "stateId": "keyboard-focus", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "keyboard-focus--light--compact-900x600", "stateId": "keyboard-focus", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "disabled-control--dark--desktop-1400x900", "stateId": "disabled-control", "theme": "dark", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "disabled-control--dark--compact-900x600", "stateId": "disabled-control", "theme": "dark", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "disabled-control--light--desktop-1400x900", "stateId": "disabled-control", "theme": "light", "viewportId": "desktop-1400x900", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" },
+    { "id": "disabled-control--light--compact-900x600", "stateId": "disabled-control", "theme": "light", "viewportId": "compact-900x600", "status": "blocked", "asset": null, "reasonCode": "host-computer-use-safety-policy" }
+  ]
+}

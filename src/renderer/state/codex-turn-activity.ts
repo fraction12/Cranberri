@@ -135,6 +135,14 @@ function runningTurn(turns: CodexActivityTurn[]): CodexActivityTurn | undefined 
   return [...turns].reverse().find((turn) => turn.status === 'running')
 }
 
+function mergeActivityDetail(
+  current: CodexActivityItem['activityDetail'],
+  incoming: CodexActivityItem['activityDetail'],
+): CodexActivityItem['activityDetail'] {
+  if (!current || !incoming || current.type !== incoming.type) return incoming ?? current
+  return { ...current, ...incoming } as CodexActivityItem['activityDetail']
+}
+
 export function reconcileCodexTurnStarted(thread: CodexThread, turnId: string, startedAt: number): CodexThread {
   const turns = thread.activityTurns ?? []
   const existing = turns.find((turn) => turn.id === turnId)
@@ -187,6 +195,7 @@ export function applyCodexItemLifecycle(
       items[index] = {
         ...current,
         ...normalized,
+        activityDetail: mergeActivityDetail(current.activityDetail, normalized.activityDetail),
         startedAt: current.startedAt ?? normalized.startedAt ?? at,
       }
       return { ...turn, items }

@@ -8,6 +8,6 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [...configDefaults.exclude, 'roadmap/**'],
+    exclude: [...configDefaults.exclude, 'roadmap/**', 'scripts/uat/**/*.spec.ts'],
   },
 })

@@ -1,4 +1,5 @@
 import type { ToolEventRecord } from './tools'
+import type { CodexPendingHumanServerRequest, CodexRequestOutcomeEntry } from './codex-requests'
 
 export type CodexRole = 'user' | 'assistant' | 'system' | 'tool' | 'reasoning' | 'compact'
 
@@ -158,8 +159,14 @@ export interface CodexTransportCapabilities {
   dynamicTools: boolean
 }
 
+export interface CodexServerRequestContext {
+  id: string | number
+  method: string
+}
+
 export type CodexServerRequestHandler = (
   params: Record<string, unknown>,
+  context: CodexServerRequestContext,
 ) => unknown | Promise<unknown>
 
 export interface CodexPluginInfo {
@@ -297,6 +304,135 @@ export type CodexActivityItemKind =
 export type CodexActivityItemStatus = 'running' | 'completed' | 'failed' | 'declined'
 export type CodexActivityTurnStatus = 'running' | 'completed' | 'failed' | 'interrupted'
 
+export interface CodexCommandActivityDetail {
+  type: 'commandExecution'
+  command?: string
+  commandActions?: CodexSdkCommandAction[]
+  cwd?: unknown
+  processId?: string | null
+  source?: string
+  aggregatedOutput?: unknown
+  exitCode?: number | null
+  durationMs?: number | null
+}
+
+export interface CodexFileChangeActivityDetail {
+  type: 'fileChange'
+  changes?: CodexSdkFileChange[]
+  applyStatus?: unknown
+  error?: unknown
+}
+
+export interface CodexMcpToolCallActivityDetail {
+  type: 'mcpToolCall'
+  server?: string
+  tool?: string
+  appContext?: CodexSdkMcpToolCallAppContext | null
+  mcpAppResourceUri?: string
+  pluginId?: string | null
+  arguments?: unknown
+  result?: unknown
+  error?: unknown
+  durationMs?: number | null
+}
+
+export interface CodexDynamicToolCallActivityDetail {
+  type: 'dynamicToolCall'
+  namespace?: string | null
+  tool?: string
+  arguments?: unknown
+  contentItems?: CodexSdkDynamicToolCallOutputContentItem[] | null
+  success?: boolean | null
+  result?: unknown
+  error?: unknown
+  durationMs?: number | null
+}
+
+export interface CodexHookPromptActivityDetail {
+  type: 'hookPrompt'
+  fragments?: CodexSdkHookPromptFragment[]
+}
+
+export interface CodexAgentMessageActivityDetail {
+  type: 'agentMessage'
+  phase?: string | null
+  memoryCitation?: CodexSdkMemoryCitation | null
+}
+
+export interface CodexReasoningActivityDetail {
+  type: 'reasoning'
+  summary?: string[]
+  content?: string[]
+}
+
+export interface CodexWebSearchActivityDetail {
+  type: 'webSearch'
+  query?: string
+  action?: CodexSdkWebSearchAction | null
+}
+
+export interface CodexCollaborationActivityDetail {
+  type: 'collabAgentToolCall'
+  tool?: string
+  senderThreadId?: string
+  receiverThreadIds?: string[]
+  prompt?: string | null
+  model?: string | null
+  reasoningEffort?: CodexReasoningEffort | string | null
+  agentsStates?: Record<string, CodexSdkCollabAgentState | undefined>
+}
+
+export interface CodexSubAgentActivityDetail {
+  type: 'subAgentActivity'
+  kind?: string
+  agentThreadId?: string
+  agentPath?: string
+}
+
+export interface CodexImageViewActivityDetail {
+  type: 'imageView'
+  path?: string
+}
+
+export interface CodexImageGenerationActivityDetail {
+  type: 'imageGeneration'
+  generationStatus?: string
+  revisedPrompt?: string | null
+  result?: string
+  savedPath?: string
+}
+
+export interface CodexSleepActivityDetail {
+  type: 'sleep'
+  durationMs?: number
+}
+
+export interface CodexReviewActivityDetail {
+  type: 'enteredReviewMode' | 'exitedReviewMode'
+  review?: string
+}
+
+export interface CodexCompactionActivityDetail {
+  type: 'contextCompaction'
+}
+
+export type CodexActivityDetail =
+  | CodexHookPromptActivityDetail
+  | CodexAgentMessageActivityDetail
+  | CodexReasoningActivityDetail
+  | CodexCommandActivityDetail
+  | CodexFileChangeActivityDetail
+  | CodexWebSearchActivityDetail
+  | CodexMcpToolCallActivityDetail
+  | CodexDynamicToolCallActivityDetail
+  | CodexCollaborationActivityDetail
+  | CodexSubAgentActivityDetail
+  | CodexImageViewActivityDetail
+  | CodexImageGenerationActivityDetail
+  | CodexSleepActivityDetail
+  | CodexReviewActivityDetail
+  | CodexCompactionActivityDetail
+
 export interface CodexActivityItem {
   id: string
   kind: CodexActivityItemKind
@@ -304,6 +440,7 @@ export interface CodexActivityItem {
   title: string
   detail?: string
   content?: string
+  activityDetail?: CodexActivityDetail
   startedAt?: number
   completedAt?: number
   durationMs?: number
@@ -332,29 +469,81 @@ export interface CodexSdkFileChange {
   diff?: string
 }
 
+export interface CodexSdkHookPromptFragment {
+  text: string
+  hookRunId: string
+}
+
+export interface CodexSdkMemoryCitationEntry {
+  path: string
+  lineStart: number
+  lineEnd: number
+  note: string
+}
+
+export interface CodexSdkMemoryCitation {
+  entries: CodexSdkMemoryCitationEntry[]
+  threadIds: string[]
+}
+
+export interface CodexSdkMcpToolCallAppContext {
+  connectorId: string
+  linkId: string | null
+  resourceUri: string | null
+  appName: string | null
+  templateId: string | null
+  actionName: string | null
+}
+
+export type CodexSdkDynamicToolCallOutputContentItem =
+  | { type: 'inputText'; text: string }
+  | { type: 'inputImage'; imageUrl: string }
+
+export type CodexSdkWebSearchAction =
+  | { type: 'search'; query: string | null; queries: string[] | null }
+  | { type: 'openPage'; url: string | null }
+  | { type: 'findInPage'; url: string | null; pattern: string | null }
+  | { type: 'other' }
+
+export interface CodexSdkCollabAgentState {
+  status: string
+  message: string | null
+}
+
 export interface CodexSdkThreadItem {
   id?: string
   type?: string
   text?: string
   phase?: string | null
+  clientId?: string | null
   content?: Array<Record<string, unknown> | string>
+  fragments?: CodexSdkHookPromptFragment[]
+  memoryCitation?: CodexSdkMemoryCitation | null
   summary?: string[]
   command?: string
   cwd?: unknown
+  processId?: string | null
+  source?: string
   commandActions?: CodexSdkCommandAction[]
-  aggregatedOutput?: string | null
+  aggregatedOutput?: unknown
   exitCode?: number | null
   durationMs?: number | null
   changes?: CodexSdkFileChange[]
   server?: string
   namespace?: string | null
+  appContext?: CodexSdkMcpToolCallAppContext | null
+  mcpAppResourceUri?: string
+  pluginId?: string | null
   arguments?: unknown
+  contentItems?: CodexSdkDynamicToolCallOutputContentItem[] | null
   result?: unknown
   error?: unknown
   success?: boolean | null
   query?: string
-  action?: unknown
+  action?: CodexSdkWebSearchAction | null
   path?: unknown
+  revisedPrompt?: string | null
+  savedPath?: string
   review?: string
   tool?: 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'spawn_agent' | 'send_input' | 'resume_agent' | 'close_agent' | string
   status?: unknown
@@ -365,7 +554,7 @@ export interface CodexSdkThreadItem {
   prompt?: string | null
   model?: string | null
   reasoningEffort?: CodexReasoningEffort | string | null
-  agentsStates?: Record<string, { status?: string; message?: string | null } | undefined>
+  agentsStates?: Record<string, CodexSdkCollabAgentState | undefined>
   agentStatus?: string | { status?: string; message?: string | null } | null
   kind?: 'started' | 'interacted' | 'interrupted' | string
   agentThreadId?: string
@@ -462,6 +651,8 @@ export interface CodexThread {
   messages: CodexMessage[]
   activityTurns?: CodexActivityTurn[]
   pendingApprovals: PendingApproval[]
+  pendingHumanRequests?: CodexPendingHumanServerRequest[]
+  humanRequestOutcomes?: CodexRequestOutcomeEntry[]
   isRunning: boolean
   currentActivity?: string
   runStartedAt?: number
@@ -475,6 +666,12 @@ export interface CodexThread {
   workers?: CodexWorker[]
 }
 
+export type CodexItemProgress =
+  | { type: 'command_output'; delta: string }
+  | { type: 'file_output'; delta: string }
+  | { type: 'file_patch'; changes: CodexSdkFileChange[] }
+  | { type: 'mcp_progress'; message: string }
+
 export type CodexEvent =
   | { type: 'thread_name_updated'; threadId: string; title: string }
   | { type: 'agent_message_delta'; threadId: string; turnId?: string; itemId: string; delta: string; phase?: 'commentary' | 'final_answer' | string }
@@ -483,6 +680,9 @@ export type CodexEvent =
   | { type: 'tool_event'; threadId: string; event: ToolEventRecord }
   | { type: 'approval_request'; threadId: string; approval: PendingApproval }
   | { type: 'approval_completed'; threadId: string; reviewId: string; action: 'approved' | 'denied' | 'timedOut' | 'aborted' }
+  | { type: 'human_request_pending'; threadId: string; pending: CodexPendingHumanServerRequest }
+  | { type: 'human_request_outcome'; threadId: string; outcome: CodexRequestOutcomeEntry }
+  | { type: 'server_request_resolved'; threadId: string; requestId: string | number }
   | { type: 'run_start'; threadId: string; turnId?: string; startedAt?: number }
   | { type: 'run_end'; threadId: string; turnId?: string; status?: CodexActivityTurnStatus; completedAt?: number; durationMs?: number; error?: string }
   | { type: 'context_usage'; threadId: string; usedTokens: number; contextWindow: number }
@@ -491,4 +691,6 @@ export type CodexEvent =
   | { type: 'final_answer'; threadId: string; text: string }
   | { type: 'item_started'; threadId: string; turnId?: string; itemId?: string; itemType: string; item?: CodexSdkThreadItem; startedAt?: number }
   | { type: 'item_completed'; threadId: string; turnId?: string; itemId?: string; itemType: string; item?: CodexSdkThreadItem; completedAt?: number }
+  | { type: 'item_progress'; threadId: string; turnId: string; itemId: string; progress: CodexItemProgress }
+  | { type: 'turn_diff_updated'; threadId: string; turnId: string; diff: string }
   | { type: 'log'; level: string; text: string }

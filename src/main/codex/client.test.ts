@@ -518,6 +518,137 @@ describe('CodexClient worker session normalization', () => {
 })
 
 describe('CodexClient live worker notifications', () => {
+  it('supports current Guardian review notification names without entering generic request transport', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<Record<string, unknown>> = []
+    client.on('event', (event) => events.push(event as unknown as Record<string, unknown>))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/autoApprovalReview/started',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        reviewId: 'review-1',
+        targetItemId: 'command-1',
+        action: { type: 'command', command: 'npm test' },
+        review: { status: 'inProgress' },
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/autoApprovalReview/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        reviewId: 'review-1',
+        targetItemId: 'command-1',
+        action: { type: 'command', command: 'npm test' },
+        review: { status: 'approved' },
+      },
+    })
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'approval_request',
+        threadId: 'thread-1',
+        approval: expect.objectContaining({ reviewId: 'review-1', targetItemId: 'command-1' }),
+      }),
+      expect.objectContaining({
+        type: 'approval_completed',
+        threadId: 'thread-1',
+        reviewId: 'review-1',
+        action: 'approved',
+      }),
+    ]))
+  })
+
+  it('correlates externally resolved server requests without ending the turn', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<Record<string, unknown>> = []
+    client.on('event', (event) => events.push(event as unknown as Record<string, unknown>))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'serverRequest/resolved',
+      params: { threadId: 'thread-1', requestId: 42 },
+    })
+
+    expect(events).toContainEqual({ type: 'server_request_resolved', threadId: 'thread-1', requestId: 42 })
+    expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'run_end' })]))
+  })
+
+  it('forwards rich item progress with complete protocol identity', () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const events: Array<Record<string, unknown>> = []
+    client.on('event', (event) => events.push(event as unknown as Record<string, unknown>))
+    const transport = client as unknown as { handleMessage: (message: unknown) => void }
+
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'command-1', delta: 'test output\n' },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/fileChange/patchUpdated',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'patch-1',
+        changes: [{ path: 'src/app.ts', kind: { type: 'update' }, diff: '+updated' }],
+      },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'item/mcpToolCall/progress',
+      params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'mcp-1', message: 'Reading records' },
+    })
+    transport.handleMessage({
+      jsonrpc: '2.0',
+      method: 'turn/diff/updated',
+      params: { threadId: 'thread-1', turnId: 'turn-1', diff: 'diff --git a/src/app.ts b/src/app.ts' },
+    })
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'item_progress',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'command-1',
+        progress: { type: 'command_output', delta: 'test output\n' },
+      }),
+      expect.objectContaining({
+        type: 'item_progress',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'patch-1',
+        progress: {
+          type: 'file_patch',
+          changes: [{ path: 'src/app.ts', kind: { type: 'update' }, diff: '+updated' }],
+        },
+      }),
+      expect.objectContaining({
+        type: 'item_progress',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'mcp-1',
+        progress: { type: 'mcp_progress', message: 'Reading records' },
+      }),
+      expect.objectContaining({
+        type: 'turn_diff_updated',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        diff: 'diff --git a/src/app.ts b/src/app.ts',
+      }),
+    ]))
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'log', level: 'command-output' }),
+    ]))
+  })
+
   it('forwards typed turn and item lifecycle identity to the renderer', () => {
     const client = new CodexClient('/tmp/cranberri-client-test')
     const events: Array<Record<string, unknown>> = []

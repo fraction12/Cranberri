@@ -1,10 +1,12 @@
 import { ChevronDown, CircleCheck, CircleStop, LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { InlineApproval } from './InlineApproval'
+import { InlineUserRequest, InlineUserRequestOutcome } from './InlineUserRequest'
 import { TurnActivityItem } from './TurnActivityItem'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexActivityTurn, CodexMessage, PendingApproval } from '@/shared/codex'
+import type { CodexHumanServerRequestResponse, CodexPendingHumanServerRequest, CodexRequestOutcomeEntry } from '@/shared/codex-requests'
 
 function turnDurationSeconds(turn: CodexActivityTurn, now: number): number {
   const duration = turn.durationMs ?? Math.max(0, (turn.completedAt ?? now) - turn.startedAt)
@@ -15,17 +17,23 @@ export function TurnActivity({
   turn,
   messages,
   approvals,
+  humanRequests,
+  humanRequestOutcomes,
   resolvingApprovalId,
   onResolveApproval,
+  onRespondHumanRequest,
 }: {
   turn: CodexActivityTurn
   messages: CodexMessage[]
   approvals: PendingApproval[]
+  humanRequests?: CodexPendingHumanServerRequest[]
+  humanRequestOutcomes?: CodexRequestOutcomeEntry[]
   resolvingApprovalId?: string | null
   onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
+  onRespondHumanRequest?: (response: CodexHumanServerRequestResponse) => Promise<void>
 }) {
   const running = turn.status === 'running'
-  const autoExpanded = running || turn.status === 'failed' || approvals.length > 0
+  const autoExpanded = running || turn.status === 'failed' || approvals.length > 0 || Boolean(humanRequests?.length)
   const [expanded, setExpanded] = useState(autoExpanded)
   const [now, setNow] = useState(turn.completedAt ?? turn.startedAt)
   const wasAutoExpanded = useRef(autoExpanded)
@@ -51,6 +59,13 @@ export function TurnActivity({
   const messageById = new Map(messages.map((message) => [message.id, message]))
   const itemIds = new Set(turn.items.map((item) => item.id))
   const fallbackApprovals = approvals.filter((approval) => !approval.targetItemId || !itemIds.has(approval.targetItemId))
+  const requestItemId = (pending: CodexPendingHumanServerRequest): string | null => (
+    pending.request.method === 'mcpServer/elicitation/request' ? null : pending.request.params.itemId
+  )
+  const fallbackHumanRequests = (humanRequests ?? []).filter((pending) => {
+    const itemId = requestItemId(pending)
+    return !itemId || !itemIds.has(itemId)
+  })
 
   return (
     <section data-turn-activity={turn.id} className="max-w-full">
@@ -74,7 +89,7 @@ export function TurnActivity({
         <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-fast', expanded && 'rotate-180')} />
       </button>
       {expanded && (
-        <div className="ml-[8px] mt-1 space-y-3 border-l border-app-border/70 py-1 pl-4">
+        <div className="mt-1 space-y-2.5 py-1 pl-1.5">
           {turn.items.length === 0 && (
             <div className={typeStyle({ role: 'body', tone: 'secondary' })}>Working</div>
           )}
@@ -84,8 +99,10 @@ export function TurnActivity({
               item={item}
               message={messageById.get(item.id)}
               approvals={approvals.filter((approval) => approval.targetItemId === item.id)}
+              humanRequests={(humanRequests ?? []).filter((pending) => requestItemId(pending) === item.id)}
               resolvingApprovalId={resolvingApprovalId}
               onResolveApproval={onResolveApproval}
+              onRespondHumanRequest={onRespondHumanRequest}
             />
           ))}
           {fallbackApprovals.map((approval) => (
@@ -94,6 +111,19 @@ export function TurnActivity({
               approval={approval}
               resolving={Boolean(resolvingApprovalId)}
               onResolve={onResolveApproval}
+            />
+          ))}
+          {fallbackHumanRequests.map((pending) => (
+            <InlineUserRequest
+              key={`${typeof pending.request.id}:${String(pending.request.id)}`}
+              pending={pending}
+              onRespond={onRespondHumanRequest}
+            />
+          ))}
+          {humanRequestOutcomes?.map((outcome) => (
+            <InlineUserRequestOutcome
+              key={`${outcome.method}:${typeof outcome.requestId}:${String(outcome.requestId)}`}
+              outcome={outcome}
             />
           ))}
         </div>

@@ -1,4 +1,4 @@
-import { dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain } from 'electron'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -34,6 +34,12 @@ import {
   type ToolCatalogRequestContext,
 } from '../tool-catalog-service'
 import { shouldForwardCodexEventToRenderer, shouldPersistCodexEventTelemetry } from './eventPolicy'
+import { CodexHumanServerRequestBroker, type CodexHumanServerRequestSettlement } from './codex-requests'
+import { CodexRequestOutcomeLedger } from './codex-request-outcomes'
+import {
+  codexServerRequestsListInputSchema,
+  codexServerRequestsSnapshotSchema,
+} from '../../shared/codex-requests'
 import type { CodexWorkerControlAction } from '../../shared/codex-worker-control'
 import {
   MINIMUM_GPT_56_CODEX_VERSION,
@@ -137,6 +143,66 @@ const toolCatalogService = new ToolCatalogService({
   projectRoots: () => [...catalogProjectRoots],
 })
 let environmentToolClient: CodexClient | null = null
+let humanRequestBrokerClient: CodexClientLike | null = null
+let humanRequestBroker: CodexHumanServerRequestBroker | null = null
+let requestOutcomeLedger: CodexRequestOutcomeLedger | null = null
+
+function getRequestOutcomeLedger(): CodexRequestOutcomeLedger {
+  requestOutcomeLedger ??= new CodexRequestOutcomeLedger({
+    filePath: path.join(app.getPath('userData'), 'codex-request-outcomes.json'),
+  })
+  return requestOutcomeLedger
+}
+
+function recordHumanRequestSettlement(settlement: CodexHumanServerRequestSettlement): void {
+  try {
+    const base = {
+      request: settlement.pending.request,
+      attempt: settlement.pending.attempt,
+      receivedAt: settlement.pending.receivedAt,
+    }
+    if (settlement.type === 'response') {
+      const outcome = getRequestOutcomeLedger().record({ ...base, response: settlement.response })
+      codexEventBroadcast?.({ type: 'human_request_outcome', threadId: outcome.threadId, outcome })
+      return
+    }
+    const status = settlement.code === 'externally_resolved'
+      ? 'external'
+      : settlement.code === 'cancelled' || settlement.code === 'disposed'
+        ? 'cancelled'
+        : 'failed'
+    const outcome = getRequestOutcomeLedger().record({ ...base, status })
+    codexEventBroadcast?.({ type: 'human_request_outcome', threadId: outcome.threadId, outcome })
+  } catch (error) {
+    console.warn('Failed to persist Codex request outcome:', error)
+  }
+}
+
+function disposeHumanRequestBroker(): void {
+  humanRequestBroker?.dispose()
+  humanRequestBroker = null
+  humanRequestBrokerClient = null
+}
+
+function ensureHumanRequestBroker(candidate: CodexClientLike): void {
+  if (!('registerRequestHandler' in candidate) || humanRequestBrokerClient === candidate) return
+  disposeHumanRequestBroker()
+  const broker = new CodexHumanServerRequestBroker({
+    onPending: (pending) => {
+      const broadcast = codexEventBroadcast
+      if (!broadcast) throw new Error('Cranberri renderer is unavailable for this Codex request')
+      broadcast({
+        type: 'human_request_pending',
+        threadId: pending.request.params.threadId,
+        pending,
+      })
+    },
+    onSettled: recordHumanRequestSettlement,
+  })
+  broker.register(candidate)
+  humanRequestBroker = broker
+  humanRequestBrokerClient = candidate
+}
 
 export function activeCodexTaskBlockers(tasks: ReadonlyArray<{ id: string; threadId: string | null }>): string[] {
   if (!client) return []
@@ -824,6 +890,7 @@ export async function getCodexClient(): Promise<CodexClientLike> {
   if (client) {
     await client.start()
     attachCodexClientEventHandler(client)
+    ensureHumanRequestBroker(client)
     return client
   }
   if (clientStarting) {
@@ -832,6 +899,7 @@ export async function getCodexClient(): Promise<CodexClientLike> {
     }
     if (!client) throw new Error('Codex client failed to start')
     attachCodexClientEventHandler(client)
+    ensureHumanRequestBroker(client)
     return client
   }
 
@@ -843,6 +911,7 @@ export async function getCodexClient(): Promise<CodexClientLike> {
     await newClient.start()
     client = newClient
     attachCodexClientEventHandler(newClient)
+    ensureHumanRequestBroker(newClient)
     return newClient
   } finally {
     clientStarting = false
@@ -1060,6 +1129,9 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     })
   }
   codexEventBroadcast = (event: CodexEvent) => {
+    if (event.type === 'server_request_resolved') {
+      humanRequestBroker?.handleServerRequestResolved({ requestId: event.requestId })
+    }
     if (event.type === 'run_end' && event.threadId) {
       const task = taskCoordinator.findByThread(event.threadId)
       if (task?.location === 'local') {
@@ -1109,6 +1181,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     client?.stop()
     client = null
     clientEventHandlerAttached = false
+    disposeHumanRequestBroker()
     clearCatalogTaskState()
     advanceKnownCapabilityEpochs()
     resetCodexRuntime()
@@ -1132,6 +1205,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     client?.stop()
     client = null
     clientEventHandlerAttached = false
+    disposeHumanRequestBroker()
     advanceKnownCapabilityEpochs()
     return getCodexConnectionStatus()
   })
@@ -1576,7 +1650,10 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     const { taskId } = taskIdRequestSchema.parse(raw)
     const task = taskCoordinator.get(taskId)
     await taskCoordinator.delete(taskId)
-    if (task.threadId) forgetCatalogThread(task.threadId)
+    if (task.threadId) {
+      forgetCatalogThread(task.threadId)
+      getRequestOutcomeLedger().pruneThread(task.threadId)
+    }
     return { ok: true }
   })
 
@@ -1665,6 +1742,24 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     return { ok: true }
   })
 
+  ipcMain.handle('codex:server-request:respond', async (_, response: unknown) => {
+    if (!humanRequestBroker?.respond(response)) {
+      throw new Error('Codex request is no longer pending')
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('codex:server-requests:list', async (_, input: unknown) => {
+    const { threadId } = codexServerRequestsListInputSchema.parse(input)
+    const pending = humanRequestBroker?.listPending() ?? []
+    return codexServerRequestsSnapshotSchema.parse({
+      pending: threadId
+        ? pending.filter((request) => request.request.params.threadId === threadId)
+        : pending,
+      outcomes: threadId ? getRequestOutcomeLedger().listByThread(threadId) : [],
+    })
+  })
+
   ipcMain.handle('codex:interrupt', async (_, cwd: string, threadId: string) => {
     const c = await getCodexClient()
     c.setCwd(cwd)
@@ -1714,6 +1809,7 @@ export function initCodexIpc(mainWindowGetter: () => Electron.BrowserWindow | nu
     client?.stop()
     client = null
     clientEventHandlerAttached = false
+    disposeHumanRequestBroker()
     clearCatalogTaskState()
     return { stopped: true }
   })
@@ -1724,5 +1820,6 @@ export function stopCodexClient(): void {
   client?.stop()
   client = null
   clientEventHandlerAttached = false
+  disposeHumanRequestBroker()
   clearCatalogTaskState()
 }

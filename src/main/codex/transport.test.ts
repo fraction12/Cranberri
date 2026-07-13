@@ -43,7 +43,11 @@ describe('CodexClient explicit runtime routing', () => {
       value: { stdin: { writable: true, write: (value: string) => writes.push(value) } },
       configurable: true,
     })
-    client.registerRequestHandler('item/tool/call', async (params) => ({ echoed: params.value }))
+    const requestContexts: unknown[] = []
+    client.registerRequestHandler('item/tool/call', async (params, context) => {
+      requestContexts.push(context)
+      return { echoed: params.value }
+    })
     const transport = client as unknown as { handleMessage: (message: unknown) => void }
 
     transport.handleMessage({ jsonrpc: '2.0', id: 91, method: 'item/tool/call', params: { value: 'ok' } })
@@ -53,6 +57,7 @@ describe('CodexClient explicit runtime routing', () => {
     const responses = writes.map((value) => JSON.parse(value) as { id: number; result?: unknown; error?: unknown })
     expect(responses.find(({ id }) => id === 91)).toEqual({ jsonrpc: '2.0', id: 91, result: { echoed: 'ok' } })
     expect(responses.find(({ id }) => id === 92)).toMatchObject({ jsonrpc: '2.0', id: 92, error: { code: -32601 } })
+    expect(requestContexts).toEqual([{ id: 91, method: 'item/tool/call' }])
   })
 
   it('sends multiple cwd roots in one history request', async () => {

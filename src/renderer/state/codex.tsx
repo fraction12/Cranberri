@@ -8,6 +8,12 @@ import {
 import { useRepos } from './repos'
 import { useOptionalTasks } from './tasks'
 import { applyCodexSendFailure } from './codex-send-failure'
+import {
+  discardCodexRichActivityEvents,
+  flushCodexRichActivityEvents,
+  queueCodexRichActivityEvent,
+  type CodexRichActivityEvent,
+} from './codex-rich-activity-buffer'
 import { applyStreamingMessageUpdates, streamingMessageKey, type StreamingMessageUpdate } from './codex-streaming'
 import {
   appendCodexSteeringItem,
@@ -21,8 +27,18 @@ import {
 import { clearToolActivityEvents, recordToolActivityEvent } from './tools'
 import { applyWorkerUpdate, hydrateSessionWorkerGraph, hydrateWorkersFromGraph, sessionWorkersForHydration, upsertWorkerGraph } from './codex-workers'
 import type { Task } from '@/shared/tasks'
+import type { CodexHumanServerRequestResponse, CodexPendingHumanServerRequest } from '@/shared/codex-requests'
 import { BIND_WORKSPACE_WINDOW_THREAD_EVENT } from './workspace-model'
 import { invalidateSessions } from './session-invalidation'
+import {
+  attachPendingHumanRequests,
+  attachHumanRequestOutcomes,
+  codexRequestKey,
+  findPendingHumanRequest,
+  removePendingHumanRequest,
+  upsertHumanRequestOutcome,
+  upsertPendingHumanRequest,
+} from './codex-requests'
 
 interface CodexThreadStateApi {
   threads: CodexThread[]
@@ -45,6 +61,7 @@ interface CodexActionsApi {
   steerThread: (threadId: string, content: string, input?: CodexUserInput[]) => Promise<void>
   compactThread: (threadId: string) => Promise<void>
   approve: (threadId: string, approvalId: string, action?: 'approve' | 'deny') => Promise<void>
+  respondToHumanRequest: (threadId: string, response: CodexHumanServerRequestResponse) => Promise<void>
   abort: (threadId: string) => Promise<void>
   messageWorker: (parentThreadId: string, workerThreadId: string, content: string, input?: CodexUserInput[]) => Promise<void>
   stopWorker: (parentThreadId: string, workerThreadId: string) => Promise<void>
@@ -121,6 +138,14 @@ function publishWindowThreadBinding(windowId: string, threadId: string, projectI
   }))
 }
 
+function richActivityTurnKey(threadId: string, turnId: string): string {
+  return `${threadId}\u0000${turnId}`
+}
+
+function richActivityItemKey(threadId: string, turnId: string, itemId: string): string {
+  return `${richActivityTurnKey(threadId, turnId)}\u0000${itemId}`
+}
+
 export function CodexProvider({ children }: { children: React.ReactNode }) {
   const { activeRepo, repos } = useRepos()
   const tasks = useOptionalTasks()
@@ -139,7 +164,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const streamingBuffersRef = useRef<Record<string, string>>({})
   const pendingStreamingUpdatesRef = useRef<Map<string, StreamingMessageUpdate>>(new Map())
   const streamingFrameRef = useRef<number | null>(null)
+  const pendingRichActivityRef = useRef<CodexRichActivityEvent[]>([])
+  const richActivityFrameRef = useRef<number | null>(null)
+  const completedRichActivityTurnsRef = useRef<Set<string>>(new Set())
+  const completedRichActivityItemsRef = useRef<Set<string>>(new Set())
   const pendingThreadTitlesRef = useRef<Record<string, string>>({})
+  const pendingHumanRequestsByThreadRef = useRef<Record<string, CodexPendingHumanServerRequest[]>>({})
+  const liveHumanRequestKeysRef = useRef<Set<string>>(new Set())
   const previousActiveThreadIdRef = useRef<string | null>(null)
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? null
@@ -147,6 +178,18 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   const getThread = useCallback((threadId: string) => threads.find((t) => t.id === threadId), [threads])
   const getWorkersForThread = useCallback((threadId: string) => workersByParent[threadId] ?? [], [workersByParent])
   const getThreadSnapshot = useCallback((threadId: string) => threadsRef.current.find((thread) => thread.id === threadId), [])
+  const attachBufferedHumanRequests = useCallback((thread: CodexThread): CodexThread => (
+    attachPendingHumanRequests(thread, pendingHumanRequestsByThreadRef.current[thread.id])
+  ), [])
+  const hydrateHumanRequestState = useCallback(async (thread: CodexThread): Promise<CodexThread> => {
+    try {
+      const { pending, outcomes } = await window.cranberri.codex.listServerRequests(thread.id)
+      return attachHumanRequestOutcomes(attachPendingHumanRequests(thread, pending), outcomes)
+    } catch (error) {
+      console.warn('Could not restore Codex request history', error)
+      return thread
+    }
+  }, [])
 
   useEffect(() => {
     const previous = previousActiveThreadIdRef.current
@@ -155,6 +198,32 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   }, [activeThreadId])
 
   useEffect(() => () => clearToolActivityEvents(), [])
+
+  useEffect(() => {
+    let disposed = false
+    void window.cranberri.codex.listServerRequests().then(({ pending }) => {
+      if (disposed) return
+      const snapshotByThread: Record<string, CodexPendingHumanServerRequest[]> = {}
+      for (const request of pending) {
+        if (liveHumanRequestKeysRef.current.has(codexRequestKey(request.request.id))) continue
+        const threadId = request.request.params.threadId
+        snapshotByThread[threadId] = upsertPendingHumanRequest(snapshotByThread[threadId], request)
+        pendingHumanRequestsByThreadRef.current[threadId] = upsertPendingHumanRequest(
+          pendingHumanRequestsByThreadRef.current[threadId],
+          request,
+        )
+      }
+      if (Object.keys(snapshotByThread).length === 0) return
+      setThreads((current) => current.map((thread) => (
+        attachPendingHumanRequests(thread, snapshotByThread[thread.id])
+      )))
+    }).catch((error) => {
+      if (!disposed && window.location.protocol === 'http:') {
+        console.debug('Could not restore pending Codex requests', error)
+      }
+    })
+    return () => { disposed = true }
+  }, [])
 
   const flushStreamingMessages = useCallback(() => {
     streamingFrameRef.current = null
@@ -203,8 +272,66 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     }
   }, [flushStreamingMessages, flushStreamingMessagesNow])
 
+  const richActivityEventWasCompleted = useCallback((event: CodexRichActivityEvent): boolean => {
+    const turnKey = richActivityTurnKey(event.threadId, event.turnId)
+    if (completedRichActivityTurnsRef.current.has(turnKey)) return true
+    return event.type === 'item_progress'
+      && completedRichActivityItemsRef.current.has(richActivityItemKey(event.threadId, event.turnId, event.itemId))
+  }, [])
+
+  const flushRichActivity = useCallback(() => {
+    richActivityFrameRef.current = null
+    const batch = pendingRichActivityRef.current
+    pendingRichActivityRef.current = []
+    if (batch.length === 0) return
+
+    setThreads((current) => {
+      const result = flushCodexRichActivityEvents(current, batch)
+      const retained = result.pending.filter((event) => !richActivityEventWasCompleted(event))
+      const newlyQueued = pendingRichActivityRef.current.filter((event) => !richActivityEventWasCompleted(event))
+      pendingRichActivityRef.current = [...retained, ...newlyQueued.filter((event) => !retained.includes(event))]
+      return result.threads
+    })
+  }, [richActivityEventWasCompleted])
+
+  const flushRichActivityNow = useCallback(() => {
+    if (richActivityFrameRef.current !== null) {
+      cancelAnimationFrame(richActivityFrameRef.current)
+      richActivityFrameRef.current = null
+    }
+    flushRichActivity()
+  }, [flushRichActivity])
+
+  const queueRichActivity = useCallback((event: CodexRichActivityEvent) => {
+    if (richActivityEventWasCompleted(event)) return
+    if (event.type === 'item_progress') {
+      pendingRichActivityRef.current.push(event)
+    } else {
+      pendingRichActivityRef.current = [...queueCodexRichActivityEvent(pendingRichActivityRef.current, event)]
+    }
+    if (richActivityFrameRef.current === null) {
+      richActivityFrameRef.current = requestAnimationFrame(flushRichActivity)
+    }
+  }, [flushRichActivity, richActivityEventWasCompleted])
+
+  const clearRichActivityThreadState = useCallback((threadId: string) => {
+    pendingRichActivityRef.current = [...discardCodexRichActivityEvents(
+      pendingRichActivityRef.current,
+      { threadId },
+    )]
+    const prefix = `${threadId}\u0000`
+    for (const key of completedRichActivityTurnsRef.current) {
+      if (key.startsWith(prefix)) completedRichActivityTurnsRef.current.delete(key)
+    }
+    for (const key of completedRichActivityItemsRef.current) {
+      if (key.startsWith(prefix)) completedRichActivityItemsRef.current.delete(key)
+    }
+  }, [])
+
   useEffect(() => {
     const pendingStreamingUpdates = pendingStreamingUpdatesRef.current
+    const completedRichActivityTurns = completedRichActivityTurnsRef.current
+    const completedRichActivityItems = completedRichActivityItemsRef.current
     const unsubscribe = window.cranberri.codex.onEvent((event) => {
       const e = event as CodexEvent
       if (e.type === 'log') {
@@ -215,6 +342,11 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       if (!threadId) return
       if (e.type === 'tool_event' && threadId === activeThreadIdRef.current) {
         recordToolActivityEvent(e.event)
+      }
+
+      if (e.type === 'item_progress' || e.type === 'turn_diff_updated') {
+        queueRichActivity(e)
+        return
       }
 
       if (e.type === 'agent_message_delta') {
@@ -250,6 +382,59 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (pendingStreamingUpdatesRef.current.size > 0) flushStreamingMessagesNow()
+
+      const lifecycleItemId = (e.type === 'item_started' || e.type === 'item_completed')
+        ? e.itemId ?? e.item?.id
+        : undefined
+      if (e.type === 'run_start' && e.turnId) {
+        completedRichActivityTurnsRef.current.delete(richActivityTurnKey(threadId, e.turnId))
+      }
+      if (e.type === 'item_started' && e.turnId && lifecycleItemId) {
+        completedRichActivityItemsRef.current.delete(richActivityItemKey(threadId, e.turnId, lifecycleItemId))
+      }
+      if (e.type === 'item_completed' && e.turnId && lifecycleItemId) {
+        flushRichActivityNow()
+        completedRichActivityItemsRef.current.add(richActivityItemKey(threadId, e.turnId, lifecycleItemId))
+        pendingRichActivityRef.current = [...discardCodexRichActivityEvents(pendingRichActivityRef.current, {
+          threadId,
+          turnId: e.turnId,
+          itemId: lifecycleItemId,
+        })]
+      }
+      if (e.type === 'run_end') {
+        flushRichActivityNow()
+        if (e.turnId) {
+          completedRichActivityTurnsRef.current.add(richActivityTurnKey(threadId, e.turnId))
+        }
+        pendingRichActivityRef.current = [...discardCodexRichActivityEvents(pendingRichActivityRef.current, {
+          threadId,
+          turnId: e.turnId,
+        })]
+      }
+      if (e.type === 'final_answer') {
+        flushRichActivityNow()
+        pendingRichActivityRef.current = [...discardCodexRichActivityEvents(
+          pendingRichActivityRef.current,
+          { threadId },
+        )]
+      }
+
+      if (e.type === 'human_request_pending') {
+        liveHumanRequestKeysRef.current.add(codexRequestKey(e.pending.request.id))
+        pendingHumanRequestsByThreadRef.current[threadId] = upsertPendingHumanRequest(
+          pendingHumanRequestsByThreadRef.current[threadId],
+          e.pending,
+        )
+      } else if (e.type === 'server_request_resolved' || e.type === 'human_request_outcome') {
+        const requestId = e.type === 'human_request_outcome' ? e.outcome.requestId : e.requestId
+        liveHumanRequestKeysRef.current.add(codexRequestKey(requestId))
+        const remaining = removePendingHumanRequest(
+          pendingHumanRequestsByThreadRef.current[threadId],
+          requestId,
+        )
+        if (remaining.length > 0) pendingHumanRequestsByThreadRef.current[threadId] = remaining
+        else delete pendingHumanRequestsByThreadRef.current[threadId]
+      }
 
       setThreads((prev) => {
         const idx = prev.findIndex((t) => t.id === threadId)
@@ -288,6 +473,23 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
             if (thread.pendingApprovals.length === 0) thread.currentActivity = 'Working'
             break
           }
+          case 'human_request_pending':
+            thread.pendingHumanRequests = upsertPendingHumanRequest(thread.pendingHumanRequests, e.pending)
+            thread.currentActivity = 'Waiting for your input'
+            break
+          case 'server_request_resolved':
+            thread.pendingHumanRequests = removePendingHumanRequest(thread.pendingHumanRequests, e.requestId)
+            if (thread.pendingHumanRequests.length === 0 && thread.pendingApprovals.length === 0) {
+              thread.currentActivity = thread.isRunning ? 'Working' : undefined
+            }
+            break
+          case 'human_request_outcome':
+            thread.pendingHumanRequests = removePendingHumanRequest(thread.pendingHumanRequests, e.outcome.requestId)
+            thread.humanRequestOutcomes = upsertHumanRequestOutcome(thread.humanRequestOutcomes, e.outcome)
+            if (thread.pendingHumanRequests.length === 0 && thread.pendingApprovals.length === 0) {
+              thread.currentActivity = thread.isRunning ? 'Working' : undefined
+            }
+            break
           case 'run_start':
             if (e.turnId) {
               thread = reconcileCodexTurnStarted(thread, e.turnId, e.startedAt ?? Date.now())
@@ -405,14 +607,24 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         next[idx] = thread
         return next
       })
+
+      if ((e.type === 'run_start' || e.type === 'item_started') && pendingRichActivityRef.current.length > 0) {
+        flushRichActivityNow()
+      }
     })
     return () => {
       unsubscribe()
       if (streamingFrameRef.current !== null) cancelAnimationFrame(streamingFrameRef.current)
       streamingFrameRef.current = null
       pendingStreamingUpdates.clear()
+      if (richActivityFrameRef.current !== null) cancelAnimationFrame(richActivityFrameRef.current)
+      richActivityFrameRef.current = null
+      pendingRichActivityRef.current = []
+      completedRichActivityTurns.clear()
+      completedRichActivityItems.clear()
+      pendingHumanRequestsByThreadRef.current = {}
     }
-  }, [flushStreamingMessagesNow, queueStreamingMessage])
+  }, [flushRichActivityNow, flushStreamingMessagesNow, queueRichActivity, queueStreamingMessage])
 
   const getThreadForWindow = useCallback((windowId: string) => windowToThread[windowId], [windowToThread])
 
@@ -442,7 +654,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const initialMessageId = initialContent ? crypto.randomUUID() : undefined
     const initialStartedAt = Date.now()
     const initialTurn = initialMessageId ? createOptimisticCodexTurn(initialMessageId, initialStartedAt) : undefined
-    const thread: CodexThread = {
+    const thread = attachBufferedHumanRequests({
       id: threadId,
       title: pendingTitle ?? title ?? 'New thread',
       repoId: activeRepo.id,
@@ -461,7 +673,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       currentActivity: initialContent ? 'Working' : undefined,
       runStartedAt: initialContent ? initialStartedAt : undefined,
       workers: [],
-    }
+    })
     setThreads((prev) => [...prev, thread])
     setWindowToThread((prev) => ({ ...prev, [windowId]: threadId }))
     publishWindowThreadBinding(windowId, threadId, activeRepo.id)
@@ -478,7 +690,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       }
     }
     return thread
-  }, [activeRepo, markSendFailed])
+  }, [activeRepo, attachBufferedHumanRequests, markSendFailed])
 
   const sendMessage = useCallback(async (threadId: string, content: string, input?: CodexUserInput[], settings?: CodexTurnSettings): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
@@ -563,6 +775,17 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       await window.cranberri.codex.interrupt(activeRepo.path, threadId)
     }
   }, [activeRepo])
+
+  const respondToHumanRequest = useCallback(async (
+    threadId: string,
+    response: CodexHumanServerRequestResponse,
+  ): Promise<void> => {
+    const thread = threadsRef.current.find((candidate) => candidate.id === threadId)
+    if (!findPendingHumanRequest(thread, response)) {
+      throw new Error('This Codex request is no longer pending')
+    }
+    await window.cranberri.codex.respondToServerRequest(response)
+  }, [])
 
   const abort = useCallback(async (threadId: string): Promise<void> => {
     if (!activeRepo) throw new Error('No active repo')
@@ -703,7 +926,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     } catch {
       thread = (await window.cranberri.codex.readThread(repo.path, session.id, !archived)).thread
     }
-    const hydratedBase = hydrateThread(thread, repo.id)
+    const hydratedBase = await hydrateHumanRequestState(attachBufferedHumanRequests(hydrateThread(thread, repo.id)))
     const mergedWorkers = mergeWorkerCollections(hydratedBase.workers, workersByParentRef.current[hydratedBase.id])
     const hydrated = {
       ...hydratedBase,
@@ -714,7 +937,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
     publishWindowThreadBinding(windowId, hydrated.id, repo.id)
     return hydrated
-  }, [activeRepo])
+  }, [activeRepo, attachBufferedHumanRequests, hydrateHumanRequestState])
 
   const restoreSessionWindow = useCallback(async (windowId: string, threadId: string): Promise<CodexThread> => {
     if (!activeRepo) throw new Error('No active repo')
@@ -732,7 +955,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       restored = (await window.cranberri.codex.readThread(activeRepo.path, threadId, true)).thread
     }
 
-    const hydratedBase = hydrateThread(restored, activeRepo.id)
+    const hydratedBase = await hydrateHumanRequestState(attachBufferedHumanRequests(hydrateThread(restored, activeRepo.id)))
     const mergedWorkers = mergeWorkerCollections(hydratedBase.workers, workersByParentRef.current[hydratedBase.id])
     const hydrated = {
       ...hydratedBase,
@@ -743,7 +966,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((prev) => ({ ...prev, [windowId]: hydrated.id }))
     publishWindowThreadBinding(windowId, hydrated.id, activeRepo.id)
     return hydrated
-  }, [activeRepo])
+  }, [activeRepo, attachBufferedHumanRequests, hydrateHumanRequestState])
 
   const bindTaskWindow = useCallback(async (windowId: string, task: Task, initialContent?: string): Promise<CodexThread> => {
     if (!task.threadId) throw new Error('Task has no Codex thread')
@@ -757,7 +980,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       const optimisticTurn = createOptimisticCodexTurn(messageId, startedAt)
       const initialTitle = initialContent.split('\n')[0]?.trim().slice(0, 160) || 'New session'
       const meaningfulPendingTitle = pendingTitle && pendingTitle !== 'Untitled session' ? pendingTitle : null
-      hydrated = {
+      hydrated = attachBufferedHumanRequests({
         id: task.threadId,
         title: meaningfulPendingTitle ?? initialTitle,
         repoId: task.projectId,
@@ -768,10 +991,10 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
         currentActivity: 'Working',
         runStartedAt: startedAt,
         workers: [],
-      }
+      })
     } else {
       const result = await window.cranberri.tasks.read(task.id)
-      const base = hydrateThread(result.thread, result.task.projectId)
+      const base = await hydrateHumanRequestState(attachBufferedHumanRequests(hydrateThread(result.thread, result.task.projectId)))
       hydrated = { ...base, title: pendingTitle ?? base.title }
       setWorkersByParent((current) => hydrateSessionWorkerGraph(current, result.thread, hydrated.workers ?? []))
     }
@@ -782,7 +1005,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     setWindowToThread((current) => ({ ...current, [windowId]: hydrated.id }))
     publishWindowThreadBinding(windowId, hydrated.id, task.projectId)
     return hydrated
-  }, [])
+  }, [attachBufferedHumanRequests, hydrateHumanRequestState])
 
   const markThreadSendFailed = useCallback((threadId: string, error: unknown) => {
     markSendFailed(threadId, error)
@@ -803,11 +1026,13 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const task = await lifecycleTask(threadId, targetRepoPath, false)
     const result = await window.cranberri.tasks.archive(task.id)
     clearToolActivityEvents(threadId)
+    clearRichActivityThreadState(threadId)
+    delete pendingHumanRequestsByThreadRef.current[threadId]
     invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
     return result.warning?.message ?? null
-  }, [activeRepo, lifecycleTask])
+  }, [activeRepo, clearRichActivityThreadState, lifecycleTask])
 
   const unarchiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<string | null> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
@@ -824,6 +1049,8 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     const task = await lifecycleTask(threadId, targetRepoPath, true)
     await window.cranberri.tasks.delete(task.id)
     clearToolActivityEvents(threadId)
+    clearRichActivityThreadState(threadId)
+    delete pendingHumanRequestsByThreadRef.current[threadId]
     invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWorkersByParent((current) => {
@@ -832,7 +1059,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       return rest
     })
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
-  }, [activeRepo, lifecycleTask])
+  }, [activeRepo, clearRichActivityThreadState, lifecycleTask])
 
   const renameSession = useCallback(async (threadId: string, name: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
@@ -861,6 +1088,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     steerThread,
     compactThread,
     approve,
+    respondToHumanRequest,
     abort,
     messageWorker,
     stopWorker,
@@ -877,6 +1105,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
   }), [
     abort,
     approve,
+    respondToHumanRequest,
     archiveSession,
     closeThreadWindow,
     compactThread,

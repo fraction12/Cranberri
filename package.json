@@ -22,6 +22,7 @@
     "uat:daily-driver:fixtures": "node scripts/uat/daily-driver-fixtures.mjs",
     "uat:daily-driver:evidence": "node scripts/uat/daily-driver-evidence.mjs",
     "test:uat:daily-driver": "vitest run scripts/uat/daily-driver-fixtures.test.ts",
+    "test:uat:chat-parity": "npm run package:dir && playwright test --config playwright.chat-parity.config.ts",
     "test:updater-helper": "vitest run scripts/updater/install-helper.test.mjs scripts/updater/install-watchdog.test.mjs src/main/updater-preflight.test.ts",
     "rebuild:native:node": "npm rebuild better-sqlite3 bufferutil node-pty utf-8-validate",
     "preview": "electron-vite preview",

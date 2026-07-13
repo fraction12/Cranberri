@@ -66,6 +66,7 @@ export function ChatWindow({ id }: { id: string }) {
     steerThread,
     compactThread,
     approve,
+    respondToHumanRequest,
     abort,
     messageWorker,
     restoreSessionWindow,
@@ -387,6 +388,7 @@ export function ChatWindow({ id }: { id: string }) {
     projectId: draftProjectId,
     bindingRevision: workspaceWindow?.bindingRevision ?? 0,
     threadId,
+    messages: thread?.messages ?? [],
     isRunning,
     inputBlockReason,
     initialTurnSettings: {
@@ -599,6 +601,10 @@ export function ChatWindow({ id }: { id: string }) {
               onToggleGroup={toggleTranscriptGroup}
               resolvingApprovalId={resolvingApprovalId}
               onResolveApproval={(approvalId, decision) => { void resolveApproval(approvalId, decision) }}
+              onRespondHumanRequest={(response) => {
+                if (!threadId) return Promise.reject(new Error('This Codex task is no longer open'))
+                return respondToHumanRequest(threadId, response)
+              }}
             />
             <div ref={messagesEndRef} data-chat-transcript-end="true" />
           </div>

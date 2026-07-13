@@ -12,10 +12,13 @@ import {
   Wrench,
 } from 'lucide-react'
 import { InlineApproval } from './InlineApproval'
+import { InlineUserRequest } from './InlineUserRequest'
+import { hasRichActivityPresentation, RichActivityItem } from './RichActivityItem'
 import { formatInlineCodexText } from './mention-pill'
 import { cn } from '../../lib/ui'
 import { typeStyle } from '../../lib/typography'
 import type { CodexActivityItem, CodexMessage, PendingApproval } from '@/shared/codex'
+import type { CodexHumanServerRequestResponse, CodexPendingHumanServerRequest } from '@/shared/codex-requests'
 
 const ICONS = {
   commentary: MessageSquareMore,
@@ -40,18 +43,23 @@ export function TurnActivityItem({
   item,
   message,
   approvals,
+  humanRequests,
   resolvingApprovalId,
   onResolveApproval,
+  onRespondHumanRequest,
 }: {
   item: CodexActivityItem
   message?: CodexMessage
   approvals: PendingApproval[]
+  humanRequests: CodexPendingHumanServerRequest[]
   resolvingApprovalId?: string | null
   onResolveApproval?: (approvalId: string, decision: 'approve' | 'deny') => void
+  onRespondHumanRequest?: (response: CodexHumanServerRequestResponse) => Promise<void>
 }) {
   const Icon = ICONS[item.kind]
   const content = message?.content || item.content
   const isNarrative = item.kind === 'reasoning' || item.kind === 'commentary' || item.kind === 'plan'
+  const hasRichActivity = hasRichActivityPresentation(item.activityDetail)
 
   if (item.kind === 'steering') {
     const failed = item.status === 'failed' || item.status === 'declined'
@@ -71,35 +79,44 @@ export function TurnActivityItem({
 
   return (
     <div data-turn-item={item.id} className="min-w-0">
-      <div className="flex min-w-0 items-start gap-2">
-        <Icon className={cn(
-          'mt-0.5 h-3.5 w-3.5 shrink-0',
-          item.status === 'running' && 'animate-pulse motion-reduce:animate-none',
-          item.status === 'failed' || item.status === 'declined' ? 'text-app-status-danger' : 'text-app-text-tertiary',
-        )} />
-        <div className="min-w-0 flex-1">
-          <div className={cn(
-            typeStyle({ role: 'body', tone: item.status === 'failed' || item.status === 'declined' ? 'danger' : 'secondary' }),
-            'break-words',
-          )}>
-            {isNarrative && content ? formatInlineCodexText(content) : item.title}
-          </div>
-          {!isNarrative && item.detail && (
+      {hasRichActivity ? <RichActivityItem detail={item.activityDetail} status={item.status} /> : (
+        <div className="flex min-w-0 items-start gap-2">
+          <Icon className={cn(
+            'mt-0.5 h-3.5 w-3.5 shrink-0',
+            item.status === 'running' && 'animate-pulse motion-reduce:animate-none',
+            item.status === 'failed' || item.status === 'declined' ? 'text-app-status-danger' : 'text-app-text-tertiary',
+          )} />
+          <div className="min-w-0 flex-1">
             <div className={cn(
-              typeStyle({ role: item.kind === 'command' ? 'code' : 'metadata', tone: 'tertiary' }),
-              'mt-0.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all',
+              typeStyle({ role: 'body', tone: item.status === 'failed' || item.status === 'declined' ? 'danger' : 'secondary' }),
+              'break-words',
             )}>
-              {item.detail}
+              {isNarrative && content ? formatInlineCodexText(content) : item.title}
             </div>
-          )}
+            {!isNarrative && item.detail && (
+              <div className={cn(
+                typeStyle({ role: item.kind === 'command' ? 'code' : 'metadata', tone: 'tertiary' }),
+                'mt-0.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all',
+              )}>
+                {item.detail}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
       {approvals.map((approval) => (
         <InlineApproval
           key={approval.id}
           approval={approval}
           resolving={Boolean(resolvingApprovalId)}
           onResolve={onResolveApproval}
+        />
+      ))}
+      {humanRequests.map((pending) => (
+        <InlineUserRequest
+          key={`${typeof pending.request.id}:${String(pending.request.id)}`}
+          pending={pending}
+          onRespond={onRespondHumanRequest}
         />
       ))}
     </div>

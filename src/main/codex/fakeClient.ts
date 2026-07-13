@@ -4,6 +4,9 @@ import type {
   CodexEvent,
   CodexRateLimitsReadResult,
   CodexRuntimeContext,
+  CodexServerRequestHandler,
+  CodexSdkFileChange,
+  CodexSdkThreadItem,
   CodexSessionSummary,
   CodexSessionThread,
   CodexTransportCapabilities,
@@ -19,6 +22,11 @@ import { codexItemText } from '../../shared/codex-turn-activity'
 import type { CodexThreadLifecycleGateway, ThreadLifecycleInspection } from './thread-lifecycle'
 
 const FAKE_SHELL_SENTINEL = 'cranberri-shell-private-sentinel'
+const FAKE_RICH_ACTIVITY_SENTINEL = 'cranberri-rich-activity-fixture'
+const FAKE_HUMAN_REQUEST_SENTINEL = 'cranberri-human-request-fixture'
+const FAKE_RICH_COMMAND_OUTPUT = 'synthetic match one\nsynthetic match two\n'
+const FAKE_RICH_TURN_DIFF = 'diff --git a/src/example.ts b/src/example.ts\n-old fixture\n+new fixture'
+const FAKE_RICH_IMAGE = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2296%22%20height%3D%2264%22%20viewBox%3D%220%200%2096%2064%22%3E%3Crect%20width%3D%2296%22%20height%3D%2264%22%20rx%3D%228%22%20fill%3D%22%232d7d56%22%2F%3E%3Cpath%20d%3D%22M22%2032h52M48%2016v32%22%20stroke%3D%22white%22%20stroke-width%3D%226%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E'
 
 interface FakeThreadRecord {
   id: string
@@ -104,14 +112,14 @@ function fakeToolEvent(threadId: string, turnId: string, status: 'running' | 'co
   }
 }
 
-function fakeCommandEvent(threadId: string, turnId: string, status: 'running' | 'completed'): ToolEventRecord {
+function fakeCommandEvent(threadId: string, turnId: string, status: 'running' | 'completed' | 'failed'): ToolEventRecord {
   const event = createToolEventFromItem(threadId, {
     type: 'commandExecution',
     id: `${turnId}-command`,
     command: `rg ${FAKE_SHELL_SENTINEL}`,
     status,
-    exitCode: status === 'completed' ? 0 : undefined,
-    durationMs: status === 'completed' ? 31 : null,
+    exitCode: status === 'running' ? undefined : status === 'failed' ? 2 : 0,
+    durationMs: status === 'running' ? null : 31,
   }, status === 'running' ? 'started' : 'completed')
   if (!event) throw new Error('Fake command event did not normalize')
   return event
@@ -144,12 +152,170 @@ function fakeWorkerEvent(parentThreadId: string, worker: FakeThreadRecord, messa
   }
 }
 
+function fakeRichPatch(): CodexSdkFileChange[] {
+  return [{
+    path: 'src/example.ts',
+    kind: { type: 'update' },
+    diff: '@@ -1 +1 @@\n-old fixture\n+new fixture',
+  }]
+}
+
+function fakeRichActivityItems(
+  threadId: string,
+  turnId: string,
+  lifecycle: 'started' | 'completed',
+): CodexSdkThreadItem[] {
+  const completed = lifecycle === 'completed'
+  return [
+    {
+      id: `${turnId}-mcp-result`,
+      type: 'mcpToolCall',
+      server: 'fake-fixture-server',
+      tool: 'inspect_fixture',
+      arguments: { fixture: 'rich-activity' },
+      status: completed ? 'completed' : 'inProgress',
+      ...(completed ? { result: { summary: 'Synthetic fixture inspected', count: 2 }, durationMs: 24 } : {}),
+    },
+    {
+      id: `${turnId}-mcp-error`,
+      type: 'mcpToolCall',
+      server: 'fake-fixture-server',
+      tool: 'read_missing_fixture',
+      arguments: { fixture: 'missing-synthetic-fixture' },
+      status: completed ? 'failed' : 'inProgress',
+      ...(completed ? { error: { message: 'Synthetic fixture unavailable' }, durationMs: 12 } : {}),
+    },
+    {
+      id: `${turnId}-web-search`,
+      type: 'webSearch',
+      query: 'deterministic Cranberri fixture',
+      action: {
+        type: 'search',
+        query: 'deterministic Cranberri fixture',
+        queries: ['deterministic Cranberri fixture'],
+      },
+      status: completed ? 'completed' : 'inProgress',
+    },
+    {
+      id: `${turnId}-image-generation`,
+      type: 'imageGeneration',
+      status: completed ? 'completed' : 'inProgress',
+      revisedPrompt: 'A deterministic synthetic Cranberri activity fixture',
+      ...(completed
+        ? {
+            result: FAKE_RICH_IMAGE,
+            savedPath: '/tmp/cranberri-rich-activity-fixture.png',
+          }
+        : {}),
+    },
+    {
+      id: `${turnId}-collaboration`,
+      type: 'collabAgentToolCall',
+      tool: 'sendInput',
+      status: completed ? 'completed' : 'inProgress',
+      senderThreadId: threadId,
+      receiverThreadIds: ['synthetic-worker-thread'],
+      prompt: 'Inspect the deterministic synthetic fixture.',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'medium',
+      agentsStates: {
+        'synthetic-worker-thread': {
+          status: completed ? 'completed' : 'running',
+          message: completed ? 'Synthetic fixture inspected' : 'Inspecting synthetic fixture',
+        },
+      },
+    },
+  ]
+}
+
+function emitFakeRichActivityStart(
+  client: EventEmitter,
+  threadId: string,
+  turnId: string,
+  startedAt: number,
+): void {
+  const items = fakeRichActivityItems(threadId, turnId, 'started')
+  items.forEach((item, index) => {
+    client.emit('event', {
+      type: 'item_started',
+      threadId,
+      turnId,
+      itemId: item.id,
+      itemType: item.type ?? 'unknown',
+      item,
+      startedAt: startedAt + 3 + index,
+    } satisfies CodexEvent)
+  })
+  client.emit('event', {
+    type: 'item_progress',
+    threadId,
+    turnId,
+    itemId: `${turnId}-command`,
+    progress: { type: 'command_output', delta: 'synthetic match one\n' },
+  } satisfies CodexEvent)
+  client.emit('event', {
+    type: 'item_progress',
+    threadId,
+    turnId,
+    itemId: `${turnId}-command`,
+    progress: { type: 'command_output', delta: 'synthetic match two\n' },
+  } satisfies CodexEvent)
+  client.emit('event', {
+    type: 'item_progress',
+    threadId,
+    turnId,
+    itemId: `${turnId}-tool`,
+    progress: { type: 'file_patch', changes: fakeRichPatch() },
+  } satisfies CodexEvent)
+  client.emit('event', {
+    type: 'item_progress',
+    threadId,
+    turnId,
+    itemId: `${turnId}-mcp-result`,
+    progress: { type: 'mcp_progress', message: 'Reading synthetic fixture' },
+  } satisfies CodexEvent)
+  client.emit('event', {
+    type: 'item_progress',
+    threadId,
+    turnId,
+    itemId: `${turnId}-mcp-result`,
+    progress: { type: 'mcp_progress', message: 'Synthetic fixture ready' },
+  } satisfies CodexEvent)
+  client.emit('event', {
+    type: 'turn_diff_updated',
+    threadId,
+    turnId,
+    diff: FAKE_RICH_TURN_DIFF,
+  } satisfies CodexEvent)
+}
+
+function emitFakeRichActivityCompletion(
+  client: EventEmitter,
+  threadId: string,
+  turnId: string,
+  items: CodexSdkThreadItem[],
+  completedAt: number,
+): void {
+  for (const item of items) {
+    client.emit('event', {
+      type: 'item_completed',
+      threadId,
+      turnId,
+      itemId: item.id,
+      itemType: item.type ?? 'unknown',
+      item,
+      completedAt,
+    } satisfies CodexEvent)
+  }
+}
+
 export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycleGateway {
   private readonly processCwd: string
   private nextThread = 1
   private nextTurn = 1
   private readonly threads = new Map<string, FakeThreadRecord>()
   private readonly workerTimers = new Map<string, NodeJS.Timeout>()
+  private readonly requestHandlers = new Map<string, CodexServerRequestHandler>()
 
   constructor(cwd: string) {
     super()
@@ -161,6 +327,32 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
   stop(): void {
     for (const timer of this.workerTimers.values()) clearTimeout(timer)
     this.workerTimers.clear()
+    this.requestHandlers.clear()
+  }
+
+  registerRequestHandler(method: string, handler: CodexServerRequestHandler): () => void {
+    if (this.requestHandlers.has(method)) throw new Error(`Fake Codex request handler already registered for ${method}`)
+    this.requestHandlers.set(method, handler)
+    return () => {
+      if (this.requestHandlers.get(method) === handler) this.requestHandlers.delete(method)
+    }
+  }
+
+  private async requestHumanApproval(threadId: string, turnId: string, itemId: string): Promise<void> {
+    const method = 'item/commandExecution/requestApproval'
+    const handler = this.requestHandlers.get(method)
+    if (!handler) throw new Error(`Fake Codex request handler missing for ${method}`)
+    await handler({
+      threadId,
+      turnId,
+      itemId,
+      startedAtMs: Date.now(),
+      environmentId: null,
+      reason: 'Verify the typed human request path.',
+      command: 'printf cranberri-human-request-fixture',
+      cwd: this.requireThread(threadId).cwd,
+      availableDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
+    }, { id: `${turnId}-human-request`, method })
   }
 
   setCwd(cwd: string): void {
@@ -223,6 +415,10 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
       : ''
     const response = `Fake Codex received: ${userText || 'empty message'}${visualLine}${settingsLine}\ncranberri-fake-codex-stream-complete`
     const isChatTrailSmoke = userText.includes('cranberri-chat-trail-smoke')
+    const isRichActivityFixture = userText.includes(FAKE_RICH_ACTIVITY_SENTINEL)
+    const fileChanges = isRichActivityFixture
+      ? fakeRichPatch()
+      : [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }]
     const completionDelayMs = isChatTrailSmoke ? 3_000 : 100
     const responseStartDelayMs = isChatTrailSmoke ? completionDelayMs - 250 : 10
     thread.updatedAt = Date.now()
@@ -247,6 +443,9 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
 
     const startedAt = thread.updatedAt
     this.emit('event', { type: 'run_start', threadId, turnId, startedAt } satisfies CodexEvent)
+    if (userText.includes(FAKE_HUMAN_REQUEST_SENTINEL)) {
+      await this.requestHumanApproval(threadId, turnId, commandId)
+    }
     this.emit('event', {
       type: 'item_started',
       threadId,
@@ -281,13 +480,16 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
       item: {
         id: fileChangeId,
         type: 'fileChange',
-        changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+        changes: fileChanges,
         status: 'inProgress',
       },
       startedAt: startedAt + 2,
     } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'running') } satisfies CodexEvent)
     this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'running') } satisfies CodexEvent)
+    if (isRichActivityFixture) {
+      emitFakeRichActivityStart(this, threadId, turnId, startedAt)
+    }
     if (userText.includes('cranberri-approval-smoke-request')) {
       setTimeout(() => {
         this.emit('event', fakeApproval(threadId, turnId))
@@ -303,6 +505,9 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
       }, responseStartDelayMs + index * 20)
     })
     setTimeout(() => {
+      const richActivityItems = isRichActivityFixture
+        ? fakeRichActivityItems(threadId, turnId, 'completed')
+        : []
       const turn = thread.turns.at(-1)
       if (turn) {
         turn.completedAt = Date.now() / 1000
@@ -316,16 +521,18 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
             type: 'commandExecution',
             command: `rg ${FAKE_SHELL_SENTINEL}`,
             commandActions: [{ type: 'search', command: 'rg', query: FAKE_SHELL_SENTINEL }],
-            status: 'completed',
-            exitCode: 0,
+            status: isRichActivityFixture ? 'failed' : 'completed',
+            ...(isRichActivityFixture ? { aggregatedOutput: FAKE_RICH_COMMAND_OUTPUT } : {}),
+            exitCode: isRichActivityFixture ? 2 : 0,
             durationMs: 31,
           },
           {
             id: fileChangeId,
             type: 'fileChange',
-            changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+            changes: fileChanges,
             status: 'completed',
           },
+          ...richActivityItems,
           { id: itemId, type: 'agentMessage', text: response, phase: 'final_answer' },
         ]
       }
@@ -350,8 +557,9 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
           type: 'commandExecution',
           command: `rg ${FAKE_SHELL_SENTINEL}`,
           commandActions: [{ type: 'search', command: 'rg', query: FAKE_SHELL_SENTINEL }],
-          status: 'completed',
-          exitCode: 0,
+          status: isRichActivityFixture ? 'failed' : 'completed',
+          ...(isRichActivityFixture ? { aggregatedOutput: FAKE_RICH_COMMAND_OUTPUT } : {}),
+          exitCode: isRichActivityFixture ? 2 : 0,
           durationMs: 31,
         },
         completedAt,
@@ -365,14 +573,21 @@ export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycl
         item: {
           id: fileChangeId,
           type: 'fileChange',
-          changes: [{ path: 'src/renderer/components/ChatWindow.tsx', kind: { type: 'update' }, diff: '+fake smoke patch' }],
+          changes: fileChanges,
           status: 'completed',
         },
         completedAt,
       } satisfies CodexEvent)
+      if (isRichActivityFixture) {
+        emitFakeRichActivityCompletion(this, threadId, turnId, richActivityItems, completedAt)
+      }
       this.emit('event', { type: 'agent_message_completed', threadId, turnId, itemId, text: response, phase: 'final_answer' } satisfies CodexEvent)
       this.emit('event', { type: 'tool_event', threadId, event: fakeToolEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
-      this.emit('event', { type: 'tool_event', threadId, event: fakeCommandEvent(threadId, turnId, 'completed') } satisfies CodexEvent)
+      this.emit('event', {
+        type: 'tool_event',
+        threadId,
+        event: fakeCommandEvent(threadId, turnId, isRichActivityFixture ? 'failed' : 'completed'),
+      } satisfies CodexEvent)
       this.emit('event', { type: 'context_usage', threadId, usedTokens: 128, contextWindow: 258400 } satisfies CodexEvent)
       this.emit('event', { type: 'final_answer', threadId, text: response } satisfies CodexEvent)
       thread.status = 'completed'

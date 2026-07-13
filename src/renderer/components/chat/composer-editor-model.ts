@@ -1,5 +1,5 @@
-import { Schema, type Node as ProseMirrorNode, type NodeSpec } from 'prosemirror-model'
-import { EditorState, TextSelection } from 'prosemirror-state'
+import { Schema, Slice, type Node as ProseMirrorNode, type NodeSpec } from 'prosemirror-model'
+import { EditorState, Selection, TextSelection } from 'prosemirror-state'
 
 export type ComposerMentionKind = 'skill' | 'plugin'
 
@@ -19,11 +19,25 @@ export interface ComposerSnapshot {
   mentions: ComposerMention[]
 }
 
+export interface ComposerEditorSnapshot extends ComposerSnapshot {
+  document: unknown
+  selection: unknown
+}
+
 export interface ComposerTrigger {
   char: '/' | '$' | '@'
   from: number
   to: number
   query: string
+}
+
+export const COMPOSER_CLIPBOARD_MIME = 'application/x-cranberri-composer+json'
+
+export interface ComposerClipboardPayload {
+  version: 1
+  text: string
+  plainText: string
+  mentions: ComposerMention[]
 }
 
 export function skillComposerMention(skill: {
@@ -168,6 +182,19 @@ export function composerStateFromText(text: string, catalog: readonly ComposerMe
   return EditorState.create({ schema: composerSchema, doc, selection: TextSelection.atEnd(doc) })
 }
 
+export function composerStateFromSnapshot(
+  snapshot: ComposerEditorSnapshot,
+  catalog: readonly ComposerMention[] = [],
+): EditorState {
+  try {
+    const doc = composerSchema.nodeFromJSON(snapshot.document)
+    const selection = Selection.fromJSON(doc, snapshot.selection)
+    return EditorState.create({ schema: composerSchema, doc, selection })
+  } catch {
+    return composerStateFromText(snapshot.text, catalog)
+  }
+}
+
 export function composerSnapshot(doc: ProseMirrorNode): ComposerSnapshot {
   const mentions: ComposerMention[] = []
   const promptLines: string[] = []
@@ -197,6 +224,107 @@ export function composerSnapshot(doc: ProseMirrorNode): ComposerSnapshot {
     plainLines.push(plain)
   })
   return { text: promptLines.join('\n'), plainText: plainLines.join('\n'), mentions }
+}
+
+export function composerClipboardPayload(
+  state: EditorState,
+): ComposerClipboardPayload | null {
+  const { from, to } = state.selection
+  if (from === to) return null
+  const mentions: ComposerMention[] = []
+  let text = ''
+  let plainText = ''
+  let paragraphCount = 0
+
+  state.doc.descendants((node, position) => {
+    if (node.type === composerSchema.nodes.paragraph) {
+      const contentFrom = position + 1
+      const contentTo = position + node.nodeSize - 1
+      if (contentFrom <= to && contentTo >= from) {
+        if (paragraphCount > 0) {
+          text += '\n'
+          plainText += '\n'
+        }
+        paragraphCount += 1
+      }
+      return true
+    }
+
+    if (node.isText) {
+      const start = Math.max(from, position) - position
+      const end = Math.min(to, position + node.nodeSize) - position
+      if (start < end) {
+        const selected = (node.text ?? '').slice(start, end)
+        text += selected
+        plainText += selected
+      }
+      return false
+    }
+
+    if (position >= to || position + node.nodeSize <= from) return false
+    if (node.type === composerSchema.nodes.hardBreak) {
+      text += '\n'
+      plainText += '\n'
+      return false
+    }
+    const mention = mentionFromNode(node)
+    if (mention) {
+      mentions.push(mention)
+      text += mentionPromptText(mention)
+      plainText += mention.displayName
+    }
+    return false
+  })
+
+  return { version: 1, text, plainText, mentions }
+}
+
+function isComposerMention(value: unknown): value is ComposerMention {
+  if (!value || typeof value !== 'object') return false
+  const mention = value as Partial<ComposerMention>
+  return (mention.kind === 'skill' || mention.kind === 'plugin')
+    && typeof mention.id === 'string'
+    && typeof mention.name === 'string'
+    && typeof mention.displayName === 'string'
+    && typeof mention.path === 'string'
+    && typeof mention.description === 'string'
+    && (mention.prompt === undefined || typeof mention.prompt === 'string')
+}
+
+export function parseComposerClipboardPayload(value: string): ComposerClipboardPayload | null {
+  try {
+    const payload = JSON.parse(value) as Partial<ComposerClipboardPayload>
+    if (
+      payload.version !== 1
+      || typeof payload.text !== 'string'
+      || typeof payload.plainText !== 'string'
+      || !Array.isArray(payload.mentions)
+      || !payload.mentions.every(isComposerMention)
+    ) return null
+    return payload as ComposerClipboardPayload
+  } catch {
+    return null
+  }
+}
+
+export function replaceComposerSelectionWithClipboard(
+  state: EditorState,
+  payload: ComposerClipboardPayload,
+  catalog: readonly ComposerMention[] = [],
+): EditorState {
+  const mentions = [...new Map(
+    [...catalog, ...payload.mentions].map((mention) => [`${mention.kind}:${mention.path}`, mention]),
+  ).values()]
+  const incoming = composerStateFromText(payload.text, mentions)
+  return state.apply(state.tr.replaceSelection(Slice.maxOpen(incoming.doc.content)).scrollIntoView())
+}
+
+export function composerEditorSnapshot(state: EditorState): ComposerEditorSnapshot {
+  return {
+    ...composerSnapshot(state.doc),
+    document: state.doc.toJSON(),
+    selection: state.selection.toJSON(),
+  }
 }
 
 export function composerTrigger(state: EditorState): ComposerTrigger | null {

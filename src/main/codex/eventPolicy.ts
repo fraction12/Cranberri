@@ -4,6 +4,8 @@ const HIGH_VOLUME_EVENT_TYPES = new Set<CodexEvent['type']>([
   'agent_message_delta',
   'item_started',
   'item_completed',
+  'item_progress',
+  'turn_diff_updated',
   'log',
 ])
 
@@ -12,6 +14,7 @@ const TOOL_EVENT_TYPES = new Set<CodexEvent['type']>([
   'tool_event',
   'approval_request',
   'approval_completed',
+  'human_request_pending',
   'worker_updated',
 ])
 

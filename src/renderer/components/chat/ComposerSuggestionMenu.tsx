@@ -20,6 +20,7 @@ export function ComposerSuggestionMenu({
   usedTokens,
   contextWindow,
   onSelect,
+  listId,
 }: {
   title: string
   suggestions: readonly ComposerSuggestion[]
@@ -27,6 +28,7 @@ export function ComposerSuggestionMenu({
   usedTokens: number
   contextWindow: number
   onSelect: (index: number) => void
+  listId: string
 }) {
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -37,16 +39,18 @@ export function ComposerSuggestionMenu({
   return (
     <div className={cn(menuSurface, 'absolute inset-x-0 bottom-full mb-2 max-h-[min(420px,calc(100vh-24px))] overflow-hidden p-2')}>
       <div className={cn(typeStyle({ role: 'label', tone: 'secondary' }), 'px-2 pb-1 pt-0.5')}>{title}</div>
-      <div ref={listRef} className="max-h-[350px] space-y-0.5 overflow-y-auto pr-1" role="listbox" aria-label={title}>
+      <div id={listId} ref={listRef} className="max-h-[350px] space-y-0.5 overflow-y-auto pr-1" role="listbox" aria-label={title}>
         {suggestions.map((suggestion, index) => (
           <button
             key={suggestion.id}
+            id={`${listId}-option-${index}`}
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onSelect(index)}
             disabled={suggestion.selected}
             role="option"
             aria-selected={index === activeIndex}
+            aria-disabled={suggestion.selected}
             className={cn(
               'flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left',
               index === activeIndex && 'bg-app-surface-2',

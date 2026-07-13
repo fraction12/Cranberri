@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom'
 import { baseKeymap } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
 import { keymap } from 'prosemirror-keymap'
-import { EditorState, TextSelection, type Command } from 'prosemirror-state'
+import { EditorState, Selection, TextSelection, type Command } from 'prosemirror-state'
 import { EditorView, type NodeView } from 'prosemirror-view'
 import type { Node as ProseMirrorNode } from 'prosemirror-model'
 import { cn } from '../../lib/ui'
@@ -12,12 +12,17 @@ import { typeStyle } from '../../lib/typography'
 import { MentionPill } from './mention-pill'
 import {
   composerSchema,
-  composerSnapshot,
+  COMPOSER_CLIPBOARD_MIME,
+  composerClipboardPayload,
+  composerEditorSnapshot,
+  composerStateFromSnapshot,
   composerStateFromText,
   composerTrigger,
   insertComposerMention,
+  parseComposerClipboardPayload,
+  replaceComposerSelectionWithClipboard,
   type ComposerMention,
-  type ComposerSnapshot,
+  type ComposerEditorSnapshot,
   type ComposerTrigger,
 } from './composer-editor-model'
 
@@ -26,7 +31,8 @@ export interface ComposerEditorHandle {
   insertDictation: (text: string) => void
   insertMention: (mention: ComposerMention, range?: { from: number; to: number }) => void
   insertText: (text: string, range?: { from: number; to: number }) => void
-  snapshot: () => ComposerSnapshot
+  replaceHistorySnapshot: (snapshot: ComposerEditorSnapshot) => void
+  snapshot: () => ComposerEditorSnapshot
 }
 
 interface ComposerEditorProps {
@@ -34,19 +40,34 @@ interface ComposerEditorProps {
   catalog: readonly ComposerMention[]
   placeholder: string
   disabled?: boolean
-  onChange: (snapshot: ComposerSnapshot) => void
+  suggestionOpen?: boolean
+  suggestionListId?: string
+  activeSuggestionId?: string
+  onChange: (snapshot: ComposerEditorSnapshot) => void
   onTriggerChange: (trigger: ComposerTrigger | null) => void
   onSubmit: () => void
-  onSuggestionKeyDown: (event: KeyboardEvent) => boolean
+  onEditorKeyDown: (event: KeyboardEvent, context: { atDocumentStart: boolean; atDocumentEnd: boolean }) => boolean
   onPaste: (data: DataTransfer) => boolean
   onDrop: (data: DataTransfer) => boolean
 }
 
-function editorAttributes(placeholder: string): Record<string, string> {
+function editorAttributes(
+  placeholder: string,
+  disabled: boolean,
+  suggestionOpen: boolean,
+  suggestionListId?: string,
+  activeSuggestionId?: string,
+): Record<string, string> {
   return {
     'aria-label': 'Chat message',
+    'aria-disabled': String(disabled),
+    'aria-expanded': String(suggestionOpen),
+    'aria-autocomplete': 'list',
+    'aria-haspopup': 'listbox',
     'aria-multiline': 'true',
     'aria-placeholder': placeholder,
+    ...(suggestionOpen && suggestionListId ? { 'aria-controls': suggestionListId } : {}),
+    ...(suggestionOpen && activeSuggestionId ? { 'aria-activedescendant': activeSuggestionId } : {}),
     'data-composer-input': 'true',
     role: 'textbox',
     spellcheck: 'true',
@@ -91,10 +112,13 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   catalog,
   placeholder,
   disabled = false,
+  suggestionOpen = false,
+  suggestionListId,
+  activeSuggestionId,
   onChange,
   onTriggerChange,
   onSubmit,
-  onSuggestionKeyDown,
+  onEditorKeyDown,
   onPaste,
   onDrop,
 }, forwardedRef) {
@@ -107,11 +131,13 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   const initialPlaceholderRef = useRef(placeholder)
   const disabledRef = useRef(disabled)
   disabledRef.current = disabled
-  const callbacksRef = useRef({ onChange, onDrop, onPaste, onSubmit, onSuggestionKeyDown, onTriggerChange })
-  callbacksRef.current = { onChange, onDrop, onPaste, onSubmit, onSuggestionKeyDown, onTriggerChange }
+  const suggestionStateRef = useRef({ suggestionOpen, suggestionListId, activeSuggestionId })
+  suggestionStateRef.current = { suggestionOpen, suggestionListId, activeSuggestionId }
+  const callbacksRef = useRef({ onChange, onDrop, onEditorKeyDown, onPaste, onSubmit, onTriggerChange })
+  callbacksRef.current = { onChange, onDrop, onEditorKeyDown, onPaste, onSubmit, onTriggerChange }
 
   const emitState = useCallback((state: EditorState) => {
-    const snapshot = composerSnapshot(state.doc)
+    const snapshot = composerEditorSnapshot(state)
     lastEmittedValueRef.current = snapshot.text
     callbacksRef.current.onChange(snapshot)
     callbacksRef.current.onTriggerChange(composerTrigger(state))
@@ -138,18 +164,51 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
     const view = new EditorView(mount, {
       state,
       editable: () => !disabledRef.current,
-      attributes: editorAttributes(initialPlaceholderRef.current),
+      attributes: editorAttributes(initialPlaceholderRef.current, disabledRef.current,
+        suggestionStateRef.current.suggestionOpen,
+        suggestionStateRef.current.suggestionListId,
+        suggestionStateRef.current.activeSuggestionId),
       nodeViews: {
         skillMention: mentionNodeView,
         pluginMention: mentionNodeView,
       },
       handleDOMEvents: {
-        keydown: (_view, event) => {
+        keydown: (currentView, event) => {
           if (event.isComposing || event.keyCode === 229) return true
-          return callbacksRef.current.onSuggestionKeyDown(event)
+          const { selection, doc } = currentView.state
+          return callbacksRef.current.onEditorKeyDown(event, {
+            atDocumentStart: selection.empty && selection.from === TextSelection.atStart(doc).from,
+            atDocumentEnd: selection.empty && selection.to === TextSelection.atEnd(doc).to,
+          })
         },
-        paste: (_view, event) => {
-          if (!event.clipboardData || !callbacksRef.current.onPaste(event.clipboardData)) return false
+        copy: (currentView, event) => {
+          const payload = composerClipboardPayload(currentView.state)
+          if (!event.clipboardData || !payload) return false
+          event.clipboardData.setData(COMPOSER_CLIPBOARD_MIME, JSON.stringify(payload))
+          event.clipboardData.setData('text/plain', payload.plainText)
+          event.preventDefault()
+          return true
+        },
+        cut: (currentView, event) => {
+          const payload = composerClipboardPayload(currentView.state)
+          if (!event.clipboardData || !payload) return false
+          event.clipboardData.setData(COMPOSER_CLIPBOARD_MIME, JSON.stringify(payload))
+          event.clipboardData.setData('text/plain', payload.plainText)
+          currentView.dispatch(currentView.state.tr.deleteSelection().scrollIntoView())
+          event.preventDefault()
+          return true
+        },
+        paste: (currentView, event) => {
+          if (!event.clipboardData) return false
+          const structured = parseComposerClipboardPayload(event.clipboardData.getData(COMPOSER_CLIPBOARD_MIME))
+          if (structured) {
+            const next = replaceComposerSelectionWithClipboard(currentView.state, structured, lastCatalogRef.current)
+            currentView.updateState(next)
+            emitState(next)
+            event.preventDefault()
+            return true
+          }
+          if (!callbacksRef.current.onPaste(event.clipboardData)) return false
           event.preventDefault()
           return true
         },
@@ -195,12 +254,11 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   }, [catalog, value])
 
   useEffect(() => {
-    viewRef.current?.setProps({ editable: () => !disabled })
-  }, [disabled])
-
-  useEffect(() => {
-    viewRef.current?.setProps({ attributes: editorAttributes(placeholder) })
-  }, [placeholder])
+    viewRef.current?.setProps({
+      editable: () => !disabled,
+      attributes: editorAttributes(placeholder, disabled, suggestionOpen, suggestionListId, activeSuggestionId),
+    })
+  }, [activeSuggestionId, disabled, placeholder, suggestionListId, suggestionOpen])
 
   useImperativeHandle(forwardedRef, () => ({
     focus: (position) => {
@@ -238,7 +296,25 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
       view.dispatch(view.state.tr.insertText(text, from, to).scrollIntoView())
       view.focus()
     },
-    snapshot: () => composerSnapshot(viewRef.current?.state.doc ?? composerStateFromText('').doc),
+    replaceHistorySnapshot: (snapshot) => {
+      const view = viewRef.current
+      if (!view) return
+      const restored = composerStateFromSnapshot(snapshot, lastCatalogRef.current)
+      let transaction = view.state.tr
+        .replaceWith(0, view.state.doc.content.size, restored.doc.content)
+        .setMeta('addToHistory', false)
+      try {
+        transaction = transaction.setSelection(Selection.fromJSON(transaction.doc, snapshot.selection))
+      } catch {
+        transaction = transaction.setSelection(TextSelection.atEnd(transaction.doc))
+      }
+      view.dispatch(transaction.scrollIntoView())
+      view.focus()
+    },
+    snapshot: () => {
+      const state = viewRef.current?.state ?? composerStateFromText('')
+      return composerEditorSnapshot(state)
+    },
   }), [emitState])
 
   const empty = value.length === 0

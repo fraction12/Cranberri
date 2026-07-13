@@ -61,6 +61,54 @@ describe('TranscriptList', () => {
     expect(html).toContain('Calling tool')
   })
 
+  it('keeps a pending human request visible before its turn has hydrated', () => {
+    const html = renderTranscript(thread([message('user-1', 'user', 'Start working')], {
+      pendingHumanRequests: [{
+        request: {
+          id: 'request-1',
+          method: 'item/fileChange/requestApproval',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-not-hydrated',
+            itemId: 'item-not-hydrated',
+            startedAtMs: 100,
+            reason: 'Approve the patch',
+            grantRoot: null,
+          },
+        },
+        attempt: 1,
+        receivedAt: 100,
+        deadlineAt: 1_000,
+      }],
+    }))
+
+    expect(html).toContain('Start working')
+    expect(html).toContain('Approve the patch')
+  })
+
+  it('places a rehydrated request outcome back into its activity turn', () => {
+    const html = renderTranscript(thread([
+      { ...message('user-1', 'user', 'Run the command'), turnId: 'turn-1' },
+    ], {
+      activityTurns: [{ id: 'turn-1', status: 'running', startedAt: 100, items: [] }],
+      humanRequestOutcomes: [{
+        requestId: 'request-1',
+        method: 'item/commandExecution/requestApproval',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        status: 'resolved',
+        decision: { kind: 'accepted', scope: 'request', count: 1 },
+        requestedAt: 100,
+        completedAt: 200,
+        attempt: 1,
+      }],
+    }))
+
+    expect(html).toContain('data-human-request-outcome="string:request-1"')
+    expect(html).toContain('Allowed once')
+  })
+
   it('renders a typed activity turn between its user prompt and final answer', () => {
     const html = renderTranscript(thread([
       { ...message('user-1', 'user', 'Inspect chat'), turnId: 'turn-1' },
