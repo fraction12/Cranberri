@@ -31,6 +31,7 @@ import {
   type RightRailTab,
 } from './right-rail/RailShell'
 import type { GitFileStatus } from '@/shared/git'
+import { countActiveCodexWorkers } from '@/shared/codex-workers'
 import { buttonStyle, cn, compactFieldStyle } from '../lib/ui'
 import { typeStyle } from '../lib/typography'
 import { IconButton } from './ui/IconButton'
@@ -89,7 +90,7 @@ export function RightRail({ onOpenToolsSettings }: { onOpenToolsSettings: () => 
     ? null
     : activeExecutionContext?.checkoutPath ?? activeRepo?.path ?? null
   const { activeThread } = useCodexThreads()
-  const agentCount = activeThread?.workers?.length ?? 0
+  const agentCount = countActiveCodexWorkers(activeThread?.workers)
 
   useEffect(() => {
     setSelectedFile(null)

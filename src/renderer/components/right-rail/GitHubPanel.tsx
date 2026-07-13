@@ -18,7 +18,7 @@ import { cn } from '../../lib/ui'
 import { sendChatContextSafely } from '../../state/chat-context-command'
 import { createGitHubContextCapturedEvent } from '../github-context-events'
 import { githubItemChatContext, githubPanelChatContext } from '../github-chat-context'
-import { githubPanelBadges } from './github-panel-model'
+import { githubPanelBadges, githubPanelErrorMessage } from './github-panel-model'
 import { loadGitHubPanelData, loadGitHubSummary } from './github-panel-route'
 import { typeStyle } from '../../lib/typography'
 import { handleTabListKeyDown } from '../../lib/tab-navigation'
@@ -73,7 +73,7 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
         if (!cancelled) setSummary(result)
       })
       .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to read the GitHub remote')
+        if (!cancelled) setError(githubPanelErrorMessage(cause, 'Failed to read the GitHub remote.'))
       })
       .finally(() => {
         if (!cancelled) setSummaryLoading(false)
@@ -92,7 +92,7 @@ export function GitHubPanel({ repoPath, taskId = null }: GitHubPanelProps) {
         if (!cancelled) setData(result)
       })
       .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Failed to load GitHub data')
+        if (!cancelled) setError(githubPanelErrorMessage(cause, 'Failed to load GitHub data.'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

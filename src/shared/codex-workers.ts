@@ -44,6 +44,10 @@ export function codexWorkerIsActive(status: CodexWorkerStatus): boolean {
   return status === 'pendingInit' || status === 'running'
 }
 
+export function countActiveCodexWorkers(workers: ReadonlyArray<CodexWorker> | undefined): number {
+  return workers?.filter((worker) => codexWorkerIsActive(worker.status)).length ?? 0
+}
+
 export function mergeCodexWorker(current: CodexWorker | undefined, incoming: CodexWorker): CodexWorker {
   if (!current) return incoming
   const useIncomingLifecycle = incoming.updatedAt >= current.updatedAt

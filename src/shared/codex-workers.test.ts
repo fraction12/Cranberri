@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countActiveCodexWorkers,
   mergeCodexWorker,
   workersFromSessionThread,
   workersFromThreadItem,
 } from './codex-workers'
 
 describe('Codex worker normalization', () => {
+  it('counts only workers whose lifecycle is active', () => {
+    expect(countActiveCodexWorkers([
+      { threadId: 'pending', parentThreadId: 'parent', status: 'pendingInit', updatedAt: 1 },
+      { threadId: 'running', parentThreadId: 'parent', status: 'running', updatedAt: 2 },
+      { threadId: 'completed', parentThreadId: 'parent', status: 'completed', updatedAt: 3 },
+      { threadId: 'idle', parentThreadId: 'parent', status: 'idle', updatedAt: 4 },
+    ])).toBe(2)
+    expect(countActiveCodexWorkers(undefined)).toBe(0)
+  })
+
   it('turns a spawn tool call into a pending worker with its launch metadata', () => {
     expect(workersFromThreadItem('parent-1', {
       id: 'spawn-1',
