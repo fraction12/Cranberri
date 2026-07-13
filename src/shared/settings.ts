@@ -27,6 +27,8 @@ export type ToolCurationSettings = ToolCatalogPreferences
 
 export interface AppSettings {
   codex: {
+    runtimeMode: 'automatic' | 'custom'
+    executablePath?: string
     defaultModel: string
     defaultEffort: CodexReasoningEffort
     defaultSpeed?: CodexSpeed
@@ -55,10 +57,11 @@ export interface AppSettings {
   worktrees: { root: string; retentionDays: number; cap: number }
 }
 
-export const APP_SETTINGS_VERSION = 5
+export const APP_SETTINGS_VERSION = 6
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   codex: {
+    runtimeMode: 'automatic',
     defaultModel: 'gpt-5.5',
     defaultEffort: 'high',
     defaultApprovalMode: 'custom',

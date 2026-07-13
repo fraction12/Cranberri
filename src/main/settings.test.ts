@@ -46,6 +46,17 @@ afterEach(() => {
 })
 
 describe('Codex settings persistence', () => {
+  it('migrates automatic runtime selection and persists a custom executable', () => {
+    expect(readSettings().codex).toMatchObject({ runtimeMode: 'automatic' })
+
+    writeSettings(settings({ runtimeMode: 'custom', executablePath: '/Users/example/.local/bin/codex' }))
+
+    expect(readSettings().codex).toMatchObject({
+      runtimeMode: 'custom',
+      executablePath: '/Users/example/.local/bin/codex',
+    })
+  })
+
   it('persists supported GPT-5.6 Ultra defaults', () => {
     writeSettings(settings({ defaultModel: 'gpt-5.6-sol', defaultEffort: 'ultra', defaultSpeed: 'fast' }))
 
@@ -254,7 +265,7 @@ describe('Tool curation settings persistence', () => {
 
     expect(readSettings().tools).toEqual(tools)
     const persisted = JSON.parse(fs.readFileSync(path.join(electron.userDataPath, 'settings.json'), 'utf8'))
-    expect(persisted).toMatchObject({ version: 5, data: { tools } })
+    expect(persisted).toMatchObject({ version: 6, data: { tools } })
   })
 
   it('drops malformed tool IDs without discarding valid persisted choices', () => {

@@ -20,9 +20,9 @@ const SELECT_CLASS = 'w-56 max-w-[45vw]'
 
 function connectionActionLabel(status: CodexConnectionStatus | null, busy: boolean): string {
   if (busy) return status?.updateRequired ? 'Updating...' : 'Connecting...'
-  if (status?.updateRequired) return 'Update Codex'
+  if (status?.updateRequired) return 'Codex needs update'
   if (status?.authenticated) return 'Connected'
-  if (status?.installed === false) return 'Install Codex'
+  if (status?.installed === false) return 'Codex not found'
   return 'Connect'
 }
 
@@ -30,6 +30,7 @@ export function GeneralSettings() {
   const { settings, updateSection } = useSettings()
   const [status, setStatus] = useState<CodexConnectionStatus | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [changingRuntime, setChangingRuntime] = useState(false)
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const efforts = getCodexEffortsForModel(settings.codex.defaultModel)
   const speeds = getCodexSpeedsForModel(settings.codex.defaultModel)
@@ -49,7 +50,7 @@ export function GeneralSettings() {
     try {
       const next = await window.cranberri.codex.connect()
       setStatus(next)
-      toast.success(next.updateRequired ? 'Codex updated' : 'Codex connected')
+      toast.success('Codex connected')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not connect Codex'
       setConnectionError(message)
@@ -60,12 +61,55 @@ export function GeneralSettings() {
     }
   }
 
-  const saveDefaults = async (values: Partial<typeof settings.codex>) => {
+  const saveDefaults = async (values: Partial<typeof settings.codex>): Promise<boolean> => {
     try {
       await updateSection('codex', values)
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save Codex defaults')
+      return false
     }
+  }
+
+  const applyRuntime = async (runtimeMode: 'automatic' | 'custom', executablePath?: string) => {
+    setChangingRuntime(true)
+    setConnectionError(null)
+    const previous = {
+      runtimeMode: settings.codex.runtimeMode,
+      executablePath: settings.codex.executablePath,
+    }
+    let saved = false
+    try {
+      saved = await saveDefaults({ runtimeMode, executablePath })
+      if (!saved) return
+      const next = await window.cranberri.codex.reloadRuntime()
+      setStatus(next)
+      if (!next.installed) throw new Error(next.detail)
+      toast.success(runtimeMode === 'automatic' ? 'Using shell Codex' : 'Codex executable selected')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not change Codex executable'
+      if (saved) {
+        const settingsRestored = await saveDefaults(previous)
+        if (settingsRestored) {
+          const restored = await window.cranberri.codex.reloadRuntime().catch(() => null)
+          if (restored) setStatus(restored)
+        }
+      }
+      setConnectionError(message)
+      toast.error(message)
+    } finally {
+      setChangingRuntime(false)
+    }
+  }
+
+  const chooseRuntime = async () => {
+    const result = await window.cranberri.codex.pickRuntime()
+    if (result.path) await applyRuntime('custom', result.path)
+  }
+
+  const changeRuntime = (value: string) => {
+    if (value === 'automatic') void applyRuntime('automatic')
+    else if (value === 'choose') void chooseRuntime()
   }
 
   const connectionDetail = connectionError
@@ -76,6 +120,24 @@ export function GeneralSettings() {
     <SettingsPage title="General" description="Defaults for new Codex tasks.">
       <SettingsSection title="Codex">
         <SettingsList>
+          <SettingsRow
+            label="Executable"
+            description={settings.codex.runtimeMode === 'custom'
+              ? settings.codex.executablePath ?? 'Choose a Codex executable.'
+              : status?.cliPath ?? 'Selected from your interactive login shell.'}
+          >
+            <SelectControl
+              aria-label="Codex executable"
+              value={settings.codex.runtimeMode}
+              disabled={changingRuntime}
+              onChange={(event) => changeRuntime(event.target.value)}
+              className={SELECT_CLASS}
+            >
+              <option value="automatic">Automatic</option>
+              {settings.codex.runtimeMode === 'custom' && <option value="custom">Selected executable</option>}
+              <option value="choose">Choose another...</option>
+            </SelectControl>
+          </SettingsRow>
           <SettingsRow label="Connection" description={connectionDetail}>
             {status?.authenticated && !status.updateRequired ? (
               <span className={cn('inline-flex items-center gap-1.5', typeStyle({ role: 'status', tone: 'success' }))}>

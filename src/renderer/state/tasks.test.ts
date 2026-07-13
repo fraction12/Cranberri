@@ -4,6 +4,7 @@ import type { Task } from '@/shared/tasks'
 import {
   reduceTaskAuthorityRevision,
   reduceTaskCatalogSnapshot,
+  projectCatalogIdentity,
   provisionAndSendFirstTurn,
   selectableRootTasks,
   taskExecutionContext,
@@ -25,6 +26,17 @@ describe('task authority reducers', () => {
 
     expect(reduceTaskCatalogSnapshot(current, stale)).toBe(current)
     expect(reduceTaskCatalogSnapshot(current, sameRevision)).toBe(sameRevision)
+  })
+
+  it('changes project catalog identity when a repository is registered after startup', () => {
+    const registered = [{
+      id: 'project',
+      localCheckoutId: 'local-project',
+      gitCommonDir: '/repo/.git',
+    }]
+
+    expect(projectCatalogIdentity([])).not.toBe(projectCatalogIdentity(registered))
+    expect(projectCatalogIdentity([...registered])).toBe(projectCatalogIdentity(registered))
   })
 })
 

@@ -14,7 +14,7 @@ import {
   buildCodexWorkerControlInput,
   type CodexWorkerControlAction,
 } from '../../shared/codex-worker-control'
-import { makeCodexEnv } from './env'
+import { resolveCodexRuntime } from './env'
 import { buildCodexTurnOverrides } from './turn-settings'
 import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
 
@@ -314,10 +314,12 @@ export class CodexClient extends EventEmitter {
   }
 
   private async startProcess(): Promise<void> {
-    this.process = spawn('codex', ['app-server', '--stdio'], {
+    const runtime = await resolveCodexRuntime()
+    let startupStderr = ''
+    this.process = spawn(runtime.executable, ['app-server', '--stdio'], {
       cwd: this.processCwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: await makeCodexEnv({ FORCE_COLOR: '0', NO_COLOR: '1' }),
+      env: { ...runtime.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     })
 
     return new Promise<void>((resolve, reject) => {
@@ -339,12 +341,16 @@ export class CodexClient extends EventEmitter {
       this.process?.stdout?.on('data', (data: Buffer) => this.onData(data))
       this.process?.stderr?.on('data', (data: Buffer) => {
         const text = data.toString('utf8').trim()
+        startupStderr = `${startupStderr}\n${text}`.trim().slice(-4096)
         if (text) this.emit('event', { type: 'log', level: 'stderr', text } as CodexEvent)
       })
 
       this.process?.on('exit', (code) => {
-        this.emitRunEnd('', `Codex app-server exited with code ${code ?? 'unknown'}`)
-        const error = new Error(`Codex app-server exited with code ${code ?? 'unknown'}`)
+        const identity = `${runtime.executable}${runtime.version ? ` (${runtime.version})` : ''}`
+        const detail = startupStderr ? `: ${startupStderr}` : ''
+        const message = `Codex app-server ${identity} exited with code ${code ?? 'unknown'}${detail}`
+        this.emitRunEnd('', message)
+        const error = new Error(message)
         for (const request of this.pending.values()) {
           clearTimeout(request.timer)
           request.reject(error)

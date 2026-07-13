@@ -205,6 +205,7 @@ export type CodexUserInput =
 export interface CodexConnectionStatus {
   installed: boolean
   authenticated: boolean
+  runtimeSource?: 'automatic' | 'custom'
   cliPath?: string
   version?: string
   minimumVersion?: string

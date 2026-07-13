@@ -540,6 +540,8 @@ async function submitGoToLine(page, action, value) {
 async function runFreshStartupSmoke() {
   smokeStep('fresh startup')
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-fresh-'))
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-smoke-fresh-repo-'))
+  const repoPath = fs.realpathSync(createFixtureRepo(fixtureRoot, 'cranberri-fresh-repo', false))
   const pendingUpdateResultPath = path.join(userDataDir, 'updater-result.json')
   fs.writeFileSync(pendingUpdateResultPath, JSON.stringify({
     success: true,
@@ -547,7 +549,7 @@ async function runFreshStartupSmoke() {
     message: 'Update installed successfully',
     logPath: null,
   }))
-  const electronApp = await launchApp(userDataDir)
+  const electronApp = await launchApp(userDataDir, { CRANBERRI_FAKE_REPO_DIRECTORY: repoPath })
 
   try {
     await smokePage(electronApp, async (page) => {
@@ -721,10 +723,19 @@ async function runFreshStartupSmoke() {
       await page.keyboard.press('Escape')
       await page.getByPlaceholder('Run command or switch repo...').waitFor({ state: 'detached', timeout: 10_000 })
       await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Open command palette')
+
+      smokeStep('fresh repo registration')
+      await page.getByRole('button', { name: 'Add repository' }).click()
+      await page.getByText(repoPath, { exact: true }).waitFor({ timeout: 10_000 })
+      await page.getByText('No changed files.', { exact: true }).waitFor({ timeout: 10_000 })
+      if (await page.getByText('Changes could not be loaded', { exact: true }).count()) {
+        throw new Error('Freshly registered repo left the right rail on a stale project catalog')
+      }
     })
   } finally {
     await closeElectronApp(electronApp)
     fs.rmSync(userDataDir, { recursive: true, force: true })
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
   }
 }
 

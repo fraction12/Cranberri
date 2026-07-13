@@ -26,6 +26,7 @@ import { toolCatalogIdSchema, toolCatalogPreferencesSchema, type ToolCatalogId }
 
 const codexReasoningEffortSchema = z.enum(CODEX_REASONING_EFFORT_VALUES)
 const codexApprovalModeSchema = z.enum(['ask', 'approve', 'full', 'custom'])
+const codexRuntimeModeSchema = z.enum(['automatic', 'custom'])
 const themeSchema = z.enum(APP_THEME_VALUES)
 const accentSchema = z.enum(APP_ACCENT_VALUES)
 const reducedMotionSchema = z.enum(APP_REDUCED_MOTION_VALUES)
@@ -42,6 +43,8 @@ const settingsSchema = z.object({
   version: z.number(),
   data: z.object({
     codex: z.object({
+      runtimeMode: codexRuntimeModeSchema,
+      executablePath: z.string().optional(),
       defaultModel: z.string(),
       defaultEffort: codexReasoningEffortSchema,
       defaultSpeed: codexSpeedSchema.optional(),
@@ -143,6 +146,12 @@ function migrateSettings(raw: Record<string, unknown>): AppSettings {
 
   const data: AppSettings = {
     codex: {
+      runtimeMode: codexRuntimeModeSchema.safeParse(codex.runtimeMode).success
+        ? (codex.runtimeMode as AppSettings['codex']['runtimeMode'])
+        : DEFAULT_APP_SETTINGS.codex.runtimeMode,
+      executablePath: typeof codex.executablePath === 'string' && codex.executablePath
+        ? codex.executablePath
+        : undefined,
       defaultModel: typeof codex.defaultModel === 'string' ? codex.defaultModel : DEFAULT_APP_SETTINGS.codex.defaultModel,
       defaultEffort: codexReasoningEffortSchema.safeParse(codex.defaultEffort).success ? (codex.defaultEffort as AppSettings['codex']['defaultEffort']) : DEFAULT_APP_SETTINGS.codex.defaultEffort,
       defaultSpeed: codexSpeedSchema.safeParse(codex.defaultSpeed).success ? (codex.defaultSpeed as AppSettings['codex']['defaultSpeed']) : DEFAULT_APP_SETTINGS.codex.defaultSpeed,
