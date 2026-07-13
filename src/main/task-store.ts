@@ -84,8 +84,8 @@ export type BeginLifecycleOperation =
   })
   | (BeginLifecycleOperationBase & {
     kind: 'restore'
-    artifactId: string
-    restoreReservation: RestoreReservation
+    artifactId: string | null
+    restoreReservation: RestoreReservation | null
   })
   | (BeginLifecycleOperationBase & {
     kind: 'delete'
@@ -274,6 +274,24 @@ export class TaskStore {
           receipts: [...operation.receipts, validatedReceipt],
           updatedAt: Math.max(operation.updatedAt, validatedReceipt.recordedAt),
         })
+        return result
+      }),
+    })).then(() => {
+      if (!result) throw new Error('Lifecycle operation not found')
+      return result
+    })
+  }
+
+  updateLifecycleOperation(
+    operationId: string,
+    updater: (operation: LifecycleOperation) => LifecycleOperation,
+  ): Promise<LifecycleOperation> {
+    let result!: LifecycleOperation
+    return this.update((state) => ({
+      ...state,
+      lifecycleOperations: state.lifecycleOperations.map((operation) => {
+        if (operation.id !== operationId) return operation
+        result = lifecycleOperationSchema.parse(updater(operation))
         return result
       }),
     })).then(() => {

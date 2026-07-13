@@ -98,6 +98,7 @@ export const lifecycleOperationReceiptSchema = z.object({
     headSha: z.string().min(1).optional(),
     digest: z.string().min(1).optional(),
     rpcRequestId: z.string().min(1).optional(),
+    threadId: z.string().min(1).optional(),
     artifactPath: z.string().min(1).optional(),
     artifactBytes: z.number().int().nonnegative().optional(),
     bundleIncluded: z.boolean().optional(),
@@ -217,6 +218,17 @@ export type LifecycleRpcOutcome = z.infer<typeof lifecycleRpcOutcomeSchema>
 export type RestoreReservation = z.infer<typeof restoreReservationSchema>
 export type LifecyclePurgeSelectors = z.infer<typeof lifecyclePurgeSelectorsSchema>
 export type LifecycleOperation = z.infer<typeof lifecycleOperationSchema>
+
+export const taskLifecycleWarningSchema = z.object({
+  kind: z.enum(['cleanupBlocked', 'restoreFallback', 'purgePending']),
+  message: z.string().min(1),
+}).strict()
+
+export type TaskLifecycleWarning = z.infer<typeof taskLifecycleWarningSchema>
+export interface TaskLifecycleResult {
+  task: Task
+  warning: TaskLifecycleWarning | null
+}
 
 export function firstTurnIdempotencyKey(input: readonly Record<string, unknown>[]): string | null {
   for (const item of input) {

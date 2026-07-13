@@ -16,6 +16,13 @@ import {
 } from '../../shared/codex-worker-control'
 import { resolveCodexRuntime } from './env'
 import { buildCodexTurnOverrides } from './turn-settings'
+import {
+  classifyThreadLifecycle,
+  isAuthoritativeMissingThreadError,
+  ThreadLifecycleDisagreementError,
+  type CodexThreadLifecycleGateway,
+  type ThreadLifecycleInspection,
+} from './thread-lifecycle'
 import { createMcpToolProgressEvent, createToolEventFromItem } from '../tools'
 
 interface JsonRpcRequest {
@@ -184,7 +191,7 @@ function getThreadApprovalSettings(mode: CodexTurnSettings['approvalMode']): { a
   }
 }
 
-export class CodexClient extends EventEmitter {
+export class CodexClient extends EventEmitter implements CodexThreadLifecycleGateway {
   private process: ChildProcess | null = null
   private nextId = 1
   private pending = new Map<number | string, { resolve: (res: JsonRpcResponse) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>()
@@ -598,6 +605,31 @@ export class CodexClient extends EventEmitter {
     return normalized
   }
 
+  async inspectThreadLifecycle(threadId: string): Promise<ThreadLifecycleInspection> {
+    let thread: SdkThread | undefined
+    try {
+      const res = await this.call('thread/read', { threadId, includeTurns: false })
+      if (res.error) throw new Error(res.error.message)
+      thread = (res.result as { thread?: SdkThread } | undefined)?.thread
+    } catch (error) {
+      if (isAuthoritativeMissingThreadError(error)) {
+        return { threadId, state: 'missing', cwd: null }
+      }
+      throw error
+    }
+
+    if (!thread?.id) throw new Error('thread/read did not return a thread')
+    if (thread.id !== threadId) {
+      throw new ThreadLifecycleDisagreementError(threadId, cwdToString(thread.cwd) ?? null, false, false)
+    }
+    const cwd = cwdToString(thread.cwd)
+    if (!cwd) throw new ThreadLifecycleDisagreementError(threadId, null, false, false)
+
+    const listedActive = await this.isThreadListedForCwd(threadId, cwd, false)
+    const listedArchived = await this.isThreadListedForCwd(threadId, cwd, true)
+    return classifyThreadLifecycle(threadId, cwd, listedActive, listedArchived)
+  }
+
   async resumeThread(threadId: string, cwdOrRuntime?: string | CodexRuntimeContext, settings?: CodexTurnSettings): Promise<CodexSessionThread> {
     const runtime = typeof cwdOrRuntime === 'string'
       ? { cwd: cwdOrRuntime }
@@ -636,6 +668,32 @@ export class CodexClient extends EventEmitter {
 
   async setThreadName(threadId: string, name: string): Promise<void> {
     await this.call('thread/name/set', { threadId, name })
+  }
+
+  private async isThreadListedForCwd(threadId: string, cwd: string, archived: boolean): Promise<boolean> {
+    let cursor: string | null = null
+    let found = false
+    const visitedCursors = new Set<string | null>()
+    do {
+      if (visitedCursors.has(cursor)) {
+        throw new Error(`Codex thread/list repeated cursor while inspecting ${threadId}`)
+      }
+      visitedCursors.add(cursor)
+      const res = await this.call('thread/list', {
+        cwd,
+        archived,
+        cursor,
+        limit: 100,
+        sortKey: 'created_at',
+        sortDirection: 'asc',
+      })
+      if (res.error) throw new Error(res.error.message)
+      const result = res.result as { data?: SdkThread[]; nextCursor?: string | null } | undefined
+      if (!result || !Array.isArray(result.data)) throw new Error('thread/list did not return thread data')
+      found ||= result.data.some((candidate) => candidate.id === threadId)
+      cursor = result.nextCursor ?? null
+    } while (cursor)
+    return found
   }
 
   private async listDescendantThreads(ancestorThreadId: string): Promise<SdkThread[]> {

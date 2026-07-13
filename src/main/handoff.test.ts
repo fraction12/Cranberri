@@ -7,6 +7,7 @@ import type { ProjectRegistry } from '../shared/projects'
 import { HandoffCoordinator, type HandoffCodex } from './handoff'
 import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
+import { WorktreeSnapshotStore } from './worktree-snapshot-store'
 import { WorktreeLifecycle } from './worktree-lifecycle'
 import { applyLocalChanges, captureLocalChanges, clearTransferredChanges } from './git-worktrees'
 
@@ -326,14 +327,22 @@ describe('journaled handoff', () => {
   it('restores a safely removed archive from its private ref and exact environment revision', async () => {
     const f = fixture()
     await activeTask(f, 'revision-1')
-    const tasks = new TaskCoordinator(f.store, f.lifecycle, { archiveThread: async () => undefined, unarchiveThread: async () => ({}) })
+    const revisions: string[] = []
+    const tasks = new TaskCoordinator(f.store, f.lifecycle, {
+      codex: {
+        inspectThreadLifecycle: async (threadId) => ({ threadId, state: 'active', cwd: f.repo }),
+        archiveThread: async () => undefined, unarchiveThread: async () => ({}), deleteThread: async () => undefined,
+      },
+      activity: { assertIdle: async () => undefined },
+      snapshots: new WorktreeSnapshotStore(path.join(f.root, 'snapshots')),
+      repositoryPath: () => f.repo,
+      restoreEnvironment: async (_task, _worktree, revision) => { revisions.push(revision) },
+    })
     await tasks.archive('task')
     const record = f.store.read().managedWorktrees[0]
-    await f.lifecycle.archiveAndRemove(record.id, { retentionDays: 0, now: Date.now() + 1 })
     expect(fs.existsSync(record.path)).toBe(false)
-    const revisions: string[] = []
-    const restored = await tasks.unarchive('task', f.repo, async (_worktree, revision) => { revisions.push(revision) })
-    expect(restored.state).toBe('active')
+    const restored = await tasks.unarchive('task')
+    expect(restored.task.state).toBe('active')
     expect(fs.existsSync(record.path)).toBe(true)
     expect(revisions).toEqual(['revision-1'])
     expect(git(f.repo, 'rev-parse', 'refs/cranberri/tasks/task')).toBe(record.baseSha)

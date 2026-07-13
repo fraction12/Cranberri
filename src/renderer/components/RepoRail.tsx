@@ -263,10 +263,11 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       setRecent((prev) => prev.filter((item) => item.id !== session.id))
       setArchived((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
-      await archiveSession(session.id, repoPath)
+      const warning = await archiveSession(session.id, repoPath)
       closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
       await tasksApi?.refresh()
-      toast.success('Session archived')
+      if (warning) toast.warning(warning)
+      else toast.success('Session archived')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to archive session')
       await refresh().catch(() => undefined)
@@ -280,14 +281,17 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
       setArchived((prev) => prev.filter((item) => item.id !== session.id))
       setRecent((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
+      let warning: string | null = null
       if (task) {
-        await window.cranberri.tasks.unarchive(task.id)
+        const result = await window.cranberri.tasks.unarchive(task.id)
         await tasksApi?.refresh()
         invalidateSessions({ projectId, repoPath, threadId: session.id })
+        warning = result.warning?.message ?? null
       } else {
-        await unarchiveSession(session.id, repoPath)
+        warning = await unarchiveSession(session.id, repoPath)
       }
-      toast.success('Session restored')
+      if (warning) toast.warning(warning)
+      else toast.success('Session restored')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to restore session')
       await refresh().catch(() => undefined)

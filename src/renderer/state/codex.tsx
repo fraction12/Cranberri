@@ -60,8 +60,8 @@ interface CodexActionsApi {
   restoreSessionWindow: (windowId: string, threadId: string) => Promise<CodexThread>
   bindTaskWindow: (windowId: string, task: Task, initialContent?: string) => Promise<CodexThread>
   markThreadSendFailed: (threadId: string, error: unknown) => void
-  archiveSession: (threadId: string, repoPath?: string) => Promise<void>
-  unarchiveSession: (threadId: string, repoPath?: string) => Promise<void>
+  archiveSession: (threadId: string, repoPath?: string) => Promise<string | null>
+  unarchiveSession: (threadId: string, repoPath?: string) => Promise<string | null>
   deleteSession: (threadId: string, repoPath?: string) => Promise<void>
   renameSession: (threadId: string, name: string, repoPath?: string) => Promise<void>
 }
@@ -789,36 +789,41 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
     markSendFailed(threadId, error)
   }, [markSendFailed])
 
-  const archiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
+  const lifecycleTask = useCallback(async (threadId: string, repoPath: string, archived: boolean): Promise<Task> => {
+    const snapshot = await window.cranberri.tasks.snapshot()
+    const existing = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
+    if (existing) return existing
+    const repo = repos.find((candidate) => candidate.path === repoPath)
+    if (!repo) throw new Error('Session repository is not registered')
+    return (await window.cranberri.tasks.adoptLocalThread({ projectId: repo.id, threadId, archived })).task
+  }, [repos])
+
+  const archiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<string | null> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    const snapshot = await window.cranberri.tasks.snapshot()
-    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
-    if (task) await window.cranberri.tasks.archive(task.id)
-    else await window.cranberri.codex.archiveThread(targetRepoPath, threadId)
+    const task = await lifecycleTask(threadId, targetRepoPath, false)
+    const result = await window.cranberri.tasks.archive(task.id)
     clearToolActivityEvents(threadId)
     invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
-  }, [activeRepo])
+    return result.warning?.message ?? null
+  }, [activeRepo, lifecycleTask])
 
-  const unarchiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
+  const unarchiveSession = useCallback(async (threadId: string, repoPath?: string): Promise<string | null> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    const snapshot = await window.cranberri.tasks.snapshot()
-    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
-    if (task) await window.cranberri.tasks.unarchive(task.id)
-    else await window.cranberri.codex.unarchiveThread(targetRepoPath, threadId)
+    const task = await lifecycleTask(threadId, targetRepoPath, true)
+    const result = await window.cranberri.tasks.unarchive(task.id)
     invalidateSessions({ repoPath: targetRepoPath, threadId })
-  }, [activeRepo])
+    return result.warning?.message ?? null
+  }, [activeRepo, lifecycleTask])
 
   const deleteSession = useCallback(async (threadId: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path
     if (!targetRepoPath) throw new Error('No repo selected')
-    const snapshot = await window.cranberri.tasks.snapshot()
-    const task = snapshot.tasks.find((candidate) => candidate.threadId === threadId)
-    if (task) await window.cranberri.tasks.delete(task.id)
-    else await window.cranberri.codex.deleteThread(targetRepoPath, threadId)
+    const task = await lifecycleTask(threadId, targetRepoPath, true)
+    await window.cranberri.tasks.delete(task.id)
     clearToolActivityEvents(threadId)
     invalidateSessions({ repoPath: targetRepoPath, threadId })
     setThreads((prev) => prev.filter((thread) => thread.id !== threadId))
@@ -828,7 +833,7 @@ export function CodexProvider({ children }: { children: React.ReactNode }) {
       return rest
     })
     setWindowToThread((prev) => Object.fromEntries(Object.entries(prev).filter(([, id]) => id !== threadId)))
-  }, [activeRepo])
+  }, [activeRepo, lifecycleTask])
 
   const renameSession = useCallback(async (threadId: string, name: string, repoPath?: string): Promise<void> => {
     const targetRepoPath = repoPath ?? activeRepo?.path

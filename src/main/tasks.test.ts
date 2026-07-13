@@ -6,14 +6,15 @@ import type { ProjectRegistry } from '../shared/projects'
 import { TaskStore } from './task-store'
 import { assertTaskRunnable, TaskCoordinator } from './tasks'
 import type { WorktreeLifecycle } from './worktree-lifecycle'
+import { WorktreeSnapshotStore } from './worktree-snapshot-store'
 
 const roots: string[] = []
 
-function fixture(): { store: TaskStore; coordinator: TaskCoordinator } {
+function fixture(): { root: string; store: TaskStore; coordinator: TaskCoordinator } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cranberri-tasks-'))
   roots.push(root)
   const store = new TaskStore(path.join(root, 'tasks.json'))
-  return { store, coordinator: new TaskCoordinator(store) }
+  return { root, store, coordinator: new TaskCoordinator(store) }
 }
 
 const registry: ProjectRegistry = {
@@ -229,17 +230,122 @@ describe('TaskCoordinator', () => {
   })
 
   it('deletes a Local task and its Codex thread together', async () => {
-    const { store, coordinator } = fixture()
+    const { root, store } = fixture()
+    const archiveThread = vi.fn(async () => undefined)
+    const deleteThread = vi.fn(async () => undefined)
+    const coordinator = new TaskCoordinator(store, undefined, {
+      codex: {
+        inspectThreadLifecycle: async (threadId) => ({ threadId, state: 'active', cwd: '/repo' }),
+        archiveThread, unarchiveThread: async () => ({}), deleteThread,
+      },
+      activity: { assertIdle: async () => undefined },
+      snapshots: new WorktreeSnapshotStore(path.join(root, 'snapshots')),
+      repositoryPath: () => '/repo',
+      restoreEnvironment: async () => undefined,
+    })
     const task = await coordinator.createLocalTask({
       projectId: 'project', title: 'Local', localCheckoutId: 'local',
       baseRef: 'refs/heads/main', input: [], threadId: 'thread',
     })
-    const deleteThread = vi.fn(async () => undefined)
 
-    await coordinator.delete(task.id, deleteThread)
+    await coordinator.archive(task.id)
+    await coordinator.delete(task.id)
 
+    expect(archiveThread).toHaveBeenCalledWith('thread')
     expect(deleteThread).toHaveBeenCalledWith('thread')
     expect(store.read().tasks).toEqual([])
+  })
+
+  it('keeps an active task untouched when Codex archive is not observed', async () => {
+    const { root, store } = fixture()
+    const archiveThread = vi.fn(async () => {
+      const state = store.read()
+      expect(state.tasks[0]?.state).toBe('local')
+      expect(state.lifecycleOperations[0]).toMatchObject({
+        kind: 'archive', phase: 'threadArchiveRequested', rpc: { status: 'requested' },
+      })
+      throw new Error('connection lost')
+    })
+    const coordinator = new TaskCoordinator(store, undefined, {
+      codex: {
+        inspectThreadLifecycle: async (threadId) => ({ threadId, state: 'active', cwd: '/repo' }),
+        archiveThread, unarchiveThread: async () => ({}), deleteThread: async () => undefined,
+      },
+      activity: { assertIdle: async () => undefined },
+      snapshots: new WorktreeSnapshotStore(path.join(root, 'snapshots')),
+      repositoryPath: () => '/repo',
+      restoreEnvironment: async () => undefined,
+    })
+    const task = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+
+    await expect(coordinator.archive(task.id)).rejects.toThrow('connection lost')
+
+    expect(coordinator.get(task.id)).toMatchObject({ state: 'local', archivedAt: null })
+    expect(store.read().lifecycleOperations[0]).toMatchObject({
+      status: 'needsAttention', phase: 'needsAttention', rpc: { status: 'unknown' },
+      lastError: { code: 'CODEX_RPC_UNKNOWN' },
+    })
+  })
+
+  it('archives the conversation but preserves the source when snapshot cleanup is blocked', async () => {
+    const { root, store } = fixture()
+    const local = await new TaskCoordinator(store).createLocalTask({
+      projectId: 'project', title: 'Managed', localCheckoutId: 'managed-checkout',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+    await store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((task) => ({
+        ...task, location: 'worktree' as const, state: 'active' as const, worktreeId: 'worktree',
+      })),
+      managedWorktrees: [{
+        id: 'worktree', projectId: 'project', checkoutId: 'managed-checkout', taskId: local.id,
+        path: '/managed/task', recordedRoot: '/managed', gitCommonDir: '/repo/.git',
+        manifestPath: '/managed/.cranberri/manifests/worktree.json', baseRef: 'refs/heads/main',
+        baseSha: 'a'.repeat(40), branch: null, headSha: 'a'.repeat(40), archiveHeadSha: null,
+        privateRef: null, snapshot: null, lifecycle: 'active', cleanupReason: null,
+        createdAt: 1, updatedAt: 1, archivedAt: null,
+      }],
+    }))
+    const prepareArchive = vi.fn(async () => { throw new Error('unsupported symlink') })
+    const removePreparedArchive = vi.fn()
+    const lifecycle = { prepareArchive, removePreparedArchive } as unknown as WorktreeLifecycle
+    const archiveThread = vi.fn(async () => undefined)
+    const coordinator = new TaskCoordinator(store, lifecycle, {
+      codex: {
+        inspectThreadLifecycle: async (threadId) => ({ threadId, state: 'active', cwd: '/repo' }),
+        archiveThread, unarchiveThread: async () => ({}), deleteThread: async () => undefined,
+      },
+      activity: { assertIdle: async () => undefined },
+      snapshots: new WorktreeSnapshotStore(path.join(root, 'snapshots')),
+      repositoryPath: () => '/repo',
+      restoreEnvironment: async () => undefined,
+    })
+
+    const result = await coordinator.archive(local.id)
+
+    expect(archiveThread).toHaveBeenCalledWith('thread')
+    expect(removePreparedArchive).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      task: { state: 'cleanupBlocked', archivedAt: expect.any(Number) },
+      warning: { kind: 'cleanupBlocked', message: 'unsupported symlink' },
+    })
+    expect(store.read().managedWorktrees[0]).toMatchObject({
+      lifecycle: 'cleanupBlocked', path: '/managed/task', snapshot: null,
+    })
+  })
+
+  it('requires archive before permanent deletion', async () => {
+    const { coordinator } = fixture()
+    const task = await coordinator.createLocalTask({
+      projectId: 'project', title: 'Local', localCheckoutId: 'local',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+
+    await expect(coordinator.delete(task.id)).rejects.toThrow(/archive.*before deleting/i)
   })
 
   it('retains the Local lease until a handed-off task returns to its worktree', async () => {
@@ -259,7 +365,7 @@ describe('TaskCoordinator', () => {
     const deleteThread = vi.fn(async () => undefined)
 
     await expect(coordinator.archive(task.id)).rejects.toThrow(/return.*worktree/i)
-    await expect(coordinator.delete(task.id, deleteThread)).rejects.toThrow(/return.*worktree/i)
+    await expect(coordinator.delete(task.id)).rejects.toThrow(/return.*worktree/i)
 
     expect(store.read()).toEqual(before)
     expect(deleteThread).not.toHaveBeenCalled()

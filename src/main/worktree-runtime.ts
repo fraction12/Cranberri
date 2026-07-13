@@ -5,6 +5,7 @@ import { EnvironmentStore } from './environments/store'
 import { TaskStore } from './task-store'
 import { TaskCoordinator } from './tasks'
 import { WorktreeLifecycle } from './worktree-lifecycle'
+import { WorktreeSnapshotStore } from './worktree-snapshot-store'
 import {
   authoritativeThreadCheck,
   configureStartupRecoveryRuntime,
@@ -24,7 +25,55 @@ export const environmentRunner = new EnvironmentRunner({
   worktrees: worktreeLifecycle,
   environmentStore,
 })
-export const taskCoordinator = new TaskCoordinator(taskStore, worktreeLifecycle)
+export const worktreeSnapshotStore = new WorktreeSnapshotStore(path.join(os.homedir(), '.cranberri', 'worktree-snapshots'))
+export const taskCoordinator = new TaskCoordinator(taskStore, worktreeLifecycle, {
+  snapshots: worktreeSnapshotStore,
+  codex: {
+    inspectThreadLifecycle: async (threadId) => {
+      const client = await (await import('./codex/ipc')).getCodexClient()
+      return client.inspectThreadLifecycle(threadId)
+    },
+    archiveThread: async (threadId) => {
+      const client = await (await import('./codex/ipc')).getCodexClient()
+      return client.archiveThread(threadId)
+    },
+    unarchiveThread: async (threadId) => {
+      const client = await (await import('./codex/ipc')).getCodexClient()
+      return client.unarchiveThread(threadId)
+    },
+    deleteThread: async (threadId) => {
+      const client = await (await import('./codex/ipc')).getCodexClient()
+      return client.deleteThread(threadId)
+    },
+  },
+  activity: {
+    assertIdle: async (task) => {
+      const environmentJob = environmentRunner.latestForTask(task.id)
+      if (environmentJob?.status === 'running') {
+        throw new Error('Wait for environment setup to finish before changing this session')
+      }
+      if (!task.threadId) return
+      const client = await (await import('./codex/ipc')).getCodexClient()
+      if (client.isThreadRunning(task.threadId) || client.hasActiveWorkers(task.threadId)) {
+        throw new Error('Wait for Codex and its workers to finish before changing this session')
+      }
+    },
+  },
+  repositoryPath: (projectId) => {
+    const registry = readProjectRegistry()
+    const project = registry.projects.find((candidate) => candidate.id === projectId)
+    const checkout = project
+      ? registry.checkouts.find((candidate) => candidate.id === project.localCheckoutId && candidate.available)
+      : null
+    if (!checkout) throw new Error('Project Local checkout is unavailable')
+    return checkout.canonicalPath
+  },
+  restoreEnvironment: async (task, _worktree, revision) => {
+    const job = await environmentRunner.startSetup({ taskId: task.id })
+    const result = await environmentRunner.wait(job.id)
+    if (result.status !== 'succeeded') throw new Error(`Environment setup ${result.status} for revision ${revision}`)
+  },
+})
 
 export async function checkStartupThread(threadId: string): Promise<ThreadCheck> {
   return authoritativeThreadCheck(async (persistedThreadId) => {

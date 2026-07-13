@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CODEX_INITIALIZE_PARAMS, CodexClient, normalizeThreadList } from './client'
+import { FakeCodexClient } from './fakeClient'
+import { ThreadLifecycleDisagreementError } from './thread-lifecycle'
 
 describe('CodexClient app-server handshake', () => {
   it('enables the experimental descendant API and completes initialization', async () => {
@@ -14,6 +16,120 @@ describe('CodexClient app-server handshake', () => {
     expect(call).toHaveBeenCalledWith('initialize', CODEX_INITIALIZE_PARAMS)
     expect(notify).toHaveBeenCalledWith('initialized')
     expect(CODEX_INITIALIZE_PARAMS.capabilities).toEqual({ experimentalApi: true, requestAttestation: false })
+  })
+})
+
+describe('CodexClient authoritative thread lifecycle inspection', () => {
+  it('reads first and fully paginates active and archived lists before classifying an active thread', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/read') {
+        return {
+          jsonrpc: '2.0' as const,
+          id: 1,
+          result: { thread: { id: 'thread-1', cwd: '/tmp/project' } },
+        }
+      }
+      if (method !== 'thread/list') throw new Error(`Unexpected method ${method}`)
+      if (params.archived === false && params.cursor === null) {
+        return { jsonrpc: '2.0' as const, id: 2, result: { data: [{ id: 'other-active' }], nextCursor: 'active-2' } }
+      }
+      if (params.archived === false) {
+        return { jsonrpc: '2.0' as const, id: 3, result: { data: [{ id: 'thread-1' }], nextCursor: null } }
+      }
+      if (params.cursor === null) {
+        return { jsonrpc: '2.0' as const, id: 4, result: { data: [{ id: 'other-archived' }], nextCursor: 'archived-2' } }
+      }
+      return { jsonrpc: '2.0' as const, id: 5, result: { data: [], nextCursor: null } }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await expect(client.inspectThreadLifecycle('thread-1')).resolves.toEqual({
+      threadId: 'thread-1',
+      state: 'active',
+      cwd: '/tmp/project',
+    })
+    expect(call.mock.calls).toEqual([
+      ['thread/read', { threadId: 'thread-1', includeTurns: false }],
+      ['thread/list', expect.objectContaining({ cwd: '/tmp/project', archived: false, cursor: null })],
+      ['thread/list', expect.objectContaining({ cwd: '/tmp/project', archived: false, cursor: 'active-2' })],
+      ['thread/list', expect.objectContaining({ cwd: '/tmp/project', archived: true, cursor: null })],
+      ['thread/list', expect.objectContaining({ cwd: '/tmp/project', archived: true, cursor: 'archived-2' })],
+    ])
+  })
+
+  it('classifies a read thread found only in the fully paginated archived list', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === 'thread/read') {
+        return { jsonrpc: '2.0' as const, id: 1, result: { thread: { id: 'thread-1', cwd: { path: '/tmp/project' } } } }
+      }
+      if (params.archived === false) {
+        return { jsonrpc: '2.0' as const, id: 2, result: { data: [], nextCursor: null } }
+      }
+      if (params.cursor === null) {
+        return { jsonrpc: '2.0' as const, id: 3, result: { data: [{ id: 'other-archived' }], nextCursor: 'archived-2' } }
+      }
+      return { jsonrpc: '2.0' as const, id: 4, result: { data: [{ id: 'thread-1' }], nextCursor: null } }
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await expect(client.inspectThreadLifecycle('thread-1')).resolves.toEqual({
+      threadId: 'thread-1',
+      state: 'archived',
+      cwd: '/tmp/project',
+    })
+    expect(call).toHaveBeenCalledWith('thread/list', expect.objectContaining({
+      cwd: '/tmp/project',
+      archived: true,
+      cursor: 'archived-2',
+    }))
+  })
+
+  it.each(['thread not found', 'thread not loaded'])('normalizes authoritative "%s" read errors as missing', async (message) => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async () => {
+      throw new Error(`${message}: thread-1`)
+    })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await expect(client.inspectThreadLifecycle('thread-1')).resolves.toEqual({
+      threadId: 'thread-1',
+      state: 'missing',
+      cwd: null,
+    })
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a successful read that appears in neither lifecycle list', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => method === 'thread/read'
+      ? { jsonrpc: '2.0' as const, id: 1, result: { thread: { id: 'thread-1', cwd: '/tmp/project' } } }
+      : { jsonrpc: '2.0' as const, id: 2, result: { data: [], nextCursor: null } })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await expect(client.inspectThreadLifecycle('thread-1')).rejects.toBeInstanceOf(ThreadLifecycleDisagreementError)
+  })
+
+  it('rejects a successful read that appears in both lifecycle lists', async () => {
+    const client = new CodexClient('/tmp/cranberri-client-test')
+    const call = vi.fn(async (method: string) => method === 'thread/read'
+      ? { jsonrpc: '2.0' as const, id: 1, result: { thread: { id: 'thread-1', cwd: '/tmp/project' } } }
+      : { jsonrpc: '2.0' as const, id: 2, result: { data: [{ id: 'thread-1' }], nextCursor: null } })
+    Object.defineProperty(client, 'call', { value: call })
+
+    await expect(client.inspectThreadLifecycle('thread-1')).rejects.toBeInstanceOf(ThreadLifecycleDisagreementError)
+  })
+
+  it('keeps the fake lifecycle gateway behavior aligned with the real client contract', async () => {
+    const client = new FakeCodexClient('/tmp/project')
+    const thread = await client.createThread()
+
+    await expect(client.inspectThreadLifecycle(thread.id)).resolves.toMatchObject({ state: 'active', cwd: '/tmp/project' })
+    await client.archiveThread(thread.id)
+    await expect(client.inspectThreadLifecycle(thread.id)).resolves.toMatchObject({ state: 'archived', cwd: '/tmp/project' })
+    await client.deleteThread(thread.id)
+    await expect(client.inspectThreadLifecycle(thread.id)).resolves.toEqual({ threadId: thread.id, state: 'missing', cwd: null })
   })
 })
 

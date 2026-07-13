@@ -16,6 +16,7 @@ import type { ToolEventRecord } from '../../shared/tools'
 import type { CodexWorkerControlAction } from '../../shared/codex-worker-control'
 import { createToolEventFromItem } from '../tools'
 import { codexItemText } from '../../shared/codex-turn-activity'
+import type { CodexThreadLifecycleGateway, ThreadLifecycleInspection } from './thread-lifecycle'
 
 const FAKE_SHELL_SENTINEL = 'cranberri-shell-private-sentinel'
 
@@ -143,7 +144,7 @@ function fakeWorkerEvent(parentThreadId: string, worker: FakeThreadRecord, messa
   }
 }
 
-export class FakeCodexClient extends EventEmitter {
+export class FakeCodexClient extends EventEmitter implements CodexThreadLifecycleGateway {
   private readonly processCwd: string
   private nextThread = 1
   private nextTurn = 1
@@ -458,6 +459,12 @@ export class FakeCodexClient extends EventEmitter {
   async readThread(threadId: string, archived = false): Promise<CodexSessionThread> {
     const thread = this.requireThread(threadId)
     return { ...sessionSummary(thread, this.threads.values()), archived, turns: thread.turns }
+  }
+
+  async inspectThreadLifecycle(threadId: string): Promise<ThreadLifecycleInspection> {
+    const thread = this.threads.get(threadId)
+    if (!thread) return { threadId, state: 'missing', cwd: null }
+    return { threadId, state: thread.archived ? 'archived' : 'active', cwd: thread.cwd }
   }
 
   async resumeThread(threadId: string, cwdOrRuntime?: string | CodexRuntimeContext, _settings?: CodexTurnSettings): Promise<CodexSessionThread> {
