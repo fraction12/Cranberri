@@ -117,7 +117,7 @@ describe('startup recovery window mapping', () => {
     }))).toBeNull()
   })
 
-  it('allows updater health only after safe recovery outcomes', () => {
+  it('allows updater health once authoritative stores load, even when a window needs recovery', () => {
     expect(recoveryAllowsUpdateHealth(null)).toBe(false)
     expect(recoveryAllowsUpdateHealth(reportWith({ ...BASE_WINDOW, status: 'ready', reason: 'none' }))).toBe(true)
     expect(recoveryAllowsUpdateHealth(reportWith({
@@ -130,7 +130,15 @@ describe('startup recovery window mapping', () => {
       ...BASE_WINDOW,
       status: 'retryable',
       reason: 'interruptedOperation',
-    }))).toBe(false)
-    expect(recoveryAllowsUpdateHealth(reportWith(BASE_WINDOW))).toBe(false)
+    }))).toBe(true)
+    expect(recoveryAllowsUpdateHealth(reportWith(BASE_WINDOW))).toBe(true)
+    expect(recoveryAllowsUpdateHealth({
+      ...reportWith(BASE_WINDOW),
+      appState: { status: 'needsAttention', source: 'unavailable', message: 'corrupt primary and backup' },
+    })).toBe(false)
+    expect(recoveryAllowsUpdateHealth({
+      ...reportWith(BASE_WINDOW),
+      taskStore: { status: 'needsAttention', revision: 0, repairedTaskIds: [] },
+    })).toBe(false)
   })
 })
