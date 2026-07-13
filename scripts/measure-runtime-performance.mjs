@@ -128,8 +128,7 @@ async function measureInteractions(electronApp, page, projects) {
   let activeFixturePath = projects[projects.length - 1].path
   for (let index = 0; index < switchLoops; index += 1) {
     const project = projects[index % projects.length]
-    const startedAt = performance.now()
-    await page.getByRole('button', { name: `Open ${project.name}` }).click()
+    const switchDurationMs = await measureVisibleWorkspaceSwitch(page, project)
     const identityResult = await waitForExpectedIdentity(page, project)
     identityChecks += 1
     if (!identityResult.matched) {
@@ -147,8 +146,7 @@ async function measureInteractions(electronApp, page, projects) {
     projectIds.add(identityResult.identity.projectId)
     checkoutIds.add(identityResult.identity.checkoutId)
     activeFixturePath = identityResult.identity.checkoutPath
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    windowSwitchCoherentMs.push(performance.now() - startedAt)
+    windowSwitchCoherentMs.push(switchDurationMs)
   }
   const memoryAfter = await rendererRetainedHeapBytes(page)
   const retainedMemoryGrowthPercent = [memoryBefore > 0 ? ((memoryAfter - memoryBefore) / memoryBefore) * 100 : 0]
@@ -232,6 +230,45 @@ async function measureInteractions(electronApp, page, projects) {
       checkoutIds: [...checkoutIds],
     },
   }
+}
+
+async function measureVisibleWorkspaceSwitch(page, project) {
+  return page.evaluate(async (expected) => {
+    const repo = document.querySelector(`[data-repo-id="${expected.id}"]`)
+    const trigger = repo?.querySelector('button')
+    if (!(trigger instanceof HTMLButtonElement)) throw new Error(`Repo trigger is unavailable for ${expected.id}`)
+
+    const matches = () => {
+      const workspace = document.querySelector('[data-workspace-context="ready"]')
+      return workspace instanceof HTMLElement
+        && workspace.dataset.workspaceProjectId === expected.id
+        && workspace.dataset.workspaceCheckoutPath === expected.path
+        && Boolean(workspace.dataset.workspaceTaskId)
+        && Boolean(workspace.dataset.workspaceCheckoutId)
+    }
+    const coherent = new Promise((resolve, reject) => {
+      if (matches()) {
+        resolve(undefined)
+        return
+      }
+      const timeout = window.setTimeout(() => {
+        observer.disconnect()
+        reject(new Error(`Workspace identity did not settle for ${expected.id}`))
+      }, 5_000)
+      const observer = new MutationObserver(() => {
+        if (!matches()) return
+        window.clearTimeout(timeout)
+        observer.disconnect()
+        resolve(undefined)
+      })
+      observer.observe(document.body, { attributes: true, childList: true, subtree: true })
+    })
+    const startedAt = performance.now()
+    trigger.click()
+    await coherent
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return performance.now() - startedAt
+  }, { id: project.id, path: fs.realpathSync(project.path) })
 }
 
 async function waitForExpectedIdentity(page, project) {
