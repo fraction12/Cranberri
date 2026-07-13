@@ -345,7 +345,8 @@ describe('journaled handoff', () => {
     expect(restored.task.state).toBe('active')
     expect(fs.existsSync(record.path)).toBe(true)
     expect(revisions).toEqual(['revision-1'])
-    expect(git(f.repo, 'rev-parse', 'refs/cranberri/tasks/task')).toBe(record.baseSha)
+    expect(f.store.read().managedWorktrees[0]).toMatchObject({ snapshot: null, privateRef: null })
+    expect(() => git(f.repo, 'rev-parse', 'refs/cranberri/tasks/task')).toThrow()
   })
 
   it('never removes an external worktree during managed archive cleanup', async () => {

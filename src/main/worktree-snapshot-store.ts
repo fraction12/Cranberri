@@ -92,6 +92,32 @@ export class WorktreeSnapshotStore {
     return path.join(path.resolve(this.rootPath), `${artifactId}.snapshot.json`)
   }
 
+  recoverDescriptor(
+    artifactId: string,
+    expectedOwner: { taskId: string; worktreeId: string },
+  ): WorktreeSnapshotDescriptor {
+    const artifactPath = this.pathFor(artifactId)
+    const artifact = readOwnerOnlyFile(artifactPath)
+    const snapshot = decodeWorktreeSnapshot(artifact)
+    if (snapshot.artifactId !== artifactId || snapshot.taskId !== expectedOwner.taskId
+      || snapshot.worktreeId !== expectedOwner.worktreeId) {
+      throw new Error('Published snapshot ownership does not match lifecycle authority')
+    }
+    const descriptor = worktreeSnapshotDescriptorSchema.parse({
+      version: WORKTREE_SNAPSHOT_VERSION,
+      artifactId,
+      taskId: snapshot.taskId,
+      worktreeId: snapshot.worktreeId,
+      artifactPath,
+      artifactBytes: artifact.length,
+      artifactDigestSha256: snapshotDigest(artifact),
+      headSha: snapshot.source.headSha,
+      bundleIncluded: snapshot.headArchive !== null,
+    })
+    this.load(descriptor)
+    return descriptor
+  }
+
   async capture(input: CaptureWorktreeSnapshotInput): Promise<WorktreeSnapshotDescriptor> {
     assertArtifactId(input.snapshotId)
     const expectedCommonDir = fs.realpathSync(input.gitCommonDir)

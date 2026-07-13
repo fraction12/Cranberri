@@ -381,6 +381,67 @@ describe('TaskCoordinator', () => {
     await expect(coordinator.delete(task.id)).rejects.toThrow(/archive.*before deleting/i)
   })
 
+  it('retries local purge without replaying an already observed thread deletion', async () => {
+    const { root, store } = fixture()
+    const task = await new TaskCoordinator(store).createLocalTask({
+      projectId: 'project', title: 'Delete retry', localCheckoutId: 'managed-checkout',
+      baseRef: 'refs/heads/main', input: [], threadId: 'thread',
+    })
+    const descriptor = {
+      version: 1 as const,
+      artifactId: 'artifact-delete',
+      taskId: task.id,
+      worktreeId: 'worktree-delete',
+      artifactPath: path.join(root, 'snapshots', 'artifact-delete'),
+      artifactBytes: 1,
+      artifactDigestSha256: 'b'.repeat(64),
+      headSha: 'a'.repeat(40),
+      bundleIncluded: false,
+    }
+    await store.update((state) => ({
+      ...state,
+      tasks: state.tasks.map((candidate) => ({
+        ...candidate, location: 'worktree' as const, state: 'archived' as const,
+        worktreeId: 'worktree-delete', archivedAt: 2,
+      })),
+      managedWorktrees: [{
+        id: 'worktree-delete', projectId: 'project', checkoutId: 'managed-checkout', taskId: task.id,
+        path: '/managed/task', recordedRoot: '/managed', gitCommonDir: '/repo/.git',
+        manifestPath: '/managed/.cranberri/manifests/worktree-delete.json', baseRef: 'refs/heads/main',
+        baseSha: descriptor.headSha, branch: null, headSha: descriptor.headSha, archiveHeadSha: descriptor.headSha,
+        privateRef: `refs/cranberri/tasks/${task.id}`, snapshot: descriptor, lifecycle: 'removed', cleanupReason: null,
+        createdAt: 1, updatedAt: 2, archivedAt: 2,
+      }],
+    }))
+    const purgeOwnedArtifacts = vi.fn()
+      .mockRejectedValueOnce(new Error('disk busy'))
+      .mockResolvedValueOnce(undefined)
+    const lifecycle = { purgeOwnedArtifacts } as unknown as WorktreeLifecycle
+    let threadState: 'archived' | 'missing' = 'archived'
+    const deleteThread = vi.fn(async () => { threadState = 'missing' })
+    const coordinator = new TaskCoordinator(store, lifecycle, {
+      codex: {
+        inspectThreadLifecycle: async (threadId) => threadState === 'missing'
+          ? { threadId, state: 'missing' as const, cwd: null }
+          : { threadId, state: 'archived' as const, cwd: '/repo' },
+        archiveThread: async () => undefined,
+        unarchiveThread: async () => ({}),
+        deleteThread,
+      },
+      activity: { assertIdle: async () => undefined },
+      snapshots: new WorktreeSnapshotStore(path.join(root, 'snapshots')),
+      repositoryPath: () => '/repo',
+      restoreEnvironment: async () => undefined,
+    })
+
+    await expect(coordinator.delete(task.id)).rejects.toThrow(/local cleanup is still pending/i)
+    await coordinator.delete(task.id)
+
+    expect(deleteThread).toHaveBeenCalledTimes(1)
+    expect(purgeOwnedArtifacts).toHaveBeenCalledTimes(2)
+    expect(store.read().tasks).toEqual([])
+  })
+
   it('retains the Local lease until a handed-off task returns to its worktree', async () => {
     const { store, coordinator } = fixture()
     const task = await coordinator.createLocalTask({

@@ -66,6 +66,41 @@ afterEach(() => {
 })
 
 describe('managed worktree lifecycle', () => {
+  it('adopts a matching snapshot published before its receipt became durable', async () => {
+    const { root, repo, managedRoot, store } = fixture()
+    const lifecycle = new WorktreeLifecycle(store, { hasRunningProcesses: async () => false })
+    const worktree = await lifecycle.create({
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'task-publish-crash',
+      taskName: 'Publish crash', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 15,
+    })
+    fs.writeFileSync(path.join(worktree.path, 'recover.txt'), 'recover published snapshot\n')
+    let injected = false
+    const snapshots = new WorktreeSnapshotStore(path.join(root, 'snapshots'), {
+      faultInjector: (point) => {
+        if (point === 'afterPublish' && !injected) {
+          injected = true
+          throw new Error('simulated crash after publish')
+        }
+      },
+    })
+    const operation = await store.beginLifecycleOperation({
+      kind: 'archive', taskId: 'task-publish-crash', worktreeId: worktree.id,
+      artifactId: 'artifact-publish-crash', startedAt: Date.now(),
+    })
+
+    await expect(lifecycle.prepareArchive({
+      operationId: operation.id, worktreeId: worktree.id, snapshotStore: snapshots,
+    })).rejects.toThrow(/simulated crash after publish/i)
+    const prepared = await lifecycle.prepareArchive({
+      operationId: operation.id, worktreeId: worktree.id, snapshotStore: snapshots,
+    })
+
+    expect(prepared.snapshot.artifactId).toBe('artifact-publish-crash')
+    expect(snapshots.load(prepared.snapshot).changes.untrackedFiles.map((file) => file.relativePath)).toContain('recover.txt')
+    expect(store.read().lifecycleOperations.find((candidate) => candidate.id === operation.id)?.receipts.map((receipt) => receipt.subphase))
+      .toEqual(expect.arrayContaining(['snapshotPublished', 'snapshotVerified']))
+  })
+
   it('serializes capacity checks and creates only up to the configured cap', async () => {
     const { repo, managedRoot, store } = fixture()
     const lifecycle = new WorktreeLifecycle(store)
@@ -327,6 +362,7 @@ describe('authorized archive lifecycle execution', () => {
       phase: 'restored', subphase: 'taskCommitted', recordedAt: Date.now(),
       receiptId: `${restore.id}:taskCommitted:restore`, details: { checkoutPath: restored.checkoutPath },
     })
+    snapshots.purge(prepared.snapshot, { taskId: 'task-archive', worktreeId: worktree.id })
     await lifecycle.retireRestoredSnapshot({
       operationId: restore.id,
       worktreeId: worktree.id,
@@ -348,7 +384,7 @@ describe('authorized archive lifecycle execution', () => {
       .toEqual(expect.arrayContaining(['taskCommitted', 'snapshotPurged', 'privateRefPurged']))
   })
 
-  it('refuses to adopt a different worktree occupying the reserved restore path', async () => {
+  it('reserves a stable fallback without touching a different worktree occupying the original path', async () => {
     const { root, repo, managedRoot, store } = fixture()
     const lifecycle = new WorktreeLifecycle(store, { hasRunningProcesses: async () => false })
     const worktree = await lifecycle.create({
@@ -378,10 +414,22 @@ describe('authorized archive lifecycle execution', () => {
       startedAt: Date.now(),
     })
 
-    await expect(lifecycle.restorePreparedArchive({
+    const restored = await lifecycle.restorePreparedArchive({
       operationId: restore.id, worktreeId: worktree.id, repositoryPath: repo,
       snapshotStore: snapshots, snapshot: prepared.snapshot,
-    })).rejects.toThrow(/occupied by an unowned worktree/i)
+    })
+
+    expect(restored.checkoutPath).not.toBe(worktree.path)
+    expect(restored.fallbackReason).toMatch(/original worktree path was occupied/i)
+    expect(fs.existsSync(worktree.path)).toBe(true)
+    expect(git(worktree.path, 'rev-parse', 'HEAD')).toBe(worktree.baseSha)
+    expect(localChangesEqual(
+      await captureLocalChanges(restored.checkoutPath, prepared.headSha),
+      snapshots.load(prepared.snapshot).changes,
+    )).toBe(true)
+    const persisted = store.read()
+    expect(persisted.managedWorktrees.find((candidate) => candidate.id === worktree.id)?.path).toBe(restored.checkoutPath)
+    expect(persisted.lifecycleOperations.find((candidate) => candidate.id === restore.id)?.restoreReservation?.path).toBe(restored.checkoutPath)
   })
 
   it('restores detached when the archived branch moved after cleanup', async () => {

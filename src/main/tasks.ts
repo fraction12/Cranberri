@@ -53,6 +53,7 @@ export interface TaskLifecycleDependencies {
   snapshots: WorktreeSnapshotStore
   repositoryPath(projectId: string): string
   restoreEnvironment(task: Task, worktree: ManagedWorktree, revision: string): Promise<void>
+  inspectLegacyArchive?(worktree: ManagedWorktree): Promise<'clear' | 'ignored' | 'unsafe'>
 }
 
 export function assertTaskRunnable(task: Task): void {
@@ -530,11 +531,30 @@ export class TaskCoordinator {
   private async retryArchiveCleanup(task: Task): Promise<TaskLifecycleResult> {
     const lifecycle = this.requireLifecycle()
     const worktree = this.worktreeForTask(task)
-    if (!worktree || !this.worktrees || !task.lifecycleOperationId) {
+    if (!worktree || !this.worktrees) {
       return { task, warning: { kind: 'cleanupBlocked', message: 'Worktree cleanup needs attention' } }
     }
     await lifecycle.activity.assertIdle(task, worktree)
-    const operationId = task.lifecycleOperationId
+    let operationId = task.lifecycleOperationId ?? null
+    if (!operationId) {
+      const inspection = await lifecycle.inspectLegacyArchive?.(worktree) ?? 'unsafe'
+      if (inspection !== 'clear') {
+        return {
+          task,
+          warning: {
+            kind: 'cleanupBlocked',
+            message: worktree.cleanupReason ?? (inspection === 'ignored'
+              ? 'Remove ignored worktree content before retrying cleanup'
+              : 'Worktree ownership could not be proven safe for cleanup'),
+          },
+        }
+      }
+      const operation = await this.store.beginLifecycleOperation({
+        kind: 'archive', taskId: task.id, worktreeId: worktree.id, startedAt: Date.now(),
+      })
+      operationId = operation.id
+      await this.patchTask(task.id, { lifecycleOperationId: operationId })
+    }
     await this.store.updateLifecycleOperation(operationId, (operation) => ({
       ...operation,
       status: 'running',
@@ -642,8 +662,12 @@ export class TaskCoordinator {
         snapshotStore: lifecycle.snapshots,
         snapshot: worktree.snapshot,
       })
+      const restoredWorktree = this.worktreeForTask(task)
+      if (!restoredWorktree || restoredWorktree.path !== restored.checkoutPath) {
+        throw new Error('Restored worktree authority was not committed to its reserved path')
+      }
       if (worktree.environmentRevision) {
-        await lifecycle.restoreEnvironment(task, worktree, worktree.environmentRevision)
+        await lifecycle.restoreEnvironment(task, restoredWorktree, worktree.environmentRevision)
         await this.store.appendLifecycleReceipt(operation.id, {
           phase: 'restoreEnvironment', subphase: 'environmentRestored', recordedAt: Date.now(),
           receiptId: `${operation.id}:environmentRestored:${worktree.environmentRevision}`,
@@ -676,7 +700,7 @@ export class TaskCoordinator {
       })
       await this.worktrees.retireRestoredSnapshot({
         operationId: operation.id,
-        worktreeId: worktree.id,
+        worktreeId: restoredWorktree.id,
         repositoryPath: lifecycle.repositoryPath(task.projectId),
         snapshotStore: lifecycle.snapshots,
         snapshot: worktree.snapshot,
@@ -747,7 +771,21 @@ export class TaskCoordinator {
       startedAt: Date.now(),
     })
     if (task.threadId) {
-      await this.runThreadRpc(operation.id, 'deleteThread', task.threadId, () => lifecycle.codex.deleteThread(task.threadId as string))
+      const inspection = await lifecycle.codex.inspectThreadLifecycle(task.threadId)
+      const currentOperation = this.store.read().lifecycleOperations.find((candidate) => candidate.id === operation.id)
+      if (currentOperation?.rpc?.status === 'observed' && inspection.state !== 'missing') {
+        throw new Error('Codex thread state contradicts the observed delete outcome')
+      }
+      if (currentOperation?.rpc?.status !== 'observed') {
+        await this.runThreadRpc(
+          operation.id,
+          'deleteThread',
+          task.threadId,
+          inspection.state === 'missing'
+            ? async () => undefined
+            : () => lifecycle.codex.deleteThread(task.threadId as string),
+        )
+      }
     }
     if (worktree?.snapshot) {
       if (!this.worktrees) throw new Error('Worktree lifecycle is unavailable')

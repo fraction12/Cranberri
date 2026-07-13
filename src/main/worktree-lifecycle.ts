@@ -465,17 +465,29 @@ export class WorktreeLifecycle {
         headSha,
       })
 
-      const descriptor = await request.snapshotStore.capture({
-        snapshotId: operation.artifactId,
-        taskId: operation.taskId,
-        worktreeId: record.id,
-        checkoutPath: owned.checkoutPath,
-        gitCommonDir: record.gitCommonDir,
-        expectedHeadSha: headSha,
-        branch: owned.entry.branch,
-        privateRef,
-        environmentRevision: record.environmentRevision ?? null,
-      })
+      const artifactPath = request.snapshotStore.pathFor(operation.artifactId)
+      const descriptor = fs.existsSync(artifactPath)
+        ? request.snapshotStore.recoverDescriptor(operation.artifactId, {
+            taskId: operation.taskId,
+            worktreeId: record.id,
+          })
+        : await request.snapshotStore.capture({
+            snapshotId: operation.artifactId,
+            taskId: operation.taskId,
+            worktreeId: record.id,
+            checkoutPath: owned.checkoutPath,
+            gitCommonDir: record.gitCommonDir,
+            expectedHeadSha: headSha,
+            branch: owned.entry.branch,
+            privateRef,
+            environmentRevision: record.environmentRevision ?? null,
+          })
+      const recoveredSnapshot = request.snapshotStore.load(descriptor)
+      if (recoveredSnapshot.source.headSha !== headSha
+        || recoveredSnapshot.source.privateRef !== privateRef
+        || fs.realpathSync(recoveredSnapshot.source.gitCommonDir) !== fs.realpathSync(record.gitCommonDir)) {
+        throw new Error('Published snapshot does not match the current archive source')
+      }
       const descriptorDetails = {
         artifactId: descriptor.artifactId,
         artifactPath: descriptor.artifactPath,
@@ -486,7 +498,6 @@ export class WorktreeLifecycle {
         privateRef,
       }
       await this.appendReceipt(operation, 'snapshotPublished', 'snapshotPublished', 'snapshot', descriptorDetails)
-      request.snapshotStore.load(descriptor)
       await this.appendReceipt(operation, 'snapshotVerified', 'snapshotVerified', 'snapshot', descriptorDetails)
       const sourceGuard = digest(`${descriptor.headSha}\0${descriptor.artifactDigestSha256}`)
       await this.appendReceipt(operation, 'snapshotVerified', 'sourceGuardsVerified', 'captured', {
@@ -661,9 +672,9 @@ export class WorktreeLifecycle {
   }
 
   private async restorePreparedArchiveInternal(request: RestorePreparedArchiveRequest): Promise<RestoredPreparedArchive> {
-    const { operation, record } = this.authority(request.operationId, 'restore', request.worktreeId)
+    let { operation, record } = this.authority(request.operationId, 'restore', request.worktreeId)
     this.assertSnapshotAuthority(operation, record, request.snapshot)
-    const reservation = operation.restoreReservation
+    let reservation = operation.restoreReservation
     if (!reservation) throw new Error('Restore operation has no destination reservation')
     if (path.resolve(reservation.path) !== path.resolve(record.path)
       || fs.realpathSync(reservation.gitCommonDir) !== fs.realpathSync(record.gitCommonDir)) {
@@ -676,12 +687,9 @@ export class WorktreeLifecycle {
     if (await canonicalGitCommonDir(request.repositoryPath) !== fs.realpathSync(record.gitCommonDir)) {
       throw new Error('Restore repository does not match managed worktree ownership')
     }
-    const targetPath = authorizeManagedPath(fs.realpathSync(record.recordedRoot), reservation.path)
-    await this.appendReceipt(operation, 'restoreReserved', 'restoreDestinationReserved', 'reservation', {
-      destinationPath: targetPath,
-      ownershipToken: reservation.ownershipToken,
-      privateRef: reservation.privateRef,
-    })
+    const root = fs.realpathSync(record.recordedRoot)
+    let targetPath = authorizeManagedPath(root, reservation.path)
+    let fallbackReason: string | null = null
 
     if (fs.existsSync(targetPath)) {
       const registered = (await listGitWorktrees(request.repositoryPath)).some((entry) => {
@@ -697,10 +705,44 @@ export class WorktreeLifecycle {
         && manifest.restoreOperationId === operation.id
         && manifest.ownershipToken === reservation.ownershipToken
       if (!checkoutCreated && !manifestMatches) {
-        throw new Error('Reserved restore destination is occupied by an unowned worktree')
+        const fallbackPath = authorizeManagedPath(
+          root,
+          path.join(path.dirname(targetPath), `${path.basename(targetPath)}-restored-${operation.id.slice(0, 8)}`),
+        )
+        if (fs.existsSync(fallbackPath)) {
+          throw new Error('Reserved restore destination and its authorized fallback are occupied')
+        }
+        await this.store.update((state) => ({
+          ...state,
+          lifecycleOperations: state.lifecycleOperations.map((candidate) => candidate.id === operation.id && candidate.restoreReservation ? {
+            ...candidate,
+            restoreReservation: { ...candidate.restoreReservation, path: fallbackPath },
+            updatedAt: Date.now(),
+          } : candidate),
+          managedWorktrees: state.managedWorktrees.map((candidate) => candidate.id === record.id ? {
+            ...candidate,
+            path: fallbackPath,
+            updatedAt: Date.now(),
+          } : candidate),
+        }))
+        ;({ operation, record } = this.authority(request.operationId, 'restore', request.worktreeId))
+        reservation = operation.restoreReservation
+        if (!reservation) throw new Error('Restore fallback reservation was not persisted')
+        targetPath = fallbackPath
+        fallbackReason = 'Original worktree path was occupied; restored to a new managed location'
+      } else {
+        await this.assertSourceMatchesSnapshot(targetPath, snapshot)
       }
-      await this.assertSourceMatchesSnapshot(targetPath, snapshot)
-    } else {
+    }
+
+    await this.appendReceipt(operation, 'restoreReserved', 'restoreDestinationReserved', 'reservation', {
+      destinationPath: targetPath,
+      ownershipToken: reservation.ownershipToken,
+      privateRef: reservation.privateRef,
+      ...(fallbackReason ? { fallbackReason } : {}),
+    })
+
+    if (!fs.existsSync(targetPath)) {
       await this.appendReceipt(operation, 'restoreCheckout', 'restoreCheckoutPlanned', 'checkout', {
         destinationPath: targetPath,
         headSha: snapshot.source.headSha,
@@ -713,16 +755,18 @@ export class WorktreeLifecycle {
     }
 
     let branchAttached = false
-    let fallbackReason: string | null = null
+    const addFallbackReason = (message: string): void => {
+      fallbackReason = fallbackReason ? `${fallbackReason}. ${message}` : message
+    }
     if (snapshot.source.branch) {
       if (!await branchExists(request.repositoryPath, snapshot.source.branch)) {
-        fallbackReason = 'Archived branch no longer exists'
+        addFallbackReason('Archived branch no longer exists')
       } else if (await resolveGitRef(request.repositoryPath, `refs/heads/${snapshot.source.branch}`) !== snapshot.source.headSha) {
-        fallbackReason = 'Archived branch moved after archive'
+        addFallbackReason('Archived branch moved after archive')
       } else {
         const checkoutPath = await branchCheckoutPath(request.repositoryPath, snapshot.source.branch)
         if (checkoutPath && path.resolve(checkoutPath) !== path.resolve(targetPath)) {
-          fallbackReason = 'Archived branch is checked out elsewhere'
+          addFallbackReason('Archived branch is checked out elsewhere')
         } else {
           const currentBranch = (await listGitWorktrees(request.repositoryPath)).find((entry) => {
             try { return fs.realpathSync(entry.path) === fs.realpathSync(targetPath) } catch { return false }
@@ -796,12 +840,14 @@ export class WorktreeLifecycle {
     }
 
     if (!operation.receipts.some((receipt) => receipt.subphase === 'snapshotPurged')) {
-      const snapshot = request.snapshotStore.load(request.snapshot)
-      if (snapshot.source.privateRef !== privateRef) {
-        throw new Error('Restored snapshot private ref does not match worktree authority')
+      if (fs.existsSync(request.snapshot.artifactPath)) {
+        const snapshot = request.snapshotStore.load(request.snapshot)
+        if (snapshot.source.privateRef !== privateRef) {
+          throw new Error('Restored snapshot private ref does not match worktree authority')
+        }
+        await this.assertSourceMatchesSnapshot(owned.checkoutPath, snapshot)
+        request.snapshotStore.purge(request.snapshot, { taskId: operation.taskId, worktreeId: record.id })
       }
-      await this.assertSourceMatchesSnapshot(owned.checkoutPath, snapshot)
-      request.snapshotStore.purge(request.snapshot, { taskId: operation.taskId, worktreeId: record.id })
       await this.appendReceipt(operation, 'restored', 'snapshotPurged', 'restored-snapshot', {
         artifactId: request.snapshot.artifactId,
         artifactPath: request.snapshot.artifactPath,
