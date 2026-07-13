@@ -60,6 +60,10 @@ describe('daily-driver UAT fixtures', () => {
     const seededRegistry = JSON.parse(fs.readFileSync(path.join(first.userDataPath, 'repos.json'), 'utf8'))
     expect(seededRegistry.repos).toEqual([expect.objectContaining({ path: first.cases.local.repoPath })])
     expect(JSON.stringify(seededRegistry)).not.toContain(process.cwd())
+
+    const seededSettings = JSON.parse(fs.readFileSync(path.join(first.userDataPath, 'settings.json'), 'utf8'))
+    expect(seededSettings.data.worktrees.root).toBe(first.managedWorktreeRoot)
+    expect(fs.realpathSync(path.dirname(first.managedWorktreeRoot))).toBe(fs.realpathSync(first.root))
   })
 
   it('rejects non-temp fixture roots and delegates cleanup only to /usr/bin/trash', () => {

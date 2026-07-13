@@ -33,7 +33,7 @@ interface WorkspaceProps {
 }
 
 export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
-  const { windows, activeWindowId, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask, bindWindowToThread } = useWorkspace()
+  const { windows, activeWindowId, activeExecutionContext, openChat, openTerminal, openBrowser, updateBrowserState, closeWindow, setActiveWindow, bindWindowToTask, bindWindowToThread } = useWorkspace()
   const { repos, activeRepoId, setActiveRepo } = useRepos()
   const { openSession, closeThreadWindow, switchThread } = useCodexActions()
   const { getThreadForWindow } = useCodexWindows()
@@ -281,7 +281,15 @@ export function Workspace({ browserSurfaceObscured = false }: WorkspaceProps) {
   }, [activeWindowId, closeWorkspaceWindow])
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden">
+    <div
+      className="flex flex-col h-full w-full overflow-hidden"
+      data-workspace-context={activeExecutionContext ? 'ready' : 'unavailable'}
+      data-workspace-window-id={activeWindowId ?? ''}
+      data-workspace-project-id={activeExecutionContext?.projectId ?? ''}
+      data-workspace-task-id={activeExecutionContext?.taskId ?? ''}
+      data-workspace-checkout-id={activeExecutionContext?.checkoutId ?? ''}
+      data-workspace-checkout-path={activeExecutionContext?.checkoutPath ?? ''}
+    >
       <div className="relative z-10 flex h-9 shrink-0 items-center gap-1 bg-app-surface px-1.5 shadow-sm">
         <div className="relative min-w-0 flex-1">
           <div

@@ -6,6 +6,22 @@ export interface GitHubPanelBadge {
   title: string
 }
 
+export function githubPanelErrorMessage(cause: unknown, fallback: string): string {
+  const raw = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : ''
+  const message = raw
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+    .trim()
+
+  if (/Could not resolve to a Repository|repository not found/i.test(message)) {
+    return 'Repository not found on GitHub.'
+  }
+  if (/network|fetch failed|ENOTFOUND|ECONN(?:REFUSED|RESET)|timed? out/i.test(message)) {
+    return 'GitHub is unavailable. Check your connection and retry.'
+  }
+  return message || fallback
+}
+
 export function githubPanelBadges(data?: GitHubPanelData | null): GitHubPanelBadge[] {
   if (!data) return []
 

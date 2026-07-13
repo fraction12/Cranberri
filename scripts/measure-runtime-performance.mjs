@@ -106,7 +106,7 @@ async function measureInteractions(electronApp, page, projects) {
   for (const project of projects) {
     await page.getByRole('button', { name: `Open ${project.name}` }).click()
     const warmIdentity = await waitForExpectedIdentity(page, project)
-    if (!warmIdentity.matched) throw new Error(`Runtime warm-up identity mismatch for ${project.id}`)
+    if (!warmIdentity.matched) throw new Error(`Runtime warm-up identity mismatch for ${project.id}: ${JSON.stringify(warmIdentity.identity)}`)
     await page.getByRole('tab', { name: 'Files' }).click()
     await page.getByText('No changed files.').waitFor({ timeout: 10_000 })
     await page.waitForTimeout(200)
@@ -116,7 +116,7 @@ async function measureInteractions(electronApp, page, projects) {
     const project = projects[index % projects.length]
     await page.getByRole('button', { name: `Open ${project.name}` }).click()
     const warmIdentity = await waitForExpectedIdentity(page, project)
-    if (!warmIdentity.matched) throw new Error(`Runtime switch warm-up mismatch for ${project.id}`)
+    if (!warmIdentity.matched) throw new Error(`Runtime switch warm-up mismatch for ${project.id}: ${JSON.stringify(warmIdentity.identity)}`)
   }
 
   const memoryBefore = await rendererRetainedHeapBytes(page)
@@ -128,8 +128,7 @@ async function measureInteractions(electronApp, page, projects) {
   let activeFixturePath = projects[projects.length - 1].path
   for (let index = 0; index < switchLoops; index += 1) {
     const project = projects[index % projects.length]
-    const startedAt = performance.now()
-    await page.getByRole('button', { name: `Open ${project.name}` }).click()
+    const switchDurationMs = await measureVisibleWorkspaceSwitch(page, project)
     const identityResult = await waitForExpectedIdentity(page, project)
     identityChecks += 1
     if (!identityResult.matched) {
@@ -140,15 +139,14 @@ async function measureInteractions(electronApp, page, projects) {
         taskProjectId: identityResult.identity.taskProjectId,
         checkoutProjectId: identityResult.identity.checkoutProjectId,
         checkoutKind: identityResult.identity.checkoutKind,
-        checkoutPathMatched: identityResult.identity.checkoutPath === project.path,
+        checkoutPathMatched: identityResult.identity.checkoutPath === fs.realpathSync(project.path),
       })
       break
     }
     projectIds.add(identityResult.identity.projectId)
     checkoutIds.add(identityResult.identity.checkoutId)
     activeFixturePath = identityResult.identity.checkoutPath
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    windowSwitchCoherentMs.push(performance.now() - startedAt)
+    windowSwitchCoherentMs.push(switchDurationMs)
   }
   const memoryAfter = await rendererRetainedHeapBytes(page)
   const retainedMemoryGrowthPercent = [memoryBefore > 0 ? ((memoryAfter - memoryBefore) / memoryBefore) * 100 : 0]
@@ -234,32 +232,81 @@ async function measureInteractions(electronApp, page, projects) {
   }
 }
 
+async function measureVisibleWorkspaceSwitch(page, project) {
+  return page.evaluate(async (expected) => {
+    const repo = document.querySelector(`[data-repo-id="${expected.id}"]`)
+    const trigger = repo?.querySelector('button')
+    if (!(trigger instanceof HTMLButtonElement)) throw new Error(`Repo trigger is unavailable for ${expected.id}`)
+
+    const matches = () => {
+      const workspace = document.querySelector('[data-workspace-context="ready"]')
+      return workspace instanceof HTMLElement
+        && workspace.dataset.workspaceProjectId === expected.id
+        && workspace.dataset.workspaceCheckoutPath === expected.path
+        && Boolean(workspace.dataset.workspaceTaskId)
+        && Boolean(workspace.dataset.workspaceCheckoutId)
+    }
+    const coherent = new Promise((resolve, reject) => {
+      if (matches()) {
+        resolve(undefined)
+        return
+      }
+      const timeout = window.setTimeout(() => {
+        observer.disconnect()
+        reject(new Error(`Workspace identity did not settle for ${expected.id}`))
+      }, 5_000)
+      const observer = new MutationObserver(() => {
+        if (!matches()) return
+        window.clearTimeout(timeout)
+        observer.disconnect()
+        resolve(undefined)
+      })
+      observer.observe(document.body, { attributes: true, childList: true, subtree: true })
+    })
+    const startedAt = performance.now()
+    trigger.click()
+    await coherent
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return performance.now() - startedAt
+  }, { id: project.id, path: fs.realpathSync(project.path) })
+}
+
 async function waitForExpectedIdentity(page, project) {
+  const expectedPath = fs.realpathSync(project.path)
   try {
-    await page.waitForFunction(async (expected) => {
-      const [state, registry, snapshot] = await Promise.all([
-        window.cranberri.appState.read(),
-        window.cranberri.repos.list(),
-        window.cranberri.tasks.snapshot(),
-      ])
-      const projectId = registry.activeProjectId
-      const workspace = projectId ? state.workspacesByProjectId[projectId] : undefined
-      const activeWindow = workspace?.windows.find((windowState) => windowState.id === workspace.activeWindowId)
-      const task = snapshot.tasks.find((candidate) => candidate.id === activeWindow?.taskId)
-      const checkout = snapshot.checkouts.find((candidate) => candidate.id === activeWindow?.checkoutId)
-      return projectId === expected.id
-        && activeWindow?.projectId === expected.id
-        && task?.projectId === expected.id
-        && checkout?.projectId === expected.id
-        && checkout.kind === 'local'
-        && checkout.canonicalPath === expected.path
-        && document.querySelector('[data-chat-composer="true"]') instanceof HTMLElement
-        && document.querySelector('[role="tab"][aria-label="Files"]') instanceof HTMLElement
-    }, { id: project.id, path: project.path }, { timeout: 5_000 })
+    const workspace = page.locator(`[data-workspace-context="ready"][data-workspace-project-id="${project.id}"]`)
+    await workspace.waitFor({ state: 'attached', timeout: 5_000 })
+    const visibleIdentity = await readVisibleIdentity(page)
+    if (
+      visibleIdentity.projectId !== project.id
+      || visibleIdentity.checkoutPath !== expectedPath
+      || !visibleIdentity.checkoutId
+    ) throw new Error('Visible workspace identity does not match the selected project')
+    return { matched: true, identity: visibleIdentity }
   } catch {
-    return { matched: false, identity: await readActiveIdentity(page) }
+    const identity = await readActiveIdentity(page)
+    identity.visibleWorkspace = await page.evaluate(() => {
+      const workspace = document.querySelector('[data-workspace-context]')
+      return workspace instanceof HTMLElement ? { ...workspace.dataset } : null
+    })
+    return { matched: false, identity }
   }
-  return { matched: true, identity: await readActiveIdentity(page) }
+}
+
+async function readVisibleIdentity(page) {
+  return page.evaluate(() => {
+    const workspace = document.querySelector('[data-workspace-context="ready"]')
+    if (!(workspace instanceof HTMLElement)) throw new Error('Visible workspace identity is unavailable')
+    return {
+      projectId: workspace.dataset.workspaceProjectId ?? null,
+      windowProjectId: workspace.dataset.workspaceProjectId ?? null,
+      taskProjectId: workspace.dataset.workspaceProjectId ?? null,
+      checkoutProjectId: workspace.dataset.workspaceProjectId ?? null,
+      checkoutId: workspace.dataset.workspaceCheckoutId ?? null,
+      checkoutKind: 'local',
+      checkoutPath: workspace.dataset.workspaceCheckoutPath ?? null,
+    }
+  })
 }
 
 async function readActiveIdentity(page) {
