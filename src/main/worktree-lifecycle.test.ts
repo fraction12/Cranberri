@@ -297,6 +297,45 @@ describe('managed worktree lifecycle', () => {
 })
 
 describe('authorized archive lifecycle execution', () => {
+  it('archives ignored dependency trees without following nested package-manager symlinks', async () => {
+    const { root, repo, managedRoot, store } = fixture()
+    const lifecycle = new WorktreeLifecycle(store, { hasRunningProcesses: async () => false })
+    const worktree = await lifecycle.create({
+      projectId: 'project-12345678', projectName: 'Project', taskId: 'task-ignored-tree',
+      taskName: 'Ignored tree', localCheckoutPath: repo, managedRoot, baseRef: 'main', cap: 15,
+    })
+    fs.writeFileSync(path.join(worktree.path, '.gitignore'), 'node_modules/\nout/\n')
+    git(worktree.path, 'add', '.gitignore')
+    git(worktree.path, 'commit', '-m', 'ignore generated trees')
+    fs.mkdirSync(path.join(worktree.path, 'node_modules', '.bin'), { recursive: true })
+    fs.mkdirSync(path.join(worktree.path, 'node_modules', 'acorn', 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(worktree.path, 'node_modules', 'acorn', 'bin', 'acorn'), '#!/usr/bin/env node\n')
+    fs.symlinkSync('../acorn/bin/acorn', path.join(worktree.path, 'node_modules', '.bin', 'acorn'))
+    fs.mkdirSync(path.join(worktree.path, 'out'), { recursive: true })
+    fs.writeFileSync(path.join(worktree.path, 'out', 'bundle.js'), 'generated\n')
+    const snapshots = new WorktreeSnapshotStore(path.join(root, 'snapshots'))
+    const archive = await store.beginLifecycleOperation({
+      kind: 'archive', taskId: 'task-ignored-tree', worktreeId: worktree.id,
+      artifactId: 'artifact-ignored-tree', startedAt: Date.now(),
+    })
+
+    const prepared = await lifecycle.prepareArchive({
+      operationId: archive.id, worktreeId: worktree.id, snapshotStore: snapshots,
+    })
+    await lifecycle.removePreparedArchive({
+      operationId: archive.id,
+      worktreeId: worktree.id,
+      repositoryPath: repo,
+      snapshotStore: snapshots,
+      snapshot: prepared.snapshot,
+    })
+
+    expect(fs.existsSync(worktree.path)).toBe(false)
+    expect(snapshots.load(prepared.snapshot).changes.untrackedFiles).toEqual([])
+    expect(store.read().lifecycleOperations.find((item) => item.id === archive.id)?.receipts.map((receipt) => receipt.subphase))
+      .toEqual(expect.arrayContaining(['ignoredEntryMovePlanned', 'ignoredEntryQuarantined', 'worktreeUnregistered']))
+  })
+
   it('archives dirty unique work through a verified snapshot and restores it exactly without advancing task state', async () => {
     const { root, repo, managedRoot, store } = fixture()
     const lifecycle = new WorktreeLifecycle(store, { hasRunningProcesses: async () => false })
@@ -522,8 +561,11 @@ describe('authorized archive lifecycle execution', () => {
     git(worktree.path, 'add', 'file.txt')
     fs.appendFileSync(path.join(worktree.path, 'file.txt'), 'unstaged\n')
     fs.writeFileSync(path.join(worktree.path, 'untracked.txt'), 'untracked\n')
-    fs.writeFileSync(path.join(worktree.path, '.gitignore'), 'ignored.txt\n')
-    fs.writeFileSync(path.join(worktree.path, 'ignored.txt'), 'ignored\n')
+    fs.writeFileSync(path.join(worktree.path, '.gitignore'), 'node_modules/\n')
+    fs.mkdirSync(path.join(worktree.path, 'node_modules', '.bin'), { recursive: true })
+    fs.mkdirSync(path.join(worktree.path, 'node_modules', 'acorn', 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(worktree.path, 'node_modules', 'acorn', 'bin', 'acorn'), '#!/usr/bin/env node\n')
+    fs.symlinkSync('../acorn/bin/acorn', path.join(worktree.path, 'node_modules', '.bin', 'acorn'))
     const headSha = git(worktree.path, 'rev-parse', 'HEAD')
     const beforeStatus = git(worktree.path, 'status', '--porcelain=v1', '--ignored')
     const before = await captureLocalChanges(worktree.path, headSha)
@@ -542,8 +584,9 @@ describe('authorized archive lifecycle execution', () => {
     expect(fs.existsSync(worktree.path)).toBe(true)
     expect(localChangesEqual(await captureLocalChanges(worktree.path, headSha), before)).toBe(true)
     expect(git(worktree.path, 'status', '--porcelain=v1', '--ignored')).toBe(beforeStatus)
+    expect(fs.readlinkSync(path.join(worktree.path, 'node_modules', '.bin', 'acorn'))).toBe('../acorn/bin/acorn')
     expect(store.read().lifecycleOperations.find((item) => item.id === operation.id)?.receipts.map((receipt) => receipt.subphase))
-      .toEqual(expect.arrayContaining(['sourceEntryQuarantined', 'trackedReset', 'sourceReconstructed']))
+      .toEqual(expect.arrayContaining(['sourceEntryQuarantined', 'ignoredEntryQuarantined', 'trackedReset', 'sourceReconstructed']))
   })
 
   it('purges only durable selectors and is idempotent after every owned artifact is gone', async () => {

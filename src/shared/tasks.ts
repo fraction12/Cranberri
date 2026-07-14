@@ -64,6 +64,8 @@ export const lifecycleOperationReceiptSchema = z.object({
     'sourceNormalizationPlanned',
     'sourceEntryMovePlanned',
     'sourceEntryQuarantined',
+    'ignoredEntryMovePlanned',
+    'ignoredEntryQuarantined',
     'trackedResetPlanned',
     'trackedReset',
     'sourceNormalized',

@@ -18,8 +18,19 @@ import { readProjectRegistry } from './repos'
 import type { StartupRecoveryReport } from '../shared/recovery'
 import type { CodexThreadLifecycleGateway } from './codex/thread-lifecycle'
 import { inspectLegacyArchive } from './task-recovery'
+import { logTelemetry } from './telemetry'
+import { observeTaskLifecycleTelemetry, type TaskLifecycleTelemetryObserver } from './task-lifecycle-telemetry'
 
 export const taskStore = new TaskStore()
+let taskLifecycleTelemetry: TaskLifecycleTelemetryObserver | null = null
+
+export function initTaskLifecycleTelemetry(): void {
+  taskLifecycleTelemetry ??= observeTaskLifecycleTelemetry(
+    taskStore,
+    (type, payload) => logTelemetry('main', type, payload),
+  )
+}
+
 export const worktreeLifecycle = new WorktreeLifecycle(taskStore)
 export const environmentStore = new EnvironmentStore()
 export const environmentRunner = new EnvironmentRunner({

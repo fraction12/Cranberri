@@ -8,7 +8,7 @@ import { initRepoIpc } from './repos'
 import { initGitIpc } from './git'
 import { initGitHubIpc } from './github'
 import { initCodexIpc, stopCodexClient } from './codex/ipc'
-import { recoverStartupRuntime } from './worktree-runtime'
+import { initTaskLifecycleTelemetry, recoverStartupRuntime } from './worktree-runtime'
 import { initSettingsIpc } from './settings'
 import { initTerminalIpc, killAllTerminals } from './terminal'
 import { initProcessesIpc } from './processes'
@@ -269,6 +269,7 @@ if (ownsApplicationInstance) app.whenReady().then(async () => {
     registerAppProtocol()
   }
   registerMediaProtocol()
+  initTaskLifecycleTelemetry()
   const recoveryReport = await recoverStartupRuntime()
   console.info('[startup-recovery]', JSON.stringify(recoveryReport))
   initRepoIpc()

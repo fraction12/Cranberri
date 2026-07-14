@@ -65,6 +65,7 @@ function SessionRow({
   pinned,
   location,
   lifecycleState,
+  busy,
   repoPath,
 }: {
   session: CodexSessionSummary
@@ -73,6 +74,7 @@ function SessionRow({
   pinned?: boolean
   location?: 'local' | 'worktree'
   lifecycleState?: Task['state']
+  busy?: boolean
   repoPath: string
   onArchive: (session: CodexSessionSummary) => void
   onUnarchive: (session: CodexSessionSummary) => void
@@ -85,10 +87,12 @@ function SessionRow({
     <div
       data-session-id={session.id}
       data-session-location={location}
+      aria-busy={busy || undefined}
       className={cn('group/session flex w-full items-center rounded-md', active ? 'bg-app-surface-2' : 'hover:bg-app-surface-2/60')}
     >
       <button
         type="button"
+        disabled={busy}
         onClick={() => openSession(session, repoPath, archived)}
         className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
         title={sessionTitle(session)}
@@ -96,7 +100,7 @@ function SessionRow({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            {location === 'local' ? <span title="Local session"><Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Local</span></span> : location === 'worktree' ? <span title="Worktree session"><TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Worktree</span></span> : null}
+            {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin text-app-text-muted" aria-label="Session update in progress" /> : location === 'local' ? <span title="Local session"><Laptop className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Local</span></span> : location === 'worktree' ? <span title="Worktree session"><TreePine className="h-3 w-3 shrink-0 text-app-text-muted" /><span className="sr-only">Worktree</span></span> : null}
             {(lifecycleState === 'cleanupBlocked' || lifecycleState === 'needsAttention') && <AlertCircle className="h-3 w-3 shrink-0 text-app-warning" aria-label="Cleanup needs attention" />}
             {pinned && <Pin className="h-3 w-3 shrink-0 text-app-accent" />}
             <span className={cn('truncate', typeStyle({ role: 'control', tone: active ? 'primary' : 'secondary' }))}>{sessionTitle(session)}</span>
@@ -112,6 +116,7 @@ function SessionRow({
             onPointerDown={(event) => onOptionsTrigger(event.currentTarget)}
             className="mr-1 opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100"
             label={`Options for ${sessionTitle(session)}`}
+            disabled={busy}
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </IconButton>
@@ -161,6 +166,8 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   const [deleteTarget, setDeleteTarget] = useState<CodexSessionSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const lifecycleInFlightRef = useRef(new Set<string>())
+  const [pendingLifecycleSessionIds, setPendingLifecycleSessionIds] = useState<Set<string>>(() => new Set())
   const dialogReturnFocusRef = useRef<HTMLButtonElement | null>(null)
   const pinnedRecords = useMemo(() => pinnedSessionRecords(appState, projectId), [appState, projectId])
   const pinnedIds = useMemo(() => pinnedRecords.map((record) => record.id), [pinnedRecords])
@@ -202,6 +209,22 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
     const snapshot = await window.cranberri.tasks.snapshot()
     return snapshot.tasks.find((candidate) => candidate.threadId === threadId) ?? null
   }, [tasksApi])
+
+  const beginLifecycleAction = useCallback((threadId: string): boolean => {
+    if (lifecycleInFlightRef.current.has(threadId)) return false
+    lifecycleInFlightRef.current.add(threadId)
+    setPendingLifecycleSessionIds((current) => new Set(current).add(threadId))
+    return true
+  }, [])
+
+  const finishLifecycleAction = useCallback((threadId: string): void => {
+    lifecycleInFlightRef.current.delete(threadId)
+    setPendingLifecycleSessionIds((current) => {
+      const next = new Set(current)
+      next.delete(threadId)
+      return next
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -250,6 +273,14 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
     }
   }, [pinnedRecords, projectId, removePinnedIds, repoPath])
 
+  const refreshLifecycleAuthority = useCallback(async (): Promise<boolean> => {
+    const results = await Promise.allSettled([
+      tasksApi?.refresh() ?? Promise.resolve(),
+      refresh(),
+    ])
+    return results.every((result) => result.status === 'fulfilled')
+  }, [refresh, tasksApi])
+
   useEffect(() => {
     if (!shouldAutoLoadRepoSessions({ loaded, loading, loadError })) return
     const timer = window.setTimeout(() => {
@@ -268,45 +299,45 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   }, [loaded, projectId, refresh, repoPath])
 
   const archive = async (session: CodexSessionSummary) => {
+    if (!beginLifecycleAction(session.id)) return
     try {
-      setRecent((prev) => prev.filter((item) => item.id !== session.id))
-      setArchived((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
       const warning = await archiveSession(session.id, repoPath)
       closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
-      await tasksApi?.refresh()
+      const refreshed = await refreshLifecycleAuthority()
       if (warning) toast.warning(warning)
       else toast.success('Session archived')
+      if (!refreshed) toast.error('Session archived, but the list could not be refreshed')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to archive session')
-      await refresh().catch(() => undefined)
-      return
+      await refreshLifecycleAuthority()
+    } finally {
+      finishLifecycleAction(session.id)
     }
-    await refresh().catch(() => toast.error('Session archived, but the list could not be refreshed'))
   }
 
   const unarchive = async (session: CodexSessionSummary) => {
+    if (!beginLifecycleAction(session.id)) return
     try {
-      setArchived((prev) => prev.filter((item) => item.id !== session.id))
-      setRecent((prev) => [session, ...prev.filter((item) => item.id !== session.id)])
       const task = await taskForSession(session.id)
       let warning: string | null = null
       if (task) {
         const result = await window.cranberri.tasks.unarchive(task.id)
-        await tasksApi?.refresh()
         invalidateSessions({ projectId, repoPath, threadId: session.id })
         warning = result.warning?.message ?? null
       } else {
         warning = await unarchiveSession(session.id, repoPath)
       }
+      const refreshed = await refreshLifecycleAuthority()
       if (warning) toast.warning(warning)
       else toast.success('Session restored')
+      if (!refreshed) toast.error('Session restored, but the list could not be refreshed')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to restore session')
-      await refresh().catch(() => undefined)
-      return
+      await refreshLifecycleAuthority()
+    } finally {
+      finishLifecycleAction(session.id)
     }
-    await refresh().catch(() => toast.error('Session restored, but the list could not be refreshed'))
   }
 
   const remove = (session: CodexSessionSummary) => {
@@ -315,27 +346,26 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
   }
 
   const confirmRemove = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget || !beginLifecycleAction(deleteTarget.id)) return
     setDeleting(true)
     setDeleteError(null)
     const session = deleteTarget
-    setRecent((prev) => prev.filter((item) => item.id !== session.id))
-    setArchived((prev) => prev.filter((item) => item.id !== session.id))
     try {
       const task = await taskForSession(session.id)
       await deleteSession(session.id, repoPath)
       closeSessionWindows(projectId, { threadId: session.id, taskId: task?.id })
       removePinnedIds([session.id])
       setDeleteTarget(null)
+      const refreshed = await refreshLifecycleAuthority()
       toast.success('Session deleted')
+      if (!refreshed) toast.error('Session deleted, but the list could not be refreshed')
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : 'Failed to delete session')
-      await refresh().catch(() => undefined)
-      return
+      await refreshLifecycleAuthority()
     } finally {
       setDeleting(false)
+      finishLifecycleAction(session.id)
     }
-    await refresh().catch(() => toast.error('Session deleted, but the list could not be refreshed'))
   }
 
   const rename = (session: CodexSessionSummary) => {
@@ -402,13 +432,13 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Pinned</div>
         )}
         {pinnedSessions.map((session) => (
-          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={`pinned-${session.id}`} session={session} repoPath={repoPath} archived={session.archived} pinned location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} busy={pendingLifecycleSessionIds.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {pinnedSessions.length > 0 && recentSessions.length > 0 && (
           <div className={cn('px-2 pt-1', typeStyle({ role: 'label', tone: 'secondary' }))}>Recent</div>
         )}
         {recentSessions.map((session) => (
-          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+          <SessionRow key={session.id} session={session} repoPath={repoPath} pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} busy={pendingLifecycleSessionIds.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
         ))}
         {archivedSessions.length > 0 && (
           <>
@@ -420,7 +450,7 @@ function RepoSessions({ projectId, repoPath, isActiveRepo, closeSessionWindows }
               {showArchived ? 'Hide' : 'Show'} archived ({archivedSessions.length})
             </button>
             {showArchived && archivedSessions.map((session) => (
-              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
+              <SessionRow key={session.id} session={session} repoPath={repoPath} archived pinned={pinnedIdSet.has(session.id)} location={locationForSession(session)} lifecycleState={lifecycleForSession(session)} busy={pendingLifecycleSessionIds.has(session.id)} active={isActiveRepo && openThreadIds.includes(session.id)} onArchive={archive} onUnarchive={unarchive} onDelete={remove} onRename={rename} onOptionsTrigger={rememberSessionOptionsTrigger} onTogglePinned={togglePinned} />
             ))}
           </>
         )}

@@ -1045,6 +1045,13 @@ async function runSessionWorkspaceSmoke() {
         throw new Error('Continue in worktree did not carry the dirty Local checkout')
       }
       fs.writeFileSync(path.join(promotedStatus.worktree.path, 'worktree-right-rail-proof.txt'), 'active worktree\n')
+      fs.writeFileSync(path.join(promotedStatus.worktree.path, '.gitignore'), 'node_modules/\nout/\n')
+      fs.mkdirSync(path.join(promotedStatus.worktree.path, 'node_modules', 'acorn', 'bin'), { recursive: true })
+      fs.mkdirSync(path.join(promotedStatus.worktree.path, 'node_modules', '.bin'), { recursive: true })
+      fs.writeFileSync(path.join(promotedStatus.worktree.path, 'node_modules', 'acorn', 'bin', 'acorn'), '#!/usr/bin/env node\n')
+      fs.symlinkSync('../acorn/bin/acorn', path.join(promotedStatus.worktree.path, 'node_modules', '.bin', 'acorn'))
+      fs.mkdirSync(path.join(promotedStatus.worktree.path, 'out'), { recursive: true })
+      fs.writeFileSync(path.join(promotedStatus.worktree.path, 'out', 'bundle.js'), 'ignored build output\n')
       await page.getByText('worktree-right-rail-proof.txt', { exact: true }).waitFor({ timeout: 10_000 })
       await page.waitForTimeout(250)
       if (await page.getByText(/Repo is not registered/).count()) {
@@ -1081,6 +1088,27 @@ async function runSessionWorkspaceSmoke() {
       }
       if (fs.existsSync(promotedStatus.worktree.path)) {
         throw new Error('Archived managed worktree remained on disk')
+      }
+      await waitForPageCondition(page, async (taskId) => {
+        const { events } = await window.cranberri.telemetry.readEvents(300)
+        const lifecycleEvents = events.filter((event) => event.source === 'main'
+          && event.type.startsWith('task:lifecycle:')
+          && event.payload && typeof event.payload === 'object'
+          && event.payload.taskId === taskId)
+        return lifecycleEvents.some((event) => event.type === 'task:lifecycle:receipt'
+            && event.payload.subphase === 'ignoredEntryQuarantined')
+          && lifecycleEvents.some((event) => event.type === 'task:lifecycle:completed'
+            && event.payload.kind === 'archive')
+      }, identity.taskId, { timeout: 10_000 })
+      const lifecycleTelemetry = await page.evaluate(async (taskId) => {
+        const { events } = await window.cranberri.telemetry.readEvents(300)
+        return events.filter((event) => event.source === 'main'
+          && event.type.startsWith('task:lifecycle:')
+          && event.payload && typeof event.payload === 'object'
+          && event.payload.taskId === taskId)
+      }, identity.taskId)
+      if (JSON.stringify(lifecycleTelemetry).includes(promotedStatus.worktree.path)) {
+        throw new Error('Task lifecycle telemetry leaked the managed worktree path')
       }
       await waitForPageCondition(page, async (threadId) => {
         const state = await window.cranberri.appState.read()

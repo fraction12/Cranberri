@@ -553,11 +553,17 @@ export class WorktreeLifecycle {
 
     let sourceMutated = false
     try {
-      const currentPaths = await this.untrackedAndIgnoredPaths(owned.checkoutPath)
+      const currentUntrackedPaths = await this.untrackedPaths(owned.checkoutPath)
       const receiptPaths = operation.receipts
         .filter((receipt) => receipt.subphase === 'sourceEntryMovePlanned')
         .flatMap((receipt) => receipt.details?.relativePath ? [receipt.details.relativePath] : [])
-      const relativePaths = [...new Set([...currentPaths, ...receiptPaths])].sort()
+      const relativePaths = [...new Set([...currentUntrackedPaths, ...receiptPaths])].sort()
+      const currentIgnoredRoots = await this.ignoredRoots(owned.checkoutPath)
+      const ignoredReceiptPaths = operation.receipts
+        .filter((receipt) => receipt.subphase === 'ignoredEntryMovePlanned')
+        .flatMap((receipt) => receipt.details?.relativePath ? [receipt.details.relativePath] : [])
+      const ignoredRoots = [...new Set([...currentIgnoredRoots, ...ignoredReceiptPaths])]
+        .sort((left, right) => left.split('/').length - right.split('/').length || left.localeCompare(right))
       const capturedFiles = new Map(snapshot.changes.untrackedFiles.map((file) => [file.relativePath, file]))
       fs.mkdirSync(quarantinePath, { recursive: true, mode: 0o700 })
       fs.chmodSync(quarantinePath, 0o700)
@@ -602,7 +608,44 @@ export class WorktreeLifecycle {
         })
       }
 
-      if ((await this.untrackedAndIgnoredPaths(owned.checkoutPath)).length !== 0) {
+      for (const relativePath of ignoredRoots) {
+        const sourcePath = this.containedPath(owned.checkoutPath, relativePath)
+        const destinationPath = this.containedPath(quarantinePath, relativePath)
+        const sourceExists = this.pathEntryExists(sourcePath)
+        const destinationExists = this.pathEntryExists(destinationPath)
+        if (!sourceExists && !destinationExists) throw new Error(`Ignored archive source entry disappeared: ${relativePath}`)
+        if (sourceExists && destinationExists) throw new Error(`Archive quarantine destination already exists: ${relativePath}`)
+        const inspectedPath = sourceExists ? sourcePath : destinationPath
+        if (sourceExists) this.assertNoSymlinkAncestors(owned.checkoutPath, relativePath)
+        const before = this.readOpaqueIgnoredRoot(inspectedPath, relativePath)
+        const receiptKey = digest(relativePath).slice(0, 24)
+        await this.appendReceipt(operation, 'sourceNormalization', 'ignoredEntryMovePlanned', receiptKey, {
+          sourcePath,
+          destinationPath,
+          quarantinePath,
+          relativePath,
+        })
+        if (sourceExists) {
+          fs.mkdirSync(path.dirname(destinationPath), { recursive: true, mode: 0o700 })
+          fs.renameSync(sourcePath, destinationPath)
+          flushDirectory(path.dirname(sourcePath))
+          flushDirectory(path.dirname(destinationPath))
+          sourceMutated = true
+        }
+        const after = this.readOpaqueIgnoredRoot(destinationPath, relativePath)
+        if (before.dev !== after.dev || before.ino !== after.ino || before.kind !== after.kind) {
+          throw new Error(`Ignored archive entry changed during move: ${relativePath}`)
+        }
+        await this.appendReceipt(operation, 'sourceNormalization', 'ignoredEntryQuarantined', receiptKey, {
+          sourcePath,
+          destinationPath,
+          quarantinePath,
+          relativePath,
+        })
+      }
+
+      if ((await this.untrackedPaths(owned.checkoutPath)).length !== 0
+        || (await this.ignoredRoots(owned.checkoutPath)).length !== 0) {
         throw new Error('Worktree files changed during archive normalization')
       }
       const [stagedPatch, unstagedPatch] = await Promise.all([
@@ -1090,13 +1133,53 @@ export class WorktreeLifecycle {
     }
   }
 
-  private async untrackedAndIgnoredPaths(checkoutPath: string): Promise<string[]> {
-    const [untracked, ignored] = await Promise.all([
-      runGitBuffer(checkoutPath, ['ls-files', '-z', '--others', '--exclude-standard']),
-      runGitBuffer(checkoutPath, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard']),
+  private async untrackedPaths(checkoutPath: string): Promise<string[]> {
+    const output = await runGitBuffer(checkoutPath, ['ls-files', '-z', '--others', '--exclude-standard'])
+    return output.toString('utf8').split('\0').filter(Boolean).sort()
+  }
+
+  private async ignoredRoots(checkoutPath: string): Promise<string[]> {
+    const output = await runGitBuffer(checkoutPath, [
+      'status', '--porcelain=v2', '-z', '--ignored=matching', '--untracked-files=normal',
     ])
-    const parse = (output: Buffer): string[] => output.toString('utf8').split('\0').filter(Boolean)
-    return [...new Set([...parse(untracked), ...parse(ignored)])].sort()
+    return output.toString('utf8').split('\0')
+      .filter((record) => record.startsWith('! '))
+      .map((record) => record.slice(2).replace(/\/$/, ''))
+      .filter(Boolean)
+      .sort()
+  }
+
+  private pathEntryExists(entryPath: string): boolean {
+    try {
+      fs.lstatSync(entryPath)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+
+  private assertNoSymlinkAncestors(rootPath: string, relativePath: string): void {
+    const segments = relativePath.split('/').slice(0, -1)
+    let current = path.resolve(rootPath)
+    for (const segment of segments) {
+      current = path.join(current, segment)
+      const stat = fs.lstatSync(current)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error(`Ignored archive path has an unsafe ancestor: ${relativePath}`)
+      }
+    }
+  }
+
+  private readOpaqueIgnoredRoot(
+    entryPath: string,
+    relativePath: string,
+  ): { dev: number; ino: number; kind: 'file' | 'directory' } {
+    const stat = fs.lstatSync(entryPath)
+    if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) {
+      throw new Error(`Cannot quarantine unsafe ignored root: ${relativePath}`)
+    }
+    return { dev: stat.dev, ino: stat.ino, kind: stat.isDirectory() ? 'directory' : 'file' }
   }
 
   private async reconstructSource(
@@ -1125,6 +1208,28 @@ export class WorktreeLifecycle {
         fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
         fs.renameSync(quarantinedPath, sourcePath)
       }
+    }
+    const ignoredRoots = currentOperation.receipts
+      .filter((receipt) => receipt.subphase === 'ignoredEntryMovePlanned')
+      .flatMap((receipt) => receipt.details?.relativePath ? [receipt.details.relativePath] : [])
+      .filter((relativePath, index, paths) => paths.indexOf(relativePath) === index)
+      .sort((left, right) => left.split('/').length - right.split('/').length || left.localeCompare(right))
+    for (const relativePath of ignoredRoots) {
+      const sourcePath = this.containedPath(checkoutPath, relativePath)
+      const quarantinedPath = this.containedPath(quarantinePath, relativePath)
+      const sourceExists = this.pathEntryExists(sourcePath)
+      const quarantinedExists = this.pathEntryExists(quarantinedPath)
+      if (sourceExists && quarantinedExists) {
+        throw new Error(`Cannot reconstruct duplicate ignored archive entry: ${relativePath}`)
+      }
+      if (!quarantinedExists) continue
+      this.readOpaqueIgnoredRoot(quarantinedPath, relativePath)
+      this.assertNoSymlinkAncestors(checkoutPath, relativePath)
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
+      fs.renameSync(quarantinedPath, sourcePath)
+      flushDirectory(path.dirname(quarantinedPath))
+      flushDirectory(path.dirname(sourcePath))
+      this.readOpaqueIgnoredRoot(sourcePath, relativePath)
     }
     await applyLocalChanges(checkoutPath, { ...snapshot.changes, untrackedFiles: [] })
     await this.assertSourceMatchesSnapshot(checkoutPath, snapshot)
